@@ -1,4 +1,4 @@
-import { createRef, html, RefObject, Template } from "./render/render";
+import { buildHTML, createRef, html, RefObject, Template } from "./render/render";
 
 //decorators
 export * from "./decorator/Decorator";
@@ -25,7 +25,7 @@ export * from "./directives/Styles";
 export * from "./directives/Sync";
 export * from "./directives/When";
 
-export { createRef, html, RefObject, Template };
+export { buildHTML, createRef, html, RefObject, Template };
 
 export * from './CompElem';
 export * from './types';
