@@ -40,7 +40,7 @@ import {
   trim
 } from "myfx";
 import { DecoratorsKey, DecoratorWrapper } from "./decorator";
-import { PropOption } from "./decorators/prop";
+import { _getObservedAttrs, PropOption } from "./decorators/prop";
 import { StateOption } from "./decorators/state";
 import { Directive } from "./directive/Directive";
 import { IComponent } from "./IComponent";
@@ -126,7 +126,6 @@ export abstract class CompElem extends RenderContext(HTMLElement) implements ICo
   #slotHooks: Record<string, (...args: any[]) => Template> = {};
   #slotNodes: Record<string, Node[]> = {};
   #mounted: boolean = false
-  #observedAttrs: Set<string> = new Set()
   #instanceCss = new CSSStyleSheet()
 
   /**
@@ -197,19 +196,6 @@ export abstract class CompElem extends RenderContext(HTMLElement) implements ICo
       });
       set(this.constructor, '_component_style_attached', styleSheets)
     }
-
-    //observAttrs
-    let propDefs: Record<string, PropOption> = get(
-      this.constructor,
-      "__deco_props"
-    );
-    each<PropOption, string>(propDefs, (def, key) => {
-      let propDef = propDefs[key];
-      if (propDef.attribute) {
-        let kbb = kebabCase(key)
-        this.#observedAttrs.add(kbb)
-      }
-    })
 
     /////////////////////////////////////////////////// shadow
     this.#shadow = this.attachShadow({
@@ -381,7 +367,7 @@ export abstract class CompElem extends RenderContext(HTMLElement) implements ICo
 
     //instance dynamic style
     Collector.startCss(this)
-    Collector.setCssUpdater(()=>{
+    Collector.setCssUpdater(() => {
       let css = this.css;
       this.#instanceCss.replace(css)
     })
@@ -960,7 +946,7 @@ export abstract class CompElem extends RenderContext(HTMLElement) implements ICo
     //todo 如果要做成通用异步指令，元素必须插入到指令挂载的位置，并且slot的插入节点还要去掉注释
     let [nodes, expPos, expPosMap] = rc?.renderContext(hook(get(slotMap, 'props')))!
     let nnodes = reject(toArray<Node>(nodes), n => n.nodeType === Node.COMMENT_NODE);
-    
+
     if (nnodes) {
       let slottedNodes = this.#slotNodes[name]
       if (!isEmpty(slottedNodes)) {
@@ -1025,7 +1011,8 @@ export abstract class CompElem extends RenderContext(HTMLElement) implements ICo
 
   #attrChanged(name: string, oldValue: string | null, newValue: string | null) {
     if (!this.isMounted) return;
-    if (this.#observedAttrs.has(name)) {
+    let observedAttrs = _getObservedAttrs(this.constructor)
+    if (observedAttrs.has(name)) {
       if (isNull(newValue)) {
         let propDefs: Record<string, PropOption> = get(
           this.constructor,

@@ -11,7 +11,7 @@ export type StateOption = {
    * @param oldValue 
    * @returns 
    */
-  hasChanged?:(newValue:any,oldValue:any)=>boolean
+  hasChanged?: (newValue: any, oldValue: any) => boolean
 };
 
 /**
@@ -39,4 +39,14 @@ function defineState(target: any, stateKey: string, options?: StateOption) {
     target.constructor.__deco_states = isEmpty(target.constructor.__deco_states) ? {} : cloneDeep(target.constructor.__deco_states)
   }
   target.constructor.__deco_states[stateKey] = options;
+}
+
+/**
+ * 同@state装饰器，但可用于构造器中调用
+ * @param ctor 类构造函数
+ * @param stateKey state 名称
+ * @param options 
+ */
+export function makeState(ctor: Function, stateKey: string, options?: StateOption) {
+  defineState(ctor.prototype, stateKey, options || { prop: "" });
 }

@@ -1,4 +1,4 @@
-import { cloneDeep, has, isEmpty } from "myfx"
+import { cloneDeep, has, isEmpty, kebabCase } from "myfx"
 import { showError } from "../utils"
 
 /**
@@ -52,6 +52,8 @@ export type PropOption = {
    */
   isValid?: (value: any, props?: Record<string, any>) => boolean
 }
+//每个类需要监控的属性
+const ObservedAttrsMap: WeakMap<Function, Set<string>> = new WeakMap
 
 /**
  * 声明一个由外部传入的单向更新属性
@@ -76,6 +78,7 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
   if (!/[a-z]/.test(propertyKey[0])) {
     showError(`Prop '${propertyKey}' must be in CamelCase`)
   }
+
   if (!has(target.constructor, '__deco_props')) {
     target.constructor.__deco_props = isEmpty(target.constructor.__deco_props) ? {} : cloneDeep(target.constructor.__deco_props)
   }
@@ -83,5 +86,35 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
     if (descriptor.get) options.getter = descriptor.get
     if (descriptor.set) options.setter = descriptor.set
   }
+  if (options.attribute) {
+    let attrSet = ObservedAttrsMap.get(target.constructor)
+    if (!attrSet) {
+      attrSet = new Set()
+      ObservedAttrsMap.set(target.constructor, attrSet)
+    }
+    let kbb = kebabCase(propertyKey)
+    attrSet?.add(kbb)
+  }
+
   target.constructor.__deco_props[propertyKey] = options
+}
+
+/**
+ * 同@prop装饰器，但可用于构造器中调用
+ * @param ctor 类构造函数
+ * @param propertyKey prop名称
+ * @param options 
+ */
+export function makeProp(ctor: Function, propertyKey: string, options?: PropOption) {
+  if (options) {
+    options.required = options.required || false
+    options.attribute = options.attribute === false ? false : true;
+  }
+  defineProp(ctor.prototype, propertyKey, options || { type: undefined, required: false, attribute: true });
+}
+
+//内部接口
+const emptySet = new Set<string>
+export function _getObservedAttrs(ctor: Function) {
+  return ObservedAttrsMap.get(ctor) ?? emptySet
 }

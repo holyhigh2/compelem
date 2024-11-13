@@ -170,6 +170,22 @@ export class PageTest extends CompElem {
   属性可以在组件内修改但默认不会同步父组件，除非显式指定`sync`或自行 emit update 事件
   全部注解参数见 `PropOption`
 
+  > 在某些无法使用装饰器的场景中（如MixinClass），可以使用函数`makeProp(...)`定义prop
+  ```ts
+  export function Loadable<T extends Constructor<any>>(spuerClass: T) {
+    return class Loadable extends spuerClass {
+        //declare a prop
+        name: string
+
+        constructor(...args: any[]) {
+            super()
+            //make the prop reactive
+            makeProp(this.constructor, 'name', { type: string })
+        }
+    }
+  }
+  ```
+
 - ### 状态
   状态是仅由组件内部初始化的响应变量，可通过`@state`注解定义
   ```ts
