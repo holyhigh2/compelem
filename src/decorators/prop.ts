@@ -1,5 +1,6 @@
-import { cloneDeep, has, isEmpty, kebabCase } from "myfx"
-import { showError } from "../utils"
+import { cloneDeep, each, has, kebabCase, merge } from "myfx"
+import { CompElem } from "../CompElem"
+import { _getSuper, showError } from "../utils"
 
 /**
  * 属性定义
@@ -79,19 +80,29 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
     showError(`Prop '${propertyKey}' must be in CamelCase`)
   }
 
+
+  let attrSet: Set<string> | undefined
   if (!has(target.constructor, '__deco_props')) {
-    target.constructor.__deco_props = isEmpty(target.constructor.__deco_props) ? {} : cloneDeep(target.constructor.__deco_props)
+    const mixinProps: Record<string, PropOption> = {}
+    let parentCtor = target.constructor
+    while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
+      merge(mixinProps, parentCtor.__deco_props ? cloneDeep(parentCtor.__deco_props) : {})
+    }
+    target.constructor.__deco_props = mixinProps
+    attrSet = new Set<string>()
+    each(mixinProps, (v, k) => {
+      if (v.attribute) {
+        let kbb = kebabCase(k)
+        attrSet?.add(kbb)
+      }
+    })
+    ObservedAttrsMap.set(target.constructor, attrSet)
   }
   if (descriptor) {
     if (descriptor.get) options.getter = descriptor.get
     if (descriptor.set) options.setter = descriptor.set
   }
   if (options.attribute) {
-    let attrSet = ObservedAttrsMap.get(target.constructor)
-    if (!attrSet) {
-      attrSet = new Set()
-      ObservedAttrsMap.set(target.constructor, attrSet)
-    }
     let kbb = kebabCase(propertyKey)
     attrSet?.add(kbb)
   }

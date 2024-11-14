@@ -1,4 +1,6 @@
-import { cloneDeep, has, isEmpty } from "myfx";
+import { cloneDeep, has, merge } from "myfx";
+import { CompElem } from "../CompElem";
+import { _getSuper } from "../utils";
 
 export type StateOption = {
   /**
@@ -36,7 +38,12 @@ export function state(options: StateOption) {
 
 function defineState(target: any, stateKey: string, options?: StateOption) {
   if (!has(target.constructor, "__deco_states")) {
-    target.constructor.__deco_states = isEmpty(target.constructor.__deco_states) ? {} : cloneDeep(target.constructor.__deco_states)
+    const mixinStates = {}
+    let parentCtor = target.constructor
+    while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
+      merge(mixinStates, parentCtor.__deco_states ? cloneDeep(parentCtor.__deco_states) : {})
+    }
+    target.constructor.__deco_states = mixinStates
   }
   target.constructor.__deco_states[stateKey] = options;
 }

@@ -4,12 +4,12 @@
  */
 
 import { clone, concat, get, includes, initial, isArray, isElement, isEqual, isFunction, isObject, last, startsWith } from "myfx";
+import { CompElem } from "./CompElem";
 import { PropOption } from "./decorators/prop";
 import { StateOption } from "./decorators/state";
-import { CompElem } from "./CompElem";
 import { IRenderContext } from "./render/RenderContext";
 import { Getter } from "./types";
-import { showWarn, toUpdatePath } from "./utils";
+import { _toUpdatePath, showWarn } from "./utils";
 
 const EVENT_UPDATE = 'update'
 
@@ -115,7 +115,7 @@ export function reactive(obj: Record<string, any>, context: any) {
         let subChain = concat(chain, [prop])
         let subChainStr = subChain.join('-')
         if (Collector.__renderCollecting) {
-          Collector.collect(toUpdatePath(subChain))
+          Collector.collect(_toUpdatePath(subChain))
           Collector.setDirectiveQ(subChain)
         } else if (Collector.__computeCollecting) {
           let watchVarMap = COMPUTED_MAP.get(Collector.__computeCollecting)

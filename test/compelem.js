@@ -1,4 +1,4 @@
-/* compelem 0.1.0-beta @holyhigh2 https://github.com/holyhigh2/compelem */
+/* compelem 0.2.0-beta @holyhigh2 https://github.com/holyhigh2/compelem */
 (function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
@@ -6829,8 +6829,12 @@
         console.warn(`[CompElem]`, ...args);
     }
     //为依赖收集提供标准地址
-    function toUpdatePath(varPath) {
+    function _toUpdatePath(varPath) {
         return toPath(varPath).join("-");
+    }
+    //为依赖收集提供标准地址
+    function _getSuper(cls) {
+        return Object.getPrototypeOf(cls);
     }
 
     //装饰器类型
@@ -6940,6 +6944,54 @@
         };
     }
 
+    //每个类需要监控的属性
+    const ObservedAttrsMap = new WeakMap;
+    function prop(options) {
+        if (arguments.length === 1) {
+            return (target, propertyKey, descriptor) => {
+                options.required = options.required || false;
+                options.attribute = options.attribute === false ? false : true;
+                defineProp(target, propertyKey, options, descriptor);
+            };
+        }
+        let target = arguments[0], propertyKey = arguments[1], descriptor = arguments[2];
+        defineProp(target, propertyKey, { type: undefined, required: false, attribute: true }, descriptor);
+    }
+    function defineProp(target, propertyKey, options, descriptor) {
+        if (!/[a-z]/.test(propertyKey[0])) {
+            showError(`Prop '${propertyKey}' must be in CamelCase`);
+        }
+        if (!has(target.constructor, '__deco_props')) {
+            const mixinProps = {};
+            let parentCtor = target.constructor;
+            while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
+                merge(mixinProps, parentCtor.__deco_props ? cloneDeep(parentCtor.__deco_props) : {});
+            }
+            target.constructor.__deco_props = mixinProps;
+        }
+        if (descriptor) {
+            if (descriptor.get)
+                options.getter = descriptor.get;
+            if (descriptor.set)
+                options.setter = descriptor.set;
+        }
+        if (options.attribute) {
+            let attrSet = ObservedAttrsMap.get(target.constructor);
+            if (!attrSet) {
+                attrSet = new Set();
+                ObservedAttrsMap.set(target.constructor, attrSet);
+            }
+            let kbb = kebabCase(propertyKey);
+            attrSet?.add(kbb);
+        }
+        target.constructor.__deco_props[propertyKey] = options;
+    }
+    //内部接口
+    const emptySet = new Set;
+    function _getObservedAttrs(ctor) {
+        return ObservedAttrsMap.get(ctor) ?? emptySet;
+    }
+
     /**
      * 用于提供全局state状态管理
      * @author holyhigh2
@@ -7036,7 +7088,7 @@
                     let subChain = concat(chain, [prop]);
                     let subChainStr = subChain.join('-');
                     if (Collector.__renderCollecting) {
-                        Collector.collect(toUpdatePath(subChain));
+                        Collector.collect(_toUpdatePath(subChain));
                         Collector.setDirectiveQ(subChain);
                     }
                     else if (Collector.__computeCollecting) {
@@ -7633,7 +7685,6 @@
         #slotHooks = {};
         #slotNodes = {};
         #mounted = false;
-        #observedAttrs = new Set();
         #instanceCss = new CSSStyleSheet();
         /**
          * 是否自动插入插槽，如果需要控制插槽类型时，可以设置为false
@@ -7701,15 +7752,6 @@
                 });
                 set(this.constructor, '_component_style_attached', styleSheets);
             }
-            //observAttrs
-            let propDefs = get(this.constructor, "__deco_props");
-            each(propDefs, (def, key) => {
-                let propDef = propDefs[key];
-                if (propDef.attribute) {
-                    let kbb = kebabCase(key);
-                    this.#observedAttrs.add(kbb);
-                }
-            });
             /////////////////////////////////////////////////// shadow
             this.#shadow = this.attachShadow({
                 mode: "open",
@@ -7884,6 +7926,12 @@
          */
         propsReady() { }
         /**
+         * 每次更新时调用
+         */
+        render() {
+            throw Error(`[CompElem <${this.tagName}>] Missing render()`);
+        }
+        /**
          * dom渲染完毕后调用，该回调内可以query注解初始化完成
          */
         mounted() { }
@@ -8006,7 +8054,7 @@
             each(chain, (seg) => {
                 varPath.push(seg);
                 let v = get(this, varPath);
-                let pathStr = toUpdatePath(varPath);
+                let pathStr = _toUpdatePath(varPath);
                 if (pathStr === "#slots") {
                     pathStr = 'slots';
                 }
@@ -8431,7 +8479,8 @@
         #attrChanged(name, oldValue, newValue) {
             if (!this.isMounted)
                 return;
-            if (this.#observedAttrs.has(name)) {
+            let observedAttrs = _getObservedAttrs(this.constructor);
+            if (observedAttrs.has(name)) {
                 if (isNull(newValue)) {
                     let propDefs = get(this.constructor, "__deco_props");
                     //使用默认值
@@ -9154,33 +9203,6 @@
         target.constructor.__deco_computed[propertyKey] = { key: propertyKey, getter: descriptor.get };
     }
 
-    function prop(options) {
-        if (arguments.length === 1) {
-            return (target, propertyKey, descriptor) => {
-                options.required = options.required || false;
-                options.attribute = options.attribute === false ? false : true;
-                defineProp(target, propertyKey, options, descriptor);
-            };
-        }
-        let target = arguments[0], propertyKey = arguments[1], descriptor = arguments[2];
-        defineProp(target, propertyKey, { type: undefined, required: false, attribute: true }, descriptor);
-    }
-    function defineProp(target, propertyKey, options, descriptor) {
-        if (!/[a-z]/.test(propertyKey[0])) {
-            showError(`Prop '${propertyKey}' must be in CamelCase`);
-        }
-        if (!has(target.constructor, '__deco_props')) {
-            target.constructor.__deco_props = isEmpty(target.constructor.__deco_props) ? {} : cloneDeep(target.constructor.__deco_props);
-        }
-        if (descriptor) {
-            if (descriptor.get)
-                options.getter = descriptor.get;
-            if (descriptor.set)
-                options.setter = descriptor.set;
-        }
-        target.constructor.__deco_props[propertyKey] = options;
-    }
-
     /**
      * 缓存策略
      */
@@ -9247,7 +9269,12 @@
     }
     function defineState(target, stateKey, options) {
         if (!has(target.constructor, "__deco_states")) {
-            target.constructor.__deco_states = isEmpty(target.constructor.__deco_states) ? {} : cloneDeep(target.constructor.__deco_states);
+            const mixinStates = {};
+            let parentCtor = target.constructor;
+            while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
+                merge(mixinStates, parentCtor.__deco_states ? cloneDeep(parentCtor.__deco_states) : {});
+            }
+            target.constructor.__deco_states = mixinStates;
         }
         target.constructor.__deco_states[stateKey] = options;
     }

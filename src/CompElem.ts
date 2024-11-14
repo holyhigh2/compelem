@@ -48,7 +48,7 @@ import { Collector, reactive } from "./reactive";
 import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, html, Template } from "./render/render";
 import { IRenderContext, RenderContext } from "./render/RenderContext";
 import { SlotOptions, TmplFn } from "./types";
-import { showTagError, toUpdatePath } from "./utils";
+import { _toUpdatePath, showTagError } from "./utils";
 const ATTR_CSS_LINK = "css-link";
 const PropTypeMap: Record<string, Function> = {
   boolean: Boolean,
@@ -69,7 +69,7 @@ const PrivatePreffix = '#'
  *
  * @author holyhigh2
  */
-export abstract class CompElem extends RenderContext(HTMLElement) implements IComponent {
+export class CompElem extends RenderContext(HTMLElement) implements IComponent {
   static __l_globalRule = document.createElement("style");
   static {
     document.head.appendChild(CompElem.__l_globalRule);
@@ -404,7 +404,9 @@ export abstract class CompElem extends RenderContext(HTMLElement) implements ICo
   /**
    * 每次更新时调用
    */
-  abstract render(): Template;
+  render(): Template {
+    throw Error(`[CompElem <${this.tagName}>] Missing render()`)
+  }
   /**
    * dom渲染完毕后调用，该回调内可以query注解初始化完成
    */
@@ -540,7 +542,7 @@ export abstract class CompElem extends RenderContext(HTMLElement) implements ICo
     each(chain, (seg) => {
       varPath.push(seg);
       let v = get(this, varPath);
-      let pathStr = toUpdatePath(varPath);
+      let pathStr = _toUpdatePath(varPath);
       if (pathStr === "#slots") {
         pathStr = 'slots'
       }
