@@ -1,3 +1,5 @@
+import { isFunction } from "myfx";
+import { _DecoratorMap } from ".";
 import { CompElem } from "../CompElem";
 
 //装饰器类型
@@ -6,11 +8,28 @@ export enum DecoratorType {
   FIELD = 'field',
   METHOD = 'method'
 }
+
 /**
  * 用于构造装饰器
  * @author holyhigh2
  */
 export abstract class Decorator {
+  /**
+   * 通过函数方式进行装饰器调用
+   * @param target 所在类
+   * @param deco 装饰器函数
+   * @param fieldName 装饰器应用的字段名/函数名/函数
+   * @param args 不定参数
+   */
+  static call(target: any, deco: Function, fieldName: string | Function, ...args: any[]) {
+    let isDeco = _DecoratorMap.get(deco)
+    if (isDeco) {
+      let dw = deco(...args)(target, fieldName, isFunction(fieldName) ? { configurable: true } : null)
+      dw.create(target)
+    } else {
+      deco(target, fieldName, ...args)
+    }
+  }
   /**
    * 装饰器使用范围，超出范围会报错
    */

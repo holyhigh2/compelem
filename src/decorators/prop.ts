@@ -1,4 +1,4 @@
-import { cloneDeep, each, has, kebabCase, merge } from "myfx"
+import { cloneDeep, defaults, each, has, kebabCase, merge } from "myfx"
 import { CompElem } from "../CompElem"
 import { _getSuper, showError } from "../utils"
 
@@ -61,7 +61,7 @@ const ObservedAttrsMap: WeakMap<Function, Set<string>> = new WeakMap
  * @param options 可选参数 PropOption，如果type未定义则根据默认值自动推断类型
  */
 export function prop(options: PropOption): (target: any, propertyKey: any) => void;
-export function prop(target: any, propertyKey: any): void;
+export function prop(target: any, propertyKey: any, options?: PropOption): void;
 export function prop(options: any) {
   if (arguments.length === 1) {
     return (target: any, propertyKey: string, descriptor?: PropertyDescriptor) => {
@@ -72,14 +72,18 @@ export function prop(options: any) {
   }
 
   let target = arguments[0], propertyKey = arguments[1], descriptor = arguments[2]
-  defineProp(target, propertyKey, { type: undefined, required: false, attribute: true }, descriptor)
+  options = { type: undefined, required: false, attribute: true }
+  if (descriptor && typeof descriptor.type === 'function') {
+    options = defaults(descriptor, options)
+    descriptor = undefined
+  }
+  defineProp(target, propertyKey, options, descriptor)
 }
 
 function defineProp(target: any, propertyKey: string, options: PropOption, descriptor?: PropertyDescriptor) {
   if (!/[a-z]/.test(propertyKey[0])) {
     showError(`Prop '${propertyKey}' must be in CamelCase`)
   }
-
 
   let attrSet: Set<string> | undefined
   if (!has(target.constructor, '__deco_props')) {
@@ -103,25 +107,14 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
     if (descriptor.set) options.setter = descriptor.set
   }
   if (options.attribute) {
+    if (!attrSet) {
+      attrSet = ObservedAttrsMap.get(target.constructor)
+    }
     let kbb = kebabCase(propertyKey)
     attrSet?.add(kbb)
   }
 
   target.constructor.__deco_props[propertyKey] = options
-}
-
-/**
- * 同@prop装饰器，但可用于构造器中调用
- * @param ctor 类构造函数
- * @param propertyKey prop名称
- * @param options 
- */
-export function makeProp(ctor: Function, propertyKey: string, options?: PropOption) {
-  if (options) {
-    options.required = options.required || false
-    options.attribute = options.attribute === false ? false : true;
-  }
-  defineProp(ctor.prototype, propertyKey, options || { type: undefined, required: false, attribute: true });
 }
 
 //内部接口

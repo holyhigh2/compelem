@@ -1,6 +1,5 @@
 /* eslint-disable max-len */
 import json from '@rollup/plugin-json'
-import terser from '@rollup/plugin-terser'
 import banner2 from 'rollup-plugin-banner2'
 import clear from 'rollup-plugin-clear'
 import copy from 'rollup-plugin-copy'
@@ -24,11 +23,6 @@ export default [
           clean: true
         }),
       scss({ output: false }),
-      terser({
-        compress: {
-          drop_console: ['debug', 'info', 'log']
-        }
-      }),
       banner2(
         () => `/**
    * ${pkg.name} v${pkg.version}.${Math.floor(Date.now() / 1000)}

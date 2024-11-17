@@ -1,7 +1,7 @@
-import { each, get, isArray, once, startsWith } from "myfx";
-import { decorator } from "../decorator";
-import { DecoratorType, Decorator } from "../decorator/Decorator";
+import { each, get, isArray, isFunction, once, startsWith } from "myfx";
 import { CompElem } from "../CompElem";
+import { decorator } from "../decorator";
+import { Decorator, DecoratorType } from "../decorator/Decorator";
 
 /**
  * 监控定义
@@ -45,18 +45,22 @@ class WatchDecorator extends Decorator {
   sources: string[]
   options?: WatchOptions
   handler: WatchHandler
-  constructor(source: string | string[], options?: WatchOptions) {
+  constructor(source: string | string[], options?: WatchOptions, handler?: WatchHandler) {
     super();
     this.sources = isArray(source) ? source : [source]
     this.options = options
+    this.handler = handler!
   }
 
   static getKey(source: string | string[]): string {
     return isArray(source) ? source.sort().join('') : source
   }
 
-  mounted(component: CompElem, setReactive: (key: string, value: any) => any, classProto: CompElem, fnName: string, ...args: any[]) {
-    let handler = this.handler = component[fnName]
+  mounted(component: CompElem, setReactive: (key: string, value: any) => any, classProto: CompElem, fnName: string | Function, ...args: any[]) {
+    if (!this.handler) {
+      this.handler = isFunction(fnName) ? fnName : component[fnName]
+    }
+    let handler = this.handler
 
     let immediate = get<WatchOptions>(this.options, "immediate", false);
     let onceWatch = get<WatchOptions>(this.options, "once", false);

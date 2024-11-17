@@ -6,10 +6,11 @@ import { Constructor } from './../types';
  *************************************************************/
 import { CompElem } from "../CompElem";
 import { showError } from '../utils';
-import { DecoratorType, Decorator } from "./Decorator";
+import { Decorator, DecoratorType } from "./Decorator";
 
 export const GetKeyFnName = 'getKey'
-export const DecoratorsKey = '__decorators'
+export const _DecoratorsKey = '__decorators'
+export const _DecoratorMap = new WeakMap
 /**
  * 装饰器包装类
  * 用于框架内部，表示class上的一个装饰器属性定义
@@ -68,24 +69,26 @@ export class DecoratorWrapper {
   }
 }
 //每个装饰器类中不同组件类中的重复key
-const DecoKeyMap = new WeakMap<Constructor<Decorator>, WeakMap<Constructor<CompElem>, Record<string, boolean>>>()
+const DecoKeyMap = new WeakMap<Constructor<Decorator>, WeakMap<Constructor<CompElem>, Record<string, DecoratorWrapper>>>()
 /**
  * 该函数用于创建一个装饰器
  * @param decoClass 装饰器构造
  * @returns 装饰器函数
  */
 export function decorator<T extends Array<any>>(decoClass: Constructor<Decorator>) {
-  return (...args: T) => {
-    return (...metadata: any[]) => {
-      let constr = metadata[0].constructor
+  let fn = (...args: T) => {
+    return (...metadata: any[]): any => {
+      let ctor = metadata[0].constructor
 
-      let ary: DecoratorWrapper[] | undefined = get(constr, DecoratorsKey)
-      if (!has(constr, DecoratorsKey)) {
+      let ary: DecoratorWrapper[] | undefined = get(ctor, _DecoratorsKey)
+      if (!has(ctor, _DecoratorsKey)) {
         //继承父类
-        let parentAry = get(Object.getPrototypeOf(constr), DecoratorsKey)
+        let parentAry = get(Object.getPrototypeOf(ctor), _DecoratorsKey)
         ary = parentAry ? concat(parentAry) : []
-        set(constr, DecoratorsKey, ary)
+        set(ctor, _DecoratorsKey, ary)
       }
+      let kMap: Record<string, DecoratorWrapper> = {}
+      let k
       let getKey = get<Function>(decoClass, GetKeyFnName)
       if (getKey) {
         let compMap = DecoKeyMap.get(decoClass)
@@ -93,16 +96,20 @@ export function decorator<T extends Array<any>>(decoClass: Constructor<Decorator
           compMap = new WeakMap
           DecoKeyMap.set(decoClass, compMap)
         }
-        let kMap = compMap.get(constr)
+        kMap = compMap.get(ctor)!
         if (!kMap) {
           kMap = {}
-          compMap.set(constr, kMap)
+          compMap.set(ctor, kMap)
         }
-        let k = getKey(...args)
-        if (kMap[k]) return
-        kMap[k] = true
+        k = getKey(...args)
+        if (kMap[k]) return kMap[k]
       }
-      ary?.push(new DecoratorWrapper(args, metadata, decoClass))
+      let dw = new DecoratorWrapper(args, metadata, decoClass)
+      kMap[k] = dw
+      ary?.push(dw)
+      return dw
     };
-  };
+  }
+  _DecoratorMap.set(fn, true)
+  return fn;
 }

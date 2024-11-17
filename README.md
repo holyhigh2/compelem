@@ -1,111 +1,101 @@
 # CompElem
+一个现代化、响应式、快速、轻量的WebComponent开发库。为开发者提供丰富、灵活、可扩展的声明式接口
 
-一个现代化、响应式、快速、轻量的 WebComponent 开发库。为开发者提供丰富、灵活、可扩展的声明式接口
-
-## 概览
-
+## 概览  
 CompElem 基于 Class 进行构建，该模型允许开发者使用装饰器进行声明式编码，核心特性包括：
-
-- 类 JSX 的原生模板系统
+- 类JSX的原生模板系统
 - 丰富的装饰器及指令
 - 可选的生命周期
 - 原生插槽系统
 - 响应式域样式
 - ...
 
-创建一个 WebComponent 总会从声明一个组件元素(CompElem 子类)开始
-
+创建一个WebComponent总会从声明一个组件元素(CompElem子类)开始
 ```ts
-const Slogan = ["complete", "componentize", "compact", "companion"];
+const Slogan = ['complete', 'componentize', 'compact', 'companion']
 @tag("page-test")
 export class PageTest extends CompElem {
   //////////////////////////////////// props
-  @prop arg: any;
+  @prop arg:any
 
-  @state colorR = (Math.random() * 255) % 255 >> 0;
-  @state colorG = (Math.random() * 255) % 255 >> 0;
-  @state colorB = (Math.random() * 255) % 255 >> 0;
-  @state rotation = 0;
+  @state colorR = Math.random() * 255 % 255 >> 0;
+  @state colorG = Math.random() * 255 % 255 >> 0;
+  @state colorB = Math.random() * 255 % 255 >> 0;
+  @state rotation = 0
 
   //////////////////////////////////// computed
   @computed
   get color() {
-    return `linear-gradient(90deg,rgb(${this.colorR},${this.colorG},${
-      this.colorB
-    }), rgb(${255 - this.colorR},${255 - this.colorG},${255 - this.colorB}));`;
+    return `linear-gradient(90deg,rgb(${this.colorR},${this.colorG},${this.colorB}), rgb(${255 - this.colorR},${255 - this.colorG},${255 - this.colorB}));`
   }
 
   //////////////////////////////////// watch
-  @watch("rotation")
-  function(nv: number) {
-    console.log(nv);
+  @watch('rotation')
+  function(nv:number) {
+    console.log(nv)
   }
 
   //////////////////////////////////// styles
   //静态样式
   static get styles(): Array<string | CSSStyleSheet> {
-    return [
-      `:host{
+    return [`:host{
         font-size:16px;
-      }...`,
-    ];
+      }...`];
   }
   //动态样式
   get css() {
     return `h2,p,i,h3{
       background-image:${this.color}
       filter:hue-rotate(${this.rotation}deg)
-    }`;
+    }`
   }
 
   @query('i[name="text"]')
-  text: HTMLElement;
-  sloganIndex = 0;
+  text: HTMLElement
+  sloganIndex = 0
 
   //////////////////////////////////// lifecycles
   mounted(): void {
     setInterval(() => {
-      this.rotation += 1;
+      this.rotation += 1
     }, 24);
 
     setInterval(() => {
-      this.text.classList.add("hide");
+      this.text.classList.add('hide')
       setTimeout(() => {
-        this.text.innerHTML = Slogan[this.sloganIndex % 4];
-        this.sloganIndex++;
-        this.text.classList.remove("hide");
+        this.text.innerHTML = Slogan[this.sloganIndex % 4]
+        this.sloganIndex++
+        this.text.classList.remove('hide')
       }, 500);
     }, 5000);
   }
   render(): Template {
     return html`<div>
-      <i>Welcome to</i>
-      <br />
-      <h2>CompElem</h2>
-      <br />
-      <i>A modern, reactive, fast and lightweight library</i>
-      <br />
-      <i>for building</i>
-      <h3>Web Components</h3>
-      <p>&lt;c-element&gt; <i name="text">...</i> &lt;/c-element&gt;</p>
-      ${this.arg}
-    </div>`;
+            <i>Welcome to</i>
+            <br>
+            <h2>CompElem</h2>
+            <br>
+            <i>A modern, reactive, fast and lightweight library</i>
+            <br>
+            <i>for building</i>
+            <h3>Web Components</h3>
+            <p>
+              &lt;c-element&gt; <i name="text">...</i> &lt;/c-element&gt;
+            </p>
+            ${this.arg}
+        </div>`
   }
 }
 ```
-
-而后即可在 HTML 中直接使用，与使用一个原生元素如 DIV 没有任何区别
-
+而后即可在HTML中直接使用，与使用一个原生元素如DIV没有任何区别
 ```html
 <body>
-  <page-test arg="args..."></page-test>
+    <page-test arg="args..."></page-test>
 </body>
 ```
+当然,也可以直接嵌入其他UI库中只要引入编译后的js即可
 
-当然,也可以直接嵌入其他 UI 库中只要引入编译后的 js 即可
-
-## APIs
-
+## APIs  
 - ### 视图模板
   使用`render()`函数定义组件视图模板
   ```ts
@@ -179,6 +169,22 @@ export class PageTest extends CompElem {
 
   属性可以在组件内修改但默认不会同步父组件，除非显式指定`sync`或自行 emit update 事件
   全部注解参数见 `PropOption`
+
+  > 在某些无法使用装饰器的场景中（如MixinClass），可以使用函数`makeProp(...)`定义prop
+  ```ts
+  export function Loadable<T extends Constructor<any>>(spuerClass: T) {
+    return class Loadable extends spuerClass {
+        //declare a prop
+        name: string
+
+        constructor(...args: any[]) {
+            super()
+            //make the prop reactive
+            Decorator.call(this, prop, 'name', { type: String })
+        }
+    }
+  }
+  ```
 
 - ### 状态
   状态是仅由组件内部初始化的响应变量，可通过`@state`注解定义
@@ -374,7 +380,7 @@ static get autoSlot() {
 | ------- | --------- | ----------------------------------------------------------- | ------------------------------------------------------ |
 | bind    | TAG       | 绑定属性/特性到标签上，根据标签类型及组件 prop 定义自动判断 | `<div a="b" ${bind(obj)}>`                             |
 | show    | TAG       | 隐藏/显示标签（基于 display）                               | `<div a="b" ${show(visible)}>`                         |
-| model   | TAG       | 双向绑定                                                    | `<div a="b" ${model(xx)}>`                             |
+| model   | TAG       | 双向绑定                                                    | `<div a="b" ${model(xx,modelPath?)}>`                             |
 | classes | CLASS     | 绑定样式类属性，支持对象/数组/字符串。可以和静态字符混用    | `<div class="otherClass ${classes(obj)}>"`             |
 | styles  | STYLE     | 绑定样式规则属性，支持对象/字符串。可以和静态字符混用       | `<div style="a:b;${styles(obj)}>"`                     |
 | forEach | TEXT/SLOT | 输出循环结构                                                | `...>${forEach(ary,(item)=>html`...`)}<...`            |
@@ -392,6 +398,13 @@ static get autoSlot() {
 - @tag 自定义组件的标签名
 - @event 定义全局事件
 - @watch 监控 state/prop 变更
+
+> 装饰器还可通过函数方式进行调用，如
+> ```ts
+> //Decorator.call(class, decorator, fieldName, ...args)
+> Decorator.call(this, prop, 'name', { type: String })
+> ```
+> **注意**，调用入口必须放在类的构造函数中
 
 ## 事件
 

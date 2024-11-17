@@ -180,7 +180,7 @@ export class PageTest extends CompElem {
         constructor(...args: any[]) {
             super()
             //make the prop reactive
-            makeProp(this.constructor, 'name', { type: string })
+            Decorator.call(this, prop, 'name', { type: String })
         }
     }
   }
@@ -380,7 +380,7 @@ static get autoSlot() {
 | ------- | --------- | ----------------------------------------------------------- | ------------------------------------------------------ |
 | bind    | TAG       | 绑定属性/特性到标签上，根据标签类型及组件 prop 定义自动判断 | `<div a="b" ${bind(obj)}>`                             |
 | show    | TAG       | 隐藏/显示标签（基于 display）                               | `<div a="b" ${show(visible)}>`                         |
-| model   | TAG       | 双向绑定                                                    | `<div a="b" ${model(xx)}>`                             |
+| model   | TAG       | 双向绑定                                                    | `<div a="b" ${model(xx,modelPath?)}>`                             |
 | classes | CLASS     | 绑定样式类属性，支持对象/数组/字符串。可以和静态字符混用    | `<div class="otherClass ${classes(obj)}>"`             |
 | styles  | STYLE     | 绑定样式规则属性，支持对象/字符串。可以和静态字符混用       | `<div style="a:b;${styles(obj)}>"`                     |
 | forEach | TEXT/SLOT | 输出循环结构                                                | `...>${forEach(ary,(item)=>html`...`)}<...`            |
@@ -398,6 +398,13 @@ static get autoSlot() {
 - @tag 自定义组件的标签名
 - @event 定义全局事件
 - @watch 监控 state/prop 变更
+
+> 装饰器还可通过函数方式进行调用，如
+> ```ts
+> //Decorator.call(class, decorator, fieldName, ...args)
+> Decorator.call(this, prop, 'name', { type: String })
+> ```
+> **注意**，调用入口必须放在类的构造函数中
 
 ## 事件
 

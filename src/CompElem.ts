@@ -39,7 +39,7 @@ import {
   toArray,
   trim
 } from "myfx";
-import { DecoratorsKey, DecoratorWrapper } from "./decorator";
+import { _DecoratorsKey, DecoratorWrapper } from "./decorator";
 import { _getObservedAttrs, PropOption } from "./decorators/prop";
 import { StateOption } from "./decorators/state";
 import { Directive } from "./directive/Directive";
@@ -228,7 +228,7 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     this._slotsPropMap = { default: [] }
 
     /////////////////////////////////////////////////// decorators create
-    let ary: DecoratorWrapper[] = get(this.constructor, DecoratorsKey)
+    let ary: DecoratorWrapper[] = get(this.constructor, _DecoratorsKey)
     each(ary, dw => {
       dw.create(this)
     })
@@ -296,7 +296,7 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
 
     /////////////////////////////////////////////////// decorators propsReady
     const that = this
-    let ary: DecoratorWrapper[] = get(this.constructor, DecoratorsKey)
+    let ary: DecoratorWrapper[] = get(this.constructor, _DecoratorsKey)
     each(ary, dw => {
       dw.propsReady(this, (key, value) => {
         that.#reactiveData[key] = value
@@ -543,9 +543,6 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
       varPath.push(seg);
       let v = get(this, varPath);
       let pathStr = _toUpdatePath(varPath);
-      if (pathStr === "#slots") {
-        pathStr = 'slots'
-      }
       this.#updateSources[pathStr] = { value: v, chain: pathStr === "slots" ? ['slots'] : varPath, oldValue: ov, end: varPath.length === chain.length };
     });
 
@@ -559,7 +556,7 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     const changed = Object.seal(clone(omitBy(this.#updateSources, (v, k: string) => k[0] === PrivatePreffix)) as any)
 
     //update decorators
-    let ary: DecoratorWrapper[] = get(this.constructor, DecoratorsKey)
+    let ary: DecoratorWrapper[] = get(this.constructor, _DecoratorsKey)
     each(ary, dw => {
       dw.updated(this, changed)
     })
@@ -1033,5 +1030,17 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
       list = this.#renderContextList[varPath] = new Set<CompElem | Directive>()
     }
     list.add(renderContext)
+
+    let lastPath = ''
+    let restPath = varPath.split('-')
+    restPath.pop()
+    restPath.forEach(vp => {
+      lastPath = isEmpty(lastPath) ? vp : lastPath + '-' + vp
+      let list = this.#renderContextList[lastPath]
+      if (!list) {
+        list = this.#renderContextList[lastPath] = new Set<CompElem | Directive>()
+      }
+      list.add(renderContext)
+    })
   }
 }
