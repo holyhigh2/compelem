@@ -1,4 +1,4 @@
-/* compelem 0.2.0-beta @holyhigh2 https://github.com/holyhigh2/compelem */
+/* compelem 0.2.2-beta @holyhigh2 https://github.com/holyhigh2/compelem */
 (function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
@@ -6832,7 +6832,7 @@
     function _toUpdatePath(varPath) {
         return toPath(varPath).join("-");
     }
-    //为依赖收集提供标准地址
+    //获取父类构造
     function _getSuper(cls) {
         return Object.getPrototypeOf(cls);
     }
@@ -6849,10 +6849,28 @@
      * @author holyhigh2
      */
     class Decorator {
+        /**
+         * 通过函数方式进行装饰器调用
+         * @param target 所在类
+         * @param deco 装饰器函数
+         * @param fieldName 装饰器应用的字段名/函数名/函数
+         * @param args 不定参数
+         */
+        static call(target, deco, fieldName, ...args) {
+            let isDeco = _DecoratorMap.get(deco);
+            if (isDeco) {
+                let dw = deco(...args)(target, fieldName, isFunction(fieldName) ? { configurable: true } : null);
+                dw.create(target);
+            }
+            else {
+                deco(target, fieldName, ...args);
+            }
+        }
     }
 
     const GetKeyFnName = 'getKey';
-    const DecoratorsKey = '__decorators';
+    const _DecoratorsKey = '__decorators';
+    const _DecoratorMap = new WeakMap;
     /**
      * 装饰器包装类
      * 用于框架内部，表示class上的一个装饰器属性定义
@@ -6912,16 +6930,22 @@
      * @returns 装饰器函数
      */
     function decorator(decoClass) {
-        return (...args) => {
+        let fn = (...args) => {
             return (...metadata) => {
-                let constr = metadata[0].constructor;
-                let ary = get(constr, DecoratorsKey);
-                if (!has(constr, DecoratorsKey)) {
+                let ctor = metadata[0].constructor;
+                let ary = get(ctor, _DecoratorsKey);
+                if (!has(ctor, _DecoratorsKey)) {
                     //继承父类
-                    let parentAry = get(Object.getPrototypeOf(constr), DecoratorsKey);
+                    let parentAry = get(Object.getPrototypeOf(ctor), _DecoratorsKey);
                     ary = parentAry ? concat(parentAry) : [];
-                    set(constr, DecoratorsKey, ary);
+                    Object.defineProperty(ctor, _DecoratorsKey, {
+                        configurable: false,
+                        enumerable: false,
+                        value: ary
+                    });
                 }
+                let kMap = {};
+                let k;
                 let getKey = get(decoClass, GetKeyFnName);
                 if (getKey) {
                     let compMap = DecoKeyMap.get(decoClass);
@@ -6929,19 +6953,23 @@
                         compMap = new WeakMap;
                         DecoKeyMap.set(decoClass, compMap);
                     }
-                    let kMap = compMap.get(constr);
+                    kMap = compMap.get(ctor);
                     if (!kMap) {
                         kMap = {};
-                        compMap.set(constr, kMap);
+                        compMap.set(ctor, kMap);
                     }
-                    let k = getKey(...args);
+                    k = getKey(...args);
                     if (kMap[k])
-                        return;
-                    kMap[k] = true;
+                        return kMap[k];
                 }
-                ary?.push(new DecoratorWrapper(args, metadata, decoClass));
+                let dw = new DecoratorWrapper(args, metadata, decoClass);
+                kMap[k] = dw;
+                ary?.push(dw);
+                return dw;
             };
         };
+        _DecoratorMap.set(fn, true);
+        return fn;
     }
 
     //每个类需要监控的属性
@@ -6955,19 +6983,37 @@
             };
         }
         let target = arguments[0], propertyKey = arguments[1], descriptor = arguments[2];
-        defineProp(target, propertyKey, { type: undefined, required: false, attribute: true }, descriptor);
+        options = { type: undefined, required: false, attribute: true };
+        if (descriptor && typeof descriptor.type === 'function') {
+            options = defaults(descriptor, options);
+            descriptor = undefined;
+        }
+        defineProp(target, propertyKey, options, descriptor);
     }
     function defineProp(target, propertyKey, options, descriptor) {
         if (!/[a-z]/.test(propertyKey[0])) {
             showError(`Prop '${propertyKey}' must be in CamelCase`);
         }
+        let attrSet;
         if (!has(target.constructor, '__deco_props')) {
             const mixinProps = {};
             let parentCtor = target.constructor;
             while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
                 merge(mixinProps, parentCtor.__deco_props ? cloneDeep(parentCtor.__deco_props) : {});
             }
-            target.constructor.__deco_props = mixinProps;
+            Object.defineProperty(target.constructor, '__deco_props', {
+                configurable: false,
+                enumerable: false,
+                value: mixinProps
+            });
+            attrSet = new Set();
+            each(mixinProps, (v, k) => {
+                if (v.attribute) {
+                    let kbb = kebabCase(k);
+                    attrSet?.add(kbb);
+                }
+            });
+            ObservedAttrsMap.set(target.constructor, attrSet);
         }
         if (descriptor) {
             if (descriptor.get)
@@ -6976,10 +7022,8 @@
                 options.setter = descriptor.set;
         }
         if (options.attribute) {
-            let attrSet = ObservedAttrsMap.get(target.constructor);
             if (!attrSet) {
-                attrSet = new Set();
-                ObservedAttrsMap.set(target.constructor, attrSet);
+                attrSet = ObservedAttrsMap.get(target.constructor);
             }
             let kbb = kebabCase(propertyKey);
             attrSet?.add(kbb);
@@ -7624,6 +7668,8 @@
         undefined: Object
     };
     const PrivatePreffix = '#';
+    //组件静态样式
+    const ComponentStyleMap = new WeakMap();
     /**
      * CompElem基类，意为组件元素。提供了基本内置属性及生命周期等必备接口
      * 每个组件都需要继承自该类
@@ -7667,7 +7713,7 @@
             return this.#slotHooks;
         }
         get styles() {
-            return get(this.constructor, '_component_style_attached', []); //this.#styles;
+            return ComponentStyleMap.get(this.constructor);
         }
         get isMounted() {
             return this.#mounted;
@@ -7737,7 +7783,7 @@
                 set(this.constructor, '_global_style_attached', '1');
             }
             //component styles
-            let beAttached2 = get(this.constructor, '_component_style_attached');
+            let beAttached2 = ComponentStyleMap.get(this.constructor);
             let styleSheets = beAttached2 ?? [];
             if (!beAttached2) {
                 each(get(this.constructor, "styles"), (st) => {
@@ -7750,7 +7796,7 @@
                         styleSheets.push(st);
                     }
                 });
-                set(this.constructor, '_component_style_attached', styleSheets);
+                ComponentStyleMap.set(this.constructor, styleSheets);
             }
             /////////////////////////////////////////////////// shadow
             this.#shadow = this.attachShadow({
@@ -7780,7 +7826,7 @@
             //slots prop map
             this._slotsPropMap = { default: [] };
             /////////////////////////////////////////////////// decorators create
-            let ary = get(this.constructor, DecoratorsKey);
+            let ary = get(this.constructor, _DecoratorsKey);
             each(ary, dw => {
                 dw.create(this);
             });
@@ -7835,7 +7881,7 @@
             this.#reactiveData = reactive(this.#data, this);
             /////////////////////////////////////////////////// decorators propsReady
             const that = this;
-            let ary = get(this.constructor, DecoratorsKey);
+            let ary = get(this.constructor, _DecoratorsKey);
             each(ary, dw => {
                 dw.propsReady(this, (key, value) => {
                     that.#reactiveData[key] = value;
@@ -7972,9 +8018,9 @@
                 });
             }
             //3. callback
-            this.slotchange(slot, name);
+            this.slotChange(slot, name);
         }
-        slotchange(slot, name) {
+        slotChange(slot, name) {
         }
         //********************************** 更新
         /**
@@ -8055,9 +8101,6 @@
                 varPath.push(seg);
                 let v = get(this, varPath);
                 let pathStr = _toUpdatePath(varPath);
-                if (pathStr === "#slots") {
-                    pathStr = 'slots';
-                }
                 this.#updateSources[pathStr] = { value: v, chain: pathStr === "slots" ? ['slots'] : varPath, oldValue: ov, end: varPath.length === chain.length };
             });
             //debounce
@@ -8069,7 +8112,7 @@
         #update() {
             const changed = Object.seal(clone(omitBy(this.#updateSources, (v, k) => k[0] === PrivatePreffix)));
             //update decorators
-            let ary = get(this.constructor, DecoratorsKey);
+            let ary = get(this.constructor, _DecoratorsKey);
             each(ary, dw => {
                 dw.updated(this, changed);
             });
@@ -8496,6 +8539,17 @@
                 list = this.#renderContextList[varPath] = new Set();
             }
             list.add(renderContext);
+            let lastPath = '';
+            let restPath = varPath.split('-');
+            restPath.pop();
+            restPath.forEach(vp => {
+                lastPath = isEmpty(lastPath) ? vp : lastPath + '-' + vp;
+                let list = this.#renderContextList[lastPath];
+                if (!list) {
+                    list = this.#renderContextList[lastPath] = new Set();
+                }
+                list.add(renderContext);
+            });
         }
     }
 
@@ -9256,7 +9310,13 @@
             this.getter(component);
         }
     }
+    class QueryAllDecorator extends QueryDecorator {
+        getter(component) {
+            this.result = component.shadowRoot?.querySelectorAll(this.selector);
+        }
+    }
     const query = decorator(QueryDecorator);
+    decorator(QueryAllDecorator);
 
     function state(options) {
         if (arguments.length === 1) {
@@ -9274,7 +9334,11 @@
             while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
                 merge(mixinStates, parentCtor.__deco_states ? cloneDeep(parentCtor.__deco_states) : {});
             }
-            target.constructor.__deco_states = mixinStates;
+            Object.defineProperty(target.constructor, '__deco_states', {
+                configurable: false,
+                enumerable: false,
+                value: mixinStates
+            });
         }
         target.constructor.__deco_states[stateKey] = options;
     }
@@ -9307,16 +9371,20 @@
         sources;
         options;
         handler;
-        constructor(source, options) {
+        constructor(source, options, handler) {
             super();
             this.sources = isArray(source) ? source : [source];
             this.options = options;
+            this.handler = handler;
         }
         static getKey(source) {
             return isArray(source) ? source.sort().join('') : source;
         }
         mounted(component, setReactive, classProto, fnName, ...args) {
-            let handler = this.handler = component[fnName];
+            if (!this.handler) {
+                this.handler = isFunction(fnName) ? fnName : component[fnName];
+            }
+            let handler = this.handler;
             let immediate = get(this.options, "immediate", false);
             let onceWatch = get(this.options, "once", false);
             if (onceWatch) {

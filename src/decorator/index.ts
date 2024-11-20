@@ -1,4 +1,4 @@
-import { concat, get, has, isDefined, isEmpty, isObject, isUndefined, set } from 'myfx';
+import { concat, get, has, isDefined, isEmpty, isObject, isUndefined } from 'myfx';
 import { Constructor } from './../types';
 /*************************************************************
  * 装饰器
@@ -85,7 +85,12 @@ export function decorator<T extends Array<any>>(decoClass: Constructor<Decorator
         //继承父类
         let parentAry = get(Object.getPrototypeOf(ctor), _DecoratorsKey)
         ary = parentAry ? concat(parentAry) : []
-        set(ctor, _DecoratorsKey, ary)
+
+        Object.defineProperty(ctor, _DecoratorsKey, {
+          configurable: false,
+          enumerable: false,
+          value: ary
+        })
       }
       let kMap: Record<string, DecoratorWrapper> = {}
       let k

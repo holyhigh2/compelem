@@ -92,7 +92,11 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
     while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
       merge(mixinProps, parentCtor.__deco_props ? cloneDeep(parentCtor.__deco_props) : {})
     }
-    target.constructor.__deco_props = mixinProps
+    Object.defineProperty(target.constructor, '__deco_props', {
+      configurable: false,
+      enumerable: false,
+      value: mixinProps
+    })
     attrSet = new Set<string>()
     each(mixinProps, (v, k) => {
       if (v.attribute) {

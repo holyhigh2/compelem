@@ -42,7 +42,7 @@ export interface IComponent {
   // 2. 视图及slot更新后触发。 包括 调用render、更新@query/all、更新ref、更新prop到attr的映射
   updated(changed: Record<string, any>): void;
   // 3. 插槽内容变更时触发
-  slotchange(slot: HTMLSlotElement, name: string): void;
+  slotChange(slot: HTMLSlotElement, name: string): void;
 
   //----------------------------------------------------- 接口
 

@@ -62,6 +62,8 @@ const PropTypeMap: Record<string, Function> = {
   undefined: Object
 }
 const PrivatePreffix = '#'
+//组件静态样式
+const ComponentStyleMap = new WeakMap<WeakKey, CSSStyleSheet[]>()
 
 /**
  * CompElem基类，意为组件元素。提供了基本内置属性及生命周期等必备接口
@@ -108,7 +110,7 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     return this.#slotHooks;
   }
   get styles() {
-    return get<CSSStyleSheet[]>(this.constructor, '_component_style_attached', [])//this.#styles;
+    return ComponentStyleMap.get(this.constructor)!
   }
   get isMounted() {
     return this.#mounted
@@ -182,7 +184,7 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
       set(this.constructor, '_global_style_attached', '1')
     }
     //component styles
-    let beAttached2 = get<[]>(this.constructor, '_component_style_attached')
+    let beAttached2 = ComponentStyleMap.get(this.constructor)
     let styleSheets: CSSStyleSheet[] = beAttached2 ?? [];
     if (!beAttached2) {
       each(get<[]>(this.constructor, "styles"), (st) => {
@@ -194,7 +196,7 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
           styleSheets.push(st);
         }
       });
-      set(this.constructor, '_component_style_attached', styleSheets)
+      ComponentStyleMap.set(this.constructor, styleSheets)
     }
 
     /////////////////////////////////////////////////// shadow
@@ -451,9 +453,9 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     }
 
     //3. callback
-    this.slotchange(slot, name)
+    this.slotChange(slot, name)
   }
-  slotchange(slot: HTMLSlotElement, name: string) {
+  slotChange(slot: HTMLSlotElement, name: string) {
   }
   //********************************** 更新
   /**
