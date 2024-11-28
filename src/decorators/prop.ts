@@ -1,4 +1,4 @@
-import { cloneDeep, defaults, each, has, kebabCase, merge } from "myfx"
+import { cloneDeep, defaults, each, has, kebabCase, merge, toArray } from "myfx"
 import { CompElem } from "../CompElem"
 import { _getSuper, showError } from "../utils"
 
@@ -117,6 +117,11 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
     let kbb = kebabCase(propertyKey)
     attrSet?.add(kbb)
   }
+  //observeAttrs
+  if (!has(target.constructor, 'observedAttributes')) {
+    target.constructor.observedAttributes = []
+  }
+  target.constructor.observedAttributes = toArray(attrSet)
 
   target.constructor.__deco_props[propertyKey] = options
 }

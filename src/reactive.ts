@@ -105,6 +105,7 @@ export function reactive(obj: Record<string, any>, context: any) {
 
   const proxyObject = obj.__proxy ? obj : new Proxy(obj, {
     get(target: any, prop: string, receiver: any): any {
+      if (!prop) return undefined;
       const ks = Object.keys(target)
       const value = Reflect.get(target, prop, receiver);
       if (!includes(ks, prop)) {
@@ -139,6 +140,7 @@ export function reactive(obj: Record<string, any>, context: any) {
       return value;
     },
     set(target: any, prop: string, newValue: any, receiver: any) {
+      if (!prop) return false;
       let sourceContext = OBJECT_META_DATA.get(receiver)!.from
       let propDefs = get<Record<string, PropOption>>(sourceContext.constructor, '__deco_props')
       if (propDefs && propDefs[prop] && target.__isData) {

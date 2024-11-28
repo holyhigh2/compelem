@@ -220,8 +220,6 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
       mutations.forEach(mutation => {
         if (mutation.type === 'childList') {
           filterSlotFn.call(this);
-        } else if (mutation.type === 'attributes') {
-          if (mutation.attributeName) this.#attrChanged(mutation.attributeName, mutation.oldValue, this.getAttribute(mutation.attributeName))
         }
       });
     });
@@ -234,7 +232,10 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     each(ary, dw => {
       dw.create(this)
     })
+
+    this.#updatedD = debounce(this.#update, 50)
   }
+  #updatedD
 
   connectedCallback() {
     //parent
@@ -347,7 +348,7 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     //filter slot before append to dom
     this.#filterSlot()
 
-    this.#selfObserver.observe(this, { childList: true, attributes: true })
+    this.#selfObserver.observe(this, { childList: true })
 
     //events
     let eventList = get<Record<string, any>[]>(this.constructor, "__deco_events")
@@ -455,7 +456,9 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     //3. callback
     this.slotChange(slot, name)
   }
-  slotChange(slot: HTMLSlotElement, name: string) {
+  slotChange(slot: HTMLSlotElement, name: string) { }
+  attributeChangedCallback(attributeName: string, oldValue: string | null, newValue: string | null) {
+    this.#attrChanged(attributeName, oldValue, newValue)
   }
   //********************************** 更新
   /**
@@ -549,12 +552,11 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     });
 
     //debounce
-    if (this.#updateTimer) {
-      clearTimeout(this.#updateTimer);
-    }
-    this.#updateTimer = setTimeout(this.#update.bind(this), 10);
+    this.#updatedD()
   }
   #update() {
+    if (size(this.#updateSources) < 1) return;
+
     const changed = Object.seal(clone(omitBy(this.#updateSources, (v, k: string) => k[0] === PrivatePreffix)) as any)
 
     //update decorators
@@ -1014,16 +1016,16 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     if (!this.isMounted) return;
     let observedAttrs = _getObservedAttrs(this.constructor)
     if (observedAttrs.has(name)) {
+      let camelName = camelCase(name)
       if (isNull(newValue)) {
         let propDefs: Record<string, PropOption> = get(
           this.constructor,
           "__deco_props"
         );
         //使用默认值
-        newValue = propDefs[name]._defaultValue
+        newValue = propDefs[camelName]._defaultValue
       }
-      this._updateProps({ [name]: newValue })
-      // this._setParentProps({ [name]: newValue }, { [name]: newValue })
+      this._updateProps({ [camelName]: newValue })
     }
   }
   _regDeps(varPath: string, renderContext: CompElem | Directive) {

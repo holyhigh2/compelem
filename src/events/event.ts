@@ -24,7 +24,8 @@ export const MODI_PARAM_DIVIDER = ":";
  * 事件修饰符
  * @author holyhigh2
  * 
- * 通用 debounce/stop/prevent/once/throttle/self 可组合
+ * 全部通用 debounce/once/throttle 可组合
+ * 原生通用 stop/prevent/self 可组合
  * 鼠标 left/right/middle 不可组合
  * 键盘 ctrl/alt/shift/meta 可组合 esc/letters... 不可组合,多个key并列式表示可选
  * 

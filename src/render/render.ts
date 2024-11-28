@@ -184,18 +184,11 @@ export function buildTmplate(
 
             pos = expPos[expressionChain + varIndex] = new ExpPos(expressionChain + varIndex, currentNode, name.replace(/\.|\?|@/, ''), value);
             pos.isComponent = !!slotComponent
-
+            pos.isEvent = true
             varIndex++;
           }
-          let parts = name.substring(1).split('.');
-          let evName = parts.shift()!;
           cbk = addEvent(name.substring(1), cbk, currentNode, component)
           currentNode.removeAttribute(name)
-
-          if (pos) {
-            pos.eventName = evName!;
-            pos.value = cbk
-          }
           return;
         }
         if (name === ATTR_REF) {
@@ -321,7 +314,6 @@ export function buildTmplate(
       });
 
       if (currentNode instanceof CompElem) {
-        // currentNode._setParentProps(props)
         currentNode._initProps(props)
       } else if (currentNode instanceof HTMLSlotElement) {
         component._bindSlot(currentNode, currentNode.name || 'default', props)

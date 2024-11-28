@@ -410,8 +410,30 @@ static get autoSlot() {
 
 ## 事件
 
-事件分为三类
+在CompElem中事件分为三类
 
 1. 原生事件 —— `<div @click="..."`，监听器回调参数返回原生事件对象
-2. 组件自定义事件 —— `<l-select @change="..."`，监听器回调参数返回`CustomEvent`事件对象
-3. 扩展原生事件 —— `<div @resize="..."`，监听器回调参数返回`CustomEvent`事件对象
+2. 扩展原生事件 —— `<div @resize="..."`，监听器回调参数返回`CustomEvent`事件对象
+3. 组件自定义事件 —— `<l-select @change="..."`，监听器回调参数返回`CustomEvent`事件对象
+
+### 事件修饰符
+通过`.`号可使用修饰符修饰事件如 `@scroll.throttle:100="${...}"`
+- 全部通用 —— `debounce/throttle/once` 可组合
+- 原生通用 —— `stop/prevent/self` 可组合
+- 鼠标 —— `left/right/middle` 不可组合
+- 键盘 —— `ctrl/alt/shift/meta` 可组合 `esc/a/b/c/d...` 不可组合,多个key并列表示可选
+- mutate —— `attr/child/char/tree` 可组合
+> 部分修饰符支持参数，可使用冒号传参 —— `throttle:100 / debounce:100`。支持列表如下
+  - throttle:wait
+  - debounce:wait
+  ```html
+  <!-- 示例 -->
+  <div @mutate.child.throttle:100="...">
+  <div @click.left.once="...">
+  <div @mousedown.stop.prevent="...">
+  ```
+### 扩展原生事件
+可直接用于DOM元素的扩展事件（非组件事件），支持列表如下
+- resize 元素尺寸变化时触发
+- outside 鼠标点击元素外部时触发，可通过修饰符限制鼠标点击类型`outside.[mousedown/up/click/dblclick]`，默认click
+- mutate 内容变化时触发。基于  Mutation Observer API

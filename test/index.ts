@@ -21,7 +21,7 @@ export class PageTest extends CompElem {
   //////////////////////////////////// watch
   @watch('rotation')
   function(nv: number) {
-    console.log(nv)
+    // console.log(nv)
   }
 
   //////////////////////////////////// styles

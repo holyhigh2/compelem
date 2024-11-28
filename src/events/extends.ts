@@ -1,12 +1,15 @@
+import { includes } from "myfx";
+
 /*************************************************************
  * 扩展事件
  * @author holyhigh2
  * 
  * resize
- * outside.[mousedown/up/click/dblclick] 默认click
+ * outside[.mousedown/up/click/dblclick] 默认click
+ * mutate[.attr/child/char/tree]
  * 
  *************************************************************/
-const ExtEvNames = ['resize', 'outside']
+const ExtEvNames = ['resize', 'outside', 'mutate']
 ///////////////////////////////////////////////// resize
 const AllResizeEls = new WeakMap;
 const AllOutsideDownEls: Array<Element | ((ev: Event) => any)>[] = [];
@@ -34,8 +37,88 @@ const resizeObserver = new ResizeObserver((entries) => {
   }
 });
 function addResize(node: Element, cbk: (ev: Event) => any) {
+  if (AllResizeEls.has(node)) return;
+
   AllResizeEls.set(node, cbk)
   resizeObserver.observe(node);
+}
+///////////////////////////////////////////////// mutate
+enum MutationType {
+  Child = 'child',
+  Tree = 'tree',
+  Attr = 'attr',
+  Char = 'char'
+}
+const AllMutationEls = new WeakMap<Element, Record<string, (ev: Event) => any>>;
+const mutationObserver = new MutationObserver(mutations => {
+  mutations.forEach(mutation => {
+    let map = AllMutationEls.get(mutation.target as Element)
+    if (!map) return;
+    let detail: Record<string, any> = {
+      target: mutation.target
+    }
+    let cbk = null
+    switch (mutation.type as string) {
+      case 'subtree':
+        detail.type = MutationType.Tree
+        cbk = map[MutationType.Tree]
+        break;
+      case "childList":
+        detail.type = MutationType.Child
+        detail.addedNodes = mutation.addedNodes
+        detail.removedNodes = mutation.removedNodes
+        cbk = map[MutationType.Child]
+        break;
+      case "attributes":
+        detail.type = MutationType.Attr
+        detail.attributeName = mutation.attributeName
+        detail.oldValue = mutation.oldValue
+        cbk = map[MutationType.Attr]
+        break;
+      case "characterData":
+        detail.type = MutationType.Char
+        detail.oldValue = mutation.oldValue
+        cbk = map[MutationType.Char]
+        break;
+    }
+    if (cbk) {
+      let ev = new CustomEvent('mutate', {
+        bubbles: false,
+        cancelable: false,
+        detail
+      })
+      cbk(ev)
+    }
+  });
+});
+function addMutation(node: Element, cbk: (ev: Event) => any, parts: string[]) {
+  let child = includes(parts, 'child')
+  let attr = includes(parts, 'attr')
+  let char = includes(parts, 'char')
+  let tree = includes(parts, 'tree')
+  let map = AllMutationEls.get(node)
+  if (map) return;
+
+  map = {}
+  AllMutationEls.set(node, map)
+  if (child) {
+    map[MutationType.Child] = cbk
+  }
+  if (attr) {
+    map[MutationType.Attr] = cbk
+  }
+  if (char) {
+    map[MutationType.Char] = cbk
+  }
+  if (tree) {
+    map[MutationType.Tree] = cbk
+  }
+  mutationObserver.observe(node, {
+    childList: child,
+    attributes: attr,
+    characterData: char,
+    subtree: tree
+  })
 }
 
 ///////////////////////////////////////////////// outside
@@ -48,7 +131,7 @@ document.addEventListener('mousedown', e => {
         bubbles: false,
         cancelable: false,
         detail: {
-          currentTarget:node,
+          currentTarget: node,
           event: e
         },
       })
@@ -76,6 +159,8 @@ export function addExtEvent(evName: string, node: Element, cbk: (ev: Event) => a
       default:
         break;
     }
+  } else if (evName === 'mutate') {
+    addMutation(node, cbk, parts)
   }
 }
 

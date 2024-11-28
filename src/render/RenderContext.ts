@@ -1,10 +1,9 @@
 import { compact, get, isArray, isBlank, isEmpty, isEqual, isObject, join, replace, set, size, split, toArray } from "myfx";
-import { DirectiveWrapper } from "../directive/index";
-import { Directive } from "../directive/Directive";
-import { addEvent } from "../events/event";
 import { CompElem } from "../CompElem";
+import { Directive } from "../directive/Directive";
+import { DirectiveWrapper } from "../directive/index";
 import { ExpPos } from "../types";
-import { DomUtil, Template, PLACEHOLDER_EXP, buildHTML, buildTmplate } from "./render";
+import { DomUtil, PLACEHOLDER_EXP, Template, buildHTML, buildTmplate } from "./render";
 
 //todo 接口需要暴露出去
 export interface IRenderContext {
@@ -104,11 +103,7 @@ export function RenderContext<T extends new (...args: any[]) => any>(spuerClass:
           } else if (node instanceof HTMLSlotElement) {
             this.renderComponent._updateSlot(node.getAttribute('name') || 'default', expPos.attrName, newValue)
           }
-        } else if (expPos.eventName) {
-          elNode.removeEventListener(expPos.eventName, oldValue)
-          newValue = newValue.bind(this.renderComponent)
-          newValue = addEvent(expPos.attrName, newValue, elNode, this.renderComponent)
-        } else if (expPos.attrName) {
+        } else if (expPos.attrName && !expPos.isEvent) {
           //特性
           if (!isEqual(oldValue, newValue)) {
             switch (expPos.attrName) {

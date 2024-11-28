@@ -1,6 +1,6 @@
-import { each, isObject, isString, join, kebabCase, map, trim } from "myfx";
 import { Directive } from "../directive/Directive";
 import { EnterPoint, EnterPointType, directive } from "../directive/index";
+import { CssHelper } from "../helpers";
 import { DirectiveUpdateTag } from "../types";
 
 /**
@@ -20,16 +20,7 @@ class Styles extends Directive {
     return [EnterPointType.STYLE]
   }
   render(styles: Record<string, string> | string) {
-    let rs = '';
-    if (isObject(styles)) {
-      rs = join(map(styles, (v, k: string) => kebabCase(k) + ":" + v), ';')
-    } else if (isString(styles)) {
-      rs = styles
-    }
-    each(rs.split(';'), prop => {
-      let kv = prop.split(':');
-      (<HTMLElement>this.point.startNode).style.setProperty(trim(kv[0]), trim(kv[1]));
-    })
+    CssHelper.setStyle(styles, this.point.startNode)
   }
 }
 export const styles = directive<Parameters<typeof Styles.prototype.render>>(Styles);

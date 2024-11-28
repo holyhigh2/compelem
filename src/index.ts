@@ -30,3 +30,5 @@ export { buildHTML, createRef, html, RefObject, Template };
 export * from './CompElem';
 export * from './types';
 
+export * from './helpers';
+

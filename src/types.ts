@@ -50,8 +50,8 @@ export class ExpPos {
     isProp: boolean = false;
     //是否布尔属性
     isToggleProp: boolean = false;
-    //事件名称
-    eventName: string;
+    //是否事件
+    isEvent: boolean;
 
     constructor(varIndex: string | number, node: Node, attrName?: string, attrTmpl?: string) {
         this.index = varIndex + '';

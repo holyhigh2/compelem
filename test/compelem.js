@@ -1,4 +1,4 @@
-/* compelem 0.2.2-beta @holyhigh2 https://github.com/holyhigh2/compelem */
+/* compelem 0.2.3-beta @holyhigh2 https://github.com/holyhigh2/compelem */
 (function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
@@ -6849,23 +6849,6 @@
      * @author holyhigh2
      */
     class Decorator {
-        /**
-         * 通过函数方式进行装饰器调用
-         * @param target 所在类
-         * @param deco 装饰器函数
-         * @param fieldName 装饰器应用的字段名/函数名/函数
-         * @param args 不定参数
-         */
-        static call(target, deco, fieldName, ...args) {
-            let isDeco = _DecoratorMap.get(deco);
-            if (isDeco) {
-                let dw = deco(...args)(target, fieldName, isFunction(fieldName) ? { configurable: true } : null);
-                dw.create(target);
-            }
-            else {
-                deco(target, fieldName, ...args);
-            }
-        }
     }
 
     const GetKeyFnName = 'getKey';
@@ -7028,6 +7011,11 @@
             let kbb = kebabCase(propertyKey);
             attrSet?.add(kbb);
         }
+        //observeAttrs
+        if (!has(target.constructor, 'observedAttributes')) {
+            target.constructor.observedAttributes = [];
+        }
+        target.constructor.observedAttributes = toArray(attrSet);
         target.constructor.__deco_props[propertyKey] = options;
     }
     //内部接口
@@ -7308,10 +7296,11 @@
      * @author holyhigh2
      *
      * resize
-     * outside.[mousedown/up/click/dblclick] 默认click
+     * outside[.mousedown/up/click/dblclick] 默认click
+     * mutate[.attr/child/char/tree]
      *
      *************************************************************/
-    const ExtEvNames = ['resize', 'outside'];
+    const ExtEvNames = ['resize', 'outside', 'mutate'];
     ///////////////////////////////////////////////// resize
     const AllResizeEls = new WeakMap;
     const AllOutsideDownEls = [];
@@ -7338,8 +7327,90 @@
         }
     });
     function addResize(node, cbk) {
+        if (AllResizeEls.has(node))
+            return;
         AllResizeEls.set(node, cbk);
         resizeObserver.observe(node);
+    }
+    ///////////////////////////////////////////////// mutate
+    var MutationType;
+    (function (MutationType) {
+        MutationType["Child"] = "child";
+        MutationType["Tree"] = "tree";
+        MutationType["Attr"] = "attr";
+        MutationType["Char"] = "char";
+    })(MutationType || (MutationType = {}));
+    const AllMutationEls = new WeakMap;
+    const mutationObserver = new MutationObserver(mutations => {
+        mutations.forEach(mutation => {
+            let map = AllMutationEls.get(mutation.target);
+            if (!map)
+                return;
+            let detail = {
+                target: mutation.target
+            };
+            let cbk = null;
+            switch (mutation.type) {
+                case 'subtree':
+                    detail.type = MutationType.Tree;
+                    cbk = map[MutationType.Tree];
+                    break;
+                case "childList":
+                    detail.type = MutationType.Child;
+                    detail.addedNodes = mutation.addedNodes;
+                    detail.removedNodes = mutation.removedNodes;
+                    cbk = map[MutationType.Child];
+                    break;
+                case "attributes":
+                    detail.type = MutationType.Attr;
+                    detail.attributeName = mutation.attributeName;
+                    detail.oldValue = mutation.oldValue;
+                    cbk = map[MutationType.Attr];
+                    break;
+                case "characterData":
+                    detail.type = MutationType.Char;
+                    detail.oldValue = mutation.oldValue;
+                    cbk = map[MutationType.Char];
+                    break;
+            }
+            if (cbk) {
+                let ev = new CustomEvent('mutate', {
+                    bubbles: false,
+                    cancelable: false,
+                    detail
+                });
+                cbk(ev);
+            }
+        });
+    });
+    function addMutation(node, cbk, parts) {
+        let child = includes(parts, 'child');
+        let attr = includes(parts, 'attr');
+        let char = includes(parts, 'char');
+        let tree = includes(parts, 'tree');
+        let map = AllMutationEls.get(node);
+        if (map)
+            return;
+        map = {};
+        AllMutationEls.set(node, map);
+        if (child) {
+            map[MutationType.Child] = cbk;
+        }
+        if (attr) {
+            map[MutationType.Attr] = cbk;
+        }
+        if (char) {
+            map[MutationType.Char] = cbk;
+        }
+        if (tree) {
+            map[MutationType.Tree] = cbk;
+        }
+        mutationObserver.observe(node, {
+            childList: child,
+            attributes: attr,
+            characterData: char,
+            subtree: tree
+        });
     }
     ///////////////////////////////////////////////// outside
     document.addEventListener('mousedown', e => {
@@ -7375,6 +7446,9 @@
                     break;
             }
         }
+        else if (evName === 'mutate') {
+            addMutation(node, cbk, parts);
+        }
     }
 
     const MODI_EV_DEBOUNCE = /,|^(debounce:.+)|(debounce$)/;
@@ -7398,7 +7472,8 @@
      * 事件修饰符
      * @author holyhigh2
      *
-     * 通用 debounce/stop/prevent/once/throttle/self 可组合
+     * 全部通用 debounce/once/throttle 可组合
+     * 原生通用 stop/prevent/self 可组合
      * 鼠标 left/right/middle 不可组合
      * 键盘 ctrl/alt/shift/meta 可组合 esc/letters... 不可组合,多个key并列式表示可选
      *
@@ -7817,10 +7892,6 @@
                     if (mutation.type === 'childList') {
                         filterSlotFn.call(this);
                     }
-                    else if (mutation.type === 'attributes') {
-                        if (mutation.attributeName)
-                            this.#attrChanged(mutation.attributeName, mutation.oldValue, this.getAttribute(mutation.attributeName));
-                    }
                 });
             });
             //slots prop map
@@ -7922,7 +7993,7 @@
             }
             //filter slot before append to dom
             this.#filterSlot();
-            this.#selfObserver.observe(this, { childList: true, attributes: true });
+            this.#selfObserver.observe(this, { childList: true });
             //events
             let eventList = get(this.constructor, "__deco_events");
             each(eventList, (ev) => {
@@ -8020,7 +8091,9 @@
             //3. callback
             this.slotChange(slot, name);
         }
-        slotChange(slot, name) {
+        slotChange(slot, name) { }
+        attributeChangedCallback(attributeName, oldValue, newValue) {
+            this.#attrChanged(attributeName, oldValue, newValue);
         }
         //********************************** 更新
         /**
@@ -8524,13 +8597,13 @@
                 return;
             let observedAttrs = _getObservedAttrs(this.constructor);
             if (observedAttrs.has(name)) {
+                let camelName = camelCase(name);
                 if (isNull(newValue)) {
                     let propDefs = get(this.constructor, "__deco_props");
                     //使用默认值
-                    newValue = propDefs[name]._defaultValue;
+                    newValue = propDefs[camelName]._defaultValue;
                 }
-                this._updateProps({ [name]: newValue });
-                // this._setParentProps({ [name]: newValue }, { [name]: newValue })
+                this._updateProps({ [camelName]: newValue });
             }
         }
         _regDeps(varPath, renderContext) {
@@ -9350,6 +9423,30 @@
     function tag(name) {
         return (target) => {
             if (target) {
+                //attrChange
+                if (target.prototype.hasOwnProperty('attributeChangedCallback')) {
+                    let cbk = target.prototype.attributeChangedCallback;
+                    target.prototype.attributeChangedCallback = function (name, oldValue, newValue) {
+                        CompElem.prototype.attributeChangedCallback.call(this, name, oldValue, newValue);
+                        cbk.call(this, name, oldValue, newValue);
+                    };
+                }
+                //connectedCallback
+                if (target.prototype.hasOwnProperty('connectedCallback')) {
+                    let cbk = target.prototype.connectedCallback;
+                    target.prototype.connectedCallback = function () {
+                        CompElem.prototype.connectedCallback.call(this);
+                        cbk.call(this);
+                    };
+                }
+                //disconnectedCallback
+                if (target.prototype.hasOwnProperty('disconnectedCallback')) {
+                    let cbk = target.prototype.connectedCallback;
+                    target.prototype.disconnectedCallback = function () {
+                        CompElem.prototype.disconnectedCallback.call(this);
+                        cbk.call(this);
+                    };
+                }
                 customElements.define(name, target);
             }
         };
@@ -9449,7 +9546,7 @@
         }
         //////////////////////////////////// watch
         function(nv) {
-            console.log(nv);
+            // console.log(nv)
         }
         //////////////////////////////////// styles
         //静态样式

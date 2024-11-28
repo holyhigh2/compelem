@@ -220,24 +220,27 @@ export class DirectiveWrapper extends Function {
         let keys = Object.keys(idWeightMap);
         let keyNums = keys.map(k => parseInt(k)).sort((a, b) => a - b)
 
-        if (keys.length < 2 && keys.length > 0) {
-          //如果仅有一组，留最后一个节点
-          let { group } = idWeightMap[keyNums[0]]
-          initial(group).forEach(({ targetId, nodeId }) => {
-            let srcEl = oldNodeMap[nodeId]
-            let target
-            if (targetId === MovePosition.AFTER_BEGIN) {
-              target = this.point.startNode as Element
-              target.after(srcEl)
-            } else {
-              target = oldNodeMap[targetId]
-              target.after(srcEl)
-            }
-          })
-        } else {
-          //如果多组，留最后一组
-          console.debug('todo....')
-        }
+        if (keys.length > 0) {
+          if (keys.length < 2) {
+            //如果仅有一组，留最后一个节点
+            let { group } = idWeightMap[keyNums[0]]
+            initial(group).forEach(({ targetId, nodeId }) => {
+              let srcEl = oldNodeMap[nodeId]
+              let target
+              if (targetId === MovePosition.AFTER_BEGIN) {
+                target = this.point.startNode as Element
+                target.after(srcEl)
+              } else {
+                target = oldNodeMap[targetId]
+                target.after(srcEl)
+              }
+            })
+          } else {
+            //如果多组，留最后一组
+            console.debug('todo....')
+          }
+
+        }//endif
       }
 
       adds.forEach(v => {
@@ -300,7 +303,7 @@ export function directive<T extends Array<any>>(diClass: typeof Directive) {
         args[i] = function (...ps: T) {
           let di = wrapper!.di
           Collector.startRender(di);
-          let rs = cbk(...ps)
+          let rs = cbk.call(di.renderComponent, ...ps)
           Collector.endRender(di.renderComponent);
           return rs;
         }

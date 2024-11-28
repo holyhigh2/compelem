@@ -27,14 +27,16 @@ export interface IComponent {
   get isMounted(): boolean;
 
   //----------------------------------------------------- lifecycles —— 首次渲染
-  // 1. 初始化属性及状态，该回调内可以访问props和state。此时组件dom并未构建，但已有parent 属性，没有root属性
-  connected(): void;
-  // 2. props初始化完成，即将开始渲染
+  // 1. props初始化完成，即将开始渲染
   propsReady(): void;
-  // 3. 每次更新时调用
+  // 2. 每次渲染时调用
   render(): Template;
-  // 4. 首次渲染完成后调用
+  // 3. 首次渲染完成后调用，仅触发一次
   mounted(): void;
+  // 4. 每次插入dom时调用
+  connectedCallback(): void;
+  // 5. 卸载组件时调用
+  disconnectedCallback(): void;
 
   //----------------------------------------------------- lifecycles —— 更新
   // 1. 是否需要更新，返回true时更新
@@ -42,7 +44,9 @@ export interface IComponent {
   // 2. 视图及slot更新后触发。 包括 调用render、更新@query/all、更新ref、更新prop到attr的映射
   updated(changed: Record<string, any>): void;
   // 3. 插槽内容变更时触发
-  slotChange(slot: HTMLSlotElement, name: string): void;
+  slotChange(slot: HTMLSlotElement, slotName: string): void;
+  // 4. 组件属性由外部变更时触发
+  attributeChangedCallback(attributeName: string, oldValue: string | null, newValue: string | null): void;
 
   //----------------------------------------------------- 接口
 
