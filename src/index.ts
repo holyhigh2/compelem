@@ -1,4 +1,5 @@
-import { buildHTML, createRef, html, RefObject, Template } from "./render/render";
+import { Template } from './render/Template';
+import { buildHTML, createRef, html, RefObject } from "./render/render";
 
 //decorators
 export * from "./decorator/Decorator";

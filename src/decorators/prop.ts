@@ -92,7 +92,7 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
     while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
       merge(mixinProps, parentCtor.__deco_props ? cloneDeep(parentCtor.__deco_props) : {})
     }
-    Object.defineProperty(target.constructor, '__deco_props', {
+    Reflect.defineProperty(target.constructor, '__deco_props', {
       configurable: false,
       enumerable: false,
       value: mixinProps

@@ -19,61 +19,13 @@ export const enum ModelTriggerType {
  * @param modelValue 双向绑定的组件变量
  */
 class Model extends Directive {
-  update(nodes: Node[], newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
-    if (!this.modelPath)
-      this.modelPath = last(this.renderParams)
-    if (!isEqual(newArgs, oldArgs)) {
-      const node = this.point.startNode
-      if (node instanceof CompElem) {
-        node._updateProps({ value: newArgs[0] })
-      } else if (node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) {
-        node.setAttribute('value', newArgs[0] + '')
-      } else if (node instanceof HTMLInputElement) {
-        switch (node.type) {
-          case 'checkbox':
-          case 'radio':
-            if (!!newArgs[0]) {
-              node.setAttribute('checked', '')
-            } else {
-              node.removeAttribute('checked')
-            }
-
-            break;
-          case 'text':
-          case 'email':
-          case 'number':
-          case 'password':
-          case 'search':
-          case 'tel':
-          case 'url':
-            node.setAttribute('value', newArgs[0] + '')
-            break;
-
-          default:
-            node.setAttribute('value', newArgs[0] + '')
-            break;
-        }
-
-      }
-    }
-    return DirectiveUpdateTag.NONE
-  }
-  static get scopes(): EnterPointType[] {
-    return [EnterPointType.TAG]
-  }
-  modelPath: string[]
-  point: EnterPoint
-  constructor(point: EnterPoint) {
-    super();
-    this.point = point
-  }
-  render(modelValue: any, modelPath?: string) {
+  created(point: EnterPoint, modelValue: any, modelPath?: string): void {
     if (!this.modelPath)
       this.modelPath = last(this.renderParams)
     if (modelPath) {
       this.modelPath = toPath(modelPath)
     }
-    const node = this.point.startNode
+    const node = point.startNode
     if (get(node, '_model') === 'binded') return;
 
     if (!isObject(modelValue) && !trim(modelValue))
@@ -133,6 +85,52 @@ class Model extends Directive {
       });
       set(node, '_model', 'binded')
     }
+  }
+  update(point: EnterPoint, newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
+    if (!this.modelPath)
+      this.modelPath = last(this.renderParams)
+    if (!isEqual(newArgs, oldArgs)) {
+      const node = point.startNode
+      if (node instanceof CompElem) {
+        node._updateProps({ value: newArgs[0] })
+      } else if (node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) {
+        node.setAttribute('value', newArgs[0] + '')
+      } else if (node instanceof HTMLInputElement) {
+        switch (node.type) {
+          case 'checkbox':
+          case 'radio':
+            if (!!newArgs[0]) {
+              node.setAttribute('checked', '')
+            } else {
+              node.removeAttribute('checked')
+            }
+
+            break;
+          case 'text':
+          case 'email':
+          case 'number':
+          case 'password':
+          case 'search':
+          case 'tel':
+          case 'url':
+            node.setAttribute('value', newArgs[0] + '')
+            break;
+
+          default:
+            node.setAttribute('value', newArgs[0] + '')
+            break;
+        }
+
+      }
+    }
+    return DirectiveUpdateTag.NONE
+  }
+  static get scopes(): EnterPointType[] {
+    return [EnterPointType.TAG]
+  }
+  modelPath: string[]
+  render(modelValue: any, modelPath?: string) {
+
   }
 }
 export const model = directive<Parameters<typeof Model.prototype.render>>(Model);

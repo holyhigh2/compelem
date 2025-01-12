@@ -2,7 +2,6 @@ import {
   assign,
   bind,
   camelCase,
-  clone,
   cloneDeep,
   closest,
   concat,
@@ -29,7 +28,6 @@ import {
   last,
   merge,
   omit,
-  omitBy,
   reject,
   set,
   size,
@@ -45,8 +43,9 @@ import { StateOption } from "./decorators/state";
 import { Directive } from "./directive/Directive";
 import { IComponent } from "./IComponent";
 import { Collector, reactive } from "./reactive";
-import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, html, Template } from "./render/render";
-import { IRenderContext, RenderContext } from "./render/RenderContext";
+import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, html } from "./render/render";
+import { IView, View } from "./render/RenderContext";
+import { Template } from "./render/Template";
 import { SlotOptions, TmplFn } from "./types";
 import { _toUpdatePath, showTagError } from "./utils";
 const ATTR_CSS_LINK = "css-link";
@@ -71,7 +70,7 @@ const ComponentStyleMap = new WeakMap<WeakKey, CSSStyleSheet[]>()
  *
  * @author holyhigh2
  */
-export class CompElem extends RenderContext(HTMLElement) implements IComponent {
+export class CompElem extends View(HTMLElement) implements IComponent {
   static __l_globalRule = document.createElement("style");
   static {
     document.head.appendChild(CompElem.__l_globalRule);
@@ -88,6 +87,9 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
   #renderContextList: Record<string, Set<CompElem | Directive>> = {};
   __events: Record<string, Array<Node | ((e: Event) => void)>[]> = {}
 
+  get [Symbol.toStringTag]() {
+    return this.constructor.name;
+  }
   get reactiveData() {
     return this.#reactiveData
   }
@@ -103,7 +105,7 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
   get renderRoots(): HTMLElement[] {
     return this.#renderRoots;
   }
-  get parentComponent(): HTMLElement | null {
+  get parentComponent(): CompElem | null {
     return this.#parentComponent;
   }
   get slotHooks() {
@@ -123,12 +125,13 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
   #props: Record<string, any>
   #renderRoot: HTMLElement
   #renderRoots: HTMLElement[]
-  #parentComponent: HTMLElement | null
+  #parentComponent: CompElem | null
   #slotsEl: Record<string, HTMLSlotElement> = {};
   #slotHooks: Record<string, (...args: any[]) => Template> = {};
   #slotNodes: Record<string, Node[]> = {};
   #mounted: boolean = false
   #instanceCss = new CSSStyleSheet()
+  #nextTimerFn: any
 
   /**
    * 是否自动插入插槽，如果需要控制插槽类型时，可以设置为false
@@ -159,14 +162,19 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
       assign(this.#props, first(args))
     }
 
-    this.renderComponent = this;
-    let render = this.render;
-    this.render = () => {
+    let render = this.render.bind(this);
+    this.render = function () {
       let rs
       Collector.startRender(this);
-      rs = render.call(this);
-      Collector.endRender(this.renderComponent);
+      rs = render();
+      Collector.endRender(this);
       return rs;
+    }
+
+    const p = Promise.resolve();
+    const nextFn = this.#flashNextQ.bind(this)
+    this.#nextTimerFn = () => {
+      p.then(nextFn)
     }
 
     /////////////////////////////////////////////////// styles
@@ -175,7 +183,7 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     let beAttached = get(this.constructor, '_global_style_attached')
     if (!isEmpty(globalStyles) && beAttached !== '1') {
       let globalTextContent = "";
-      each(globalStyles, (st) => {
+      globalStyles.forEach((st) => {
         if (isString(st)) {
           globalTextContent += st + "\n";
         }
@@ -190,7 +198,7 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
       each(get<[]>(this.constructor, "styles"), (st) => {
         if (isString(st)) {
           let sheet = new CSSStyleSheet();
-          sheet.replace(st)
+          sheet.replaceSync(st)
           styleSheets.push(sheet);
         } else {
           styleSheets.push(st);
@@ -217,11 +225,12 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
 
     let filterSlotFn = debounce(this.#filterSlot, 20)
     this.#selfObserver = new MutationObserver(mutations => {
-      mutations.forEach(mutation => {
+      for (let i = 0; i < mutations.length; i++) {
+        const mutation = mutations[i];
         if (mutation.type === 'childList') {
           filterSlotFn.call(this);
         }
-      });
+      }
     });
 
     //slots prop map
@@ -229,9 +238,7 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
 
     /////////////////////////////////////////////////// decorators create
     let ary: DecoratorWrapper[] = get(this.constructor, _DecoratorsKey)
-    each(ary, dw => {
-      dw.create(this)
-    })
+    ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => dw.create(this))
 
     this.#updatedD = debounce(this.#update, 50)
   }
@@ -251,8 +258,6 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
         : node!.host
       : null;
 
-    this.connected();
-
     this.__init();
   }
 
@@ -270,13 +275,20 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     this.#updateSlotsAry()
 
     //check props
-    this.#initProps();
+    const props = this.#initProps();
+
+    this.propsReady(props)
+    for (const key in props) {
+      const v = props[key];
+      this.#data[key] = v;
+    }
+
     this.#initStates();
 
     //define reactive
     each(this.#data, (v, k: string) => {
       let descr = Reflect.getOwnPropertyDescriptor(this.#data, k);
-      Object.defineProperty(this, k, {
+      Reflect.defineProperty(this, k, {
         get() {
           let v: any = Reflect.get(this.#reactiveData, k);
           return descr?.get ? descr?.get() : v;
@@ -290,25 +302,42 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
         },
       });
     });
-    Object.defineProperty(this.#data, '__isData', {
+    Reflect.defineProperty(this.#data, '__isData', {
       enumerable: false,
       value: true
     })
 
     this.#reactiveData = reactive(this.#data, this);
 
-    /////////////////////////////////////////////////// decorators propsReady
+    //render
+    let tmpl = this.render()
+    let nodes = this.buildView(tmpl)
+
+    if (nodes) {
+      let children = toArray<HTMLElement>(nodes);
+
+      children.forEach((c) => {
+        this.#shadow.appendChild(c);
+      });
+
+      this.#renderRoots = children;
+      this.#renderRoot = children[0] as HTMLElement;
+    }
+
+    //filter slot before append to dom
+    this.#filterSlot()
+
+    this.beforeMount();
+
+    /////////////////////////////////////////////////// before mount
     const that = this
     let ary: DecoratorWrapper[] = get(this.constructor, _DecoratorsKey)
-    each(ary, dw => {
-      dw.propsReady(this, (key, value) => {
+    ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
+      dw.beforeMount(this, (key, value) => {
         that.#reactiveData[key] = value
         return that.#reactiveData[key]
       })
     })
-
-    this.propsReady();
-
     //computed props
     let computedMap: Record<string, Record<string, any>> =
       get(this.constructor, "__deco_computed");
@@ -321,7 +350,7 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
       Collector.endCompute();
     })
     each(computedMap, (v, k) => {
-      Object.defineProperty(this, k, {
+      Reflect.defineProperty(this, k, {
         get() {
           return Reflect.get(this.#reactiveData, k);
         },
@@ -331,34 +360,21 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
       });
     })
 
-    //render
-    let [nodes, expPos, expPosMap] = this.renderContext()
-    this.__expPos = expPos
-    if (nodes) {
-      let children = toArray<HTMLElement>(nodes);
-
-      each(children, (c) => {
-        this.#shadow.appendChild(c);
-      });
-
-      this.#renderRoots = children;
-      this.#renderRoot = children[0] as HTMLElement;
-    }
-
-    //filter slot before append to dom
-    this.#filterSlot()
-
     this.#selfObserver.observe(this, { childList: true })
 
     //events
     let eventList = get<Record<string, any>[]>(this.constructor, "__deco_events")
-    each(eventList, (ev) => {
+    eventList && eventList.forEach((ev) => {
       let name = ev.name;
       let options = assign({ target: document, once: false, passive: false, capture: false }, ev.options);
       let listener = bind(ev.fn, this)
       let target = options.target;
       if (isFunction(target)) {
         target = target.call(this, this)
+      }
+      if (!target) {
+        showTagError(this.tagName, "The target of @event('" + name + "',...) is invalid");
+        return
       }
       target.addEventListener(name, listener, options)
     })
@@ -372,18 +388,19 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     Collector.startCss(this)
     Collector.setCssUpdater(() => {
       let css = this.css;
-      this.#instanceCss.replace(css)
+      this.#instanceCss.replaceSync(css)
     })
     let css = this.css;
     if (trim(css)) {
-      this.#instanceCss.replace(css)
+      this.#instanceCss.replaceSync(css)
     }
     Collector.endCss()
 
     setTimeout(() => {
       this.#mounted = true;
       this.mounted();
-      each(ary, dw => {
+
+      ary && ary.forEach(dw => {
         dw.mounted(this, (key, value) => {
           that.#reactiveData[key] = value
           return that.#reactiveData[key]
@@ -394,26 +411,12 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     this.#inited = true;
   }
 
-  /**
-   * 初始化属性及状态，该回调内可以访问props和state
-   * 此时组件dom并未构建，但已有parent 属性，没有root属性
-   */
-  connected() { }
-  /**
-   * props初始化完成回调
-   */
-  propsReady() { }
-
-  /**
-   * 每次更新时调用
-   */
+  propsReady(props: Record<string, any>) { }
   render(): Template {
     throw Error(`[CompElem <${this.tagName}>] Missing render()`)
   }
-  /**
-   * dom渲染完毕后调用，该回调内可以query注解初始化完成
-   */
-  mounted() { }
+  beforeMount(): void { }
+  mounted(): void { }
   #onSlogChange(slot: HTMLSlotElement, name: string) {
     //1. 更新 _slotsPropMap & slots
     this.#updateSlotsAry()
@@ -515,12 +518,23 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     this.#rootEvs[evName].push(cbk);
     this.addEventListener(evName, cbk);
   }
+  #nextQ: Array<() => void> = []
+  #nextPending = false;
+  #flashNextQ() {
+    this.#nextPending = false
+    this.#nextQ.forEach(fn => fn())
+    this.#nextQ = []
+  }
   /**
    * 下一帧执行
    * @param cbk
    */
   nextTick(cbk: () => void) {
-    requestAnimationFrame(cbk);
+    this.#nextQ.push(cbk)
+    if (!this.#nextPending) {
+      this.#nextPending = true
+      this.#nextTimerFn()
+    }
   }
   /**
    * 强制更新一次视图
@@ -543,13 +557,15 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
    * @returns
    */
   _notify(ov: any, chain: string[]) {
+    //todo  1. 取消data - 0这个层级的监控；需要验证删除行时的路径
     let varPath = [];
-    each(chain, (seg) => {
+    for (let i = 0; i < chain.length; i++) {
+      const seg = chain[i];
       varPath.push(seg);
       let v = get(this, varPath);
       let pathStr = _toUpdatePath(varPath);
       this.#updateSources[pathStr] = { value: v, chain: pathStr === "slots" ? ['slots'] : varPath, oldValue: ov, end: varPath.length === chain.length };
-    });
+    }
 
     //debounce
     this.#updatedD()
@@ -557,11 +573,12 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
   #update() {
     if (size(this.#updateSources) < 1) return;
 
-    const changed = Object.seal(clone(omitBy(this.#updateSources, (v, k: string) => k[0] === PrivatePreffix)) as any)
+    const changed = this.#updateSources
+    this.#updateSources = {}
 
     //update decorators
     let ary: DecoratorWrapper[] = get(this.constructor, _DecoratorsKey)
-    each(ary, dw => {
+    ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
       dw.updated(this, changed)
     })
 
@@ -571,7 +588,7 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     let renderContextList: Set<CompElem | Directive> = new Set()
 
     //1. filter context
-    each(this.#updateSources, ({ value, chain, oldValue }, k: string) => {
+    each(changed, ({ value, chain, oldValue }, k: string) => {
       if (this.#renderContextList[k]) {
         this.#renderContextList[k].forEach(cx => {
           renderContextList.add(cx)
@@ -580,17 +597,22 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     });
     //2. update context
     renderContextList.forEach(context => {
-      context.updateContext(...(context._renderArgs ? context._renderArgs : []));
+      if (context === this) {
+        this.updateView(this.render());
+      } else {
+        //指令在这里仅更新视图
+        let rs = context.render(...(context._renderArgs ? context._renderArgs : []))
+        if (rs) context.updateView(rs);
+      }
     })
 
     //update slot view
-    each(this.#updateSlots, (v) => {
+    this.#updateSlots.forEach((v) => {
       this.#updateSlot(v)
     })
 
     this.updated(changed);
 
-    this.#updateSources = {};
   }
 
   /**
@@ -619,6 +641,7 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
       }
     })
     this.#attrs = this.#attrs ? assign(this.#attrs, filterAttrs) : filterAttrs;
+    let rs: Record<string, any> = {}
     each<PropOption, string>(propDefs, (def, key) => {
       let propDef = propDefs[key];
       let isInited = has(parentProps, key);
@@ -665,7 +688,7 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
       let setter = get<(v: any) => void>(propDefs, [key, 'setter'])
       if (setter) setter = bind(setter, this);
       if (getter || setter) {
-        Object.defineProperty(this.#data, key, {
+        Reflect.defineProperty(this.#data, key, {
           set: setter || function (v: any) { },
           get: getter
         })
@@ -674,7 +697,9 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
         this.setAttribute(kebabCase(key), trim(val))
       }
       this.#data[key] = val;
+      rs[key] = val;
     });
+    return Object.seal(rs)
   }
   //属性值检测
   #propTypeCheck(propDefs: Record<string, PropOption>, propKey: string, newValue: string | null) {
@@ -695,7 +720,8 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     } //endif
 
     //extra work
-    expectTypeAry.forEach(et => {
+    for (let i = 0; i < expectTypeAry.length; i++) {
+      const et = expectTypeAry[i];
       if (et.name === 'Boolean') {
         if (isString(val) && /(?:^true$)|(?:^false$)/.test(val)) {
           val = fval(val)
@@ -703,22 +729,22 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
           val = true;
         }
       }
-    })
+    }
 
     let realType = typeof val;
     let matched = isDefined(val) ? false : true;
-    each(expectTypeAry, (et) => {
+    for (let i = 0; i < expectTypeAry.length; i++) {
+      const et = expectTypeAry[i];
       if (
         //base form
         test(realType, et.name, "i") ||
         //object form
-        val instanceof et
+        val instanceof et || (Object.prototype.toString.call(val) === Object.prototype.toString.call(et.prototype))
       ) {
-        matched = true;
-        return false;
+        matched = true
+        break
       }
-
-    });
+    }
 
     if (!matched) {
       showTagError(
@@ -786,7 +812,7 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
       assign(this.#props, props)
       assign(this.#attrs, attrs)
 
-      this.#propsReady();
+      this.#propsReady(this.#props);
     } else {
       // this.#props = merge(this.#props || {}, props);
       // this.#attrs = merge({}, attrs);
@@ -813,7 +839,7 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     })
     assign(this.#props, props)
 
-    this.#propsReady();
+    this.#propsReady(this.#props);
   }
   _initProps(props: Record<string, any>, attrs?: Record<string, any>) {
     this.#props = merge(this.#props || {}, props);
@@ -826,7 +852,7 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     //1. 设置map
     if (!this.#slotsEl[name]) {
       this.#slotsEl[name] = slot;
-      Object.defineProperty(slot, '__l_comp', {
+      Reflect.defineProperty(slot, '__l_comp', {
         value: this
       })
     }
@@ -872,9 +898,10 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     } else {
       //update nodes
       let els = slotEl.assignedElements({ flatten: true })
-      each(els, el => {
+      for (let i = 0; i < els.length; i++) {
+        const el = els[i];
         el.setAttribute(propName!, value + '')
-      })
+      }
     }
   }
   #updateSlotsAry() {
@@ -947,16 +974,17 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     const rc = this._asyncDirectives.get(hook)
 
     //todo 如果要做成通用异步指令，元素必须插入到指令挂载的位置，并且slot的插入节点还要去掉注释
-    let [nodes, expPos, expPosMap] = rc?.renderContext(hook(get(slotMap, 'props')))!
+    let nodes = rc?.buildView(hook(get(slotMap, 'props')))!
     let nnodes = reject(toArray<Node>(nodes), n => n.nodeType === Node.COMMENT_NODE);
 
     if (nnodes) {
       let slottedNodes = this.#slotNodes[name]
       if (!isEmpty(slottedNodes)) {
 
-        each(slottedNodes!, n => {
+        for (let i = 0; i < slottedNodes.length; i++) {
+          const n = slottedNodes[i];
           n.parentNode?.removeChild(n)
-        })
+        }
       }
       this.#slotNodes[name] = nnodes;
       this.append(...nnodes)
@@ -964,7 +992,7 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     }
 
   }
-  _asyncDirectives = new WeakMap<TmplFn, IRenderContext>()
+  _asyncDirectives = new WeakMap<TmplFn, IView>()
   renderAsync(cbk: TmplFn, ...args: any[]) {
 
   }
@@ -994,11 +1022,12 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
       }
       if (this.#shadow.slotAssignment === 'named') {
         let removeNodes: Node[] = []
-        each(slottedNodes, c => {
+        for (let i = 0; i < slottedNodes.length; i++) {
+          const c = slottedNodes[i];
           if (!filterNodes.includes(c)) {
             removeNodes.push(c)
           }
-        })
+        }
         while (removeNodes.length > 0) {
           let n = removeNodes.pop()!
           n.parentNode?.removeChild(n)
@@ -1028,6 +1057,10 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
       this._updateProps({ [camelName]: newValue })
     }
   }
+  /**
+   * todo 
+   * 1. 取消上溯递归路径
+   */
   _regDeps(varPath: string, renderContext: CompElem | Directive) {
     let list = this.#renderContextList[varPath]
     if (!list) {
@@ -1035,16 +1068,24 @@ export class CompElem extends RenderContext(HTMLElement) implements IComponent {
     }
     list.add(renderContext)
 
-    let lastPath = ''
     let restPath = varPath.split('-')
     restPath.pop()
-    restPath.forEach(vp => {
-      lastPath = isEmpty(lastPath) ? vp : lastPath + '-' + vp
-      let list = this.#renderContextList[lastPath]
-      if (!list) {
-        list = this.#renderContextList[lastPath] = new Set<CompElem | Directive>()
-      }
-      list.add(renderContext)
-    })
+    if (restPath.length < 1) return;
+    let upperPath = restPath.join('-')
+
+    list = this.#renderContextList[upperPath]
+    if (!list) {
+      list = this.#renderContextList[upperPath] = new Set<CompElem | Directive>()
+    }
+    list.add(renderContext)
+    // for (let i = 0; i < restPath.length; i++) {
+    //   const vp = restPath[i];
+    //   lastPath = isEmpty(lastPath) ? vp : lastPath + '-' + vp
+    //   let list = this.#renderContextList[lastPath]
+    //   if (!list) {
+    //     list = this.#renderContextList[lastPath] = new Set<CompElem | Directive>()
+    //   }
+    //   list.add(renderContext)
+    // }
   }
 }

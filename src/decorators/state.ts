@@ -43,7 +43,7 @@ function defineState(target: any, stateKey: string, options?: StateOption) {
     while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
       merge(mixinStates, parentCtor.__deco_states ? cloneDeep(parentCtor.__deco_states) : {})
     }
-    Object.defineProperty(target.constructor, '__deco_states', {
+    Reflect.defineProperty(target.constructor, '__deco_states', {
       configurable: false,
       enumerable: false,
       value: mixinStates

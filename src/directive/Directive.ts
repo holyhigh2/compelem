@@ -1,12 +1,12 @@
-import { Template } from "../render/render";
-import { RenderContext } from "../render/RenderContext";
-import { DirectiveUpdateTag, TmplFn } from "../types";
-import { EnterPointType } from "./index";
+import { View } from "../render/RenderContext";
+import { Template } from "../render/Template";
+import { DirectiveUpdateTag } from "../types";
+import { EnterPoint, EnterPointType } from "./index";
 /**
  * 用于解析HTML模板
  * @author holyhigh2
  */
-export abstract class Directive extends RenderContext(Object) {
+export abstract class Directive extends View(Object) {
   //render参数，仅保存上次指令所在context变更时的数据，用于指令内部context更新时
   _renderArgs: any[]
   /**
@@ -19,12 +19,16 @@ export abstract class Directive extends RenderContext(Object) {
    * 更新时调用
    * @param point 
    */
-  abstract update(nodes: Node[], newArgs: any[], oldArgs: any[]): DirectiveUpdateTag
+  abstract update(point: EnterPoint, newArgs: any[], oldArgs: any[]): DirectiveUpdateTag
   /**
-   * 调用实现
-   * 如果返回tmplFn则表示异步渲染
+   * 渲染HTML内容，该回调内无法访问DOM
    */
-  abstract render(...args: any): Template | Template[] | void | TmplFn
+  abstract render(...args: any): Template | void
+  /**
+   * 指令所在DOM创建后渲染前调用，可以访问插入点信息
+   * 此时可对DOM进行操作
+   */
+  abstract created(point: EnterPoint, ...args: any): void
   /**
    * 指令渲染参数变量链
    */

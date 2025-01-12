@@ -1,4 +1,4 @@
-import { Template } from "./render/render";
+import { Template } from "./render/Template";
 
 /**
  * 组件接口
@@ -25,12 +25,16 @@ export interface IComponent {
   get styles(): CSSStyleSheet[];
   //是否已挂载
   get isMounted(): boolean;
+  //响应式样式
+  get css(): string;
 
   //----------------------------------------------------- lifecycles —— 首次渲染
-  // 1. props初始化完成，即将开始渲染
-  propsReady(): void;
-  // 2. 每次渲染时调用
+  // 1. 在props初始化及更新时调用
+  propsReady(props: Record<string, any>): void;
+  // 每次渲染时调用
   render(): Template;
+  // 2. slots、refs、props、attrs等初始化后调用
+  beforeMount(): void;
   // 3. 首次渲染完成后调用，仅触发一次
   mounted(): void;
   // 4. 每次插入dom时调用

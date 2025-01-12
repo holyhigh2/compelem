@@ -2,7 +2,8 @@
  * @author holyhigh2
  */
 
-import { Template } from "./render/render";
+import { Template } from "./render/Template";
+
 export type Constructor<T> = new (...args: any[]) => T;
 export type Getter = () => any;
 
@@ -26,11 +27,13 @@ export enum DirectiveUpdateTag {
 }
 
 /**
- * 模板中的表达式位置
+ * 视图更新点
  */
-export class ExpPos {
-    //表达式位置，多层使用-分割
-    index: string
+export class UpdatePoint {
+    //在子视图中的平级key
+    key: string
+    //表达式对应的vars位置
+    varIndex: number
     value: any
     isText: boolean = false;
     //是否模板
@@ -53,8 +56,8 @@ export class ExpPos {
     //是否事件
     isEvent: boolean;
 
-    constructor(varIndex: string | number, node: Node, attrName?: string, attrTmpl?: string) {
-        this.index = varIndex + '';
+    constructor(varIndex: number, node: Node, attrName?: string, attrTmpl?: string) {
+        this.varIndex = varIndex
         this.node = node;
         if (attrName)
             this.attrName = attrName;

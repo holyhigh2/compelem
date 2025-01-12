@@ -1,5 +1,5 @@
 import { Directive } from "../directive/Directive";
-import { EnterPointType, directive } from "../directive/index";
+import { EnterPoint, EnterPointType, directive } from "../directive/index";
 import { DirectiveUpdateTag, TmplFn } from "../types";
 
 /**
@@ -8,15 +8,17 @@ import { DirectiveUpdateTag, TmplFn } from "../types";
  * @param tmpl 模板
  */
 class IfElse extends Directive {
+  created(point: EnterPoint, ...args: any): void {
+  }
   //todo 缓存后会导致缓存内容无法更新，需要按照新的结构修改后进行缓存
   ifNodes: Node[]
   elseNodes: Node[]
   static get scopes(): EnterPointType[] {
     return [EnterPointType.TEXT, EnterPointType.SLOT]
   }
-  update(nodes: Node[], newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
+  update(point: EnterPoint, newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
     if (!!newArgs[0] === !!oldArgs[0]) {
-      return DirectiveUpdateTag.UPDATE
+      return DirectiveUpdateTag.NONE
     }
     if (newArgs[0]) {
       //缓存else

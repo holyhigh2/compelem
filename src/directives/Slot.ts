@@ -1,5 +1,5 @@
 import { Directive } from "../directive/Directive";
-import { EnterPointType, directive } from "../directive/index";
+import { EnterPoint, EnterPointType, directive } from "../directive/index";
 import { DirectiveUpdateTag, TmplFn } from "../types";
 
 /**
@@ -8,17 +8,17 @@ import { DirectiveUpdateTag, TmplFn } from "../types";
  * @param slotName 插槽名词，默认default
  */
 class Slot extends Directive {
-  update(nodes: Node[], newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
+  created(point: EnterPoint, cbk: TmplFn, slotName?: string): void {
+    cbk = cbk.bind(this.renderComponent)
+    this.slotComponent._bindSlotHook(slotName || 'default', cbk)
+  }
+  update(point: EnterPoint, newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
     return DirectiveUpdateTag.NONE
   }
   static get scopes(): EnterPointType[] {
     return [EnterPointType.SLOT]
   }
   render(cbk: TmplFn, slotName?: string) {
-    cbk = cbk.bind(this.renderComponent)
-    this.slotComponent._bindSlotHook(slotName || 'default', cbk)
-
-    return cbk
   }
 }
 export const slot = directive<Parameters<typeof Slot.prototype.render>>(Slot);

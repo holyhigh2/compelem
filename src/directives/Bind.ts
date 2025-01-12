@@ -1,7 +1,7 @@
 import { each } from "myfx";
-import { EnterPoint, EnterPointType, directive } from "../directive/index";
-import { Directive } from "../directive/Directive";
 import { CompElem } from "../CompElem";
+import { Directive } from "../directive/Directive";
+import { EnterPoint, EnterPointType, directive } from "../directive/index";
 import { DirectiveUpdateTag } from "../types";
 const Ignores = ['key']
 /**
@@ -9,18 +9,8 @@ const Ignores = ['key']
  * @param styles 对象/数组/字符串
  */
 class Bind extends Directive {
-  update(nodes: Node[], newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
-    return DirectiveUpdateTag.NONE
-  }
-  static get scopes(): EnterPointType[] {
-    return [EnterPointType.TAG]
-  }
-  constructor(point: EnterPoint) {
-    super();
-    this.point = point
-  }
-  render(obj: Record<string, any>) {
-    let el = this.point.startNode as HTMLElement
+  created(point: EnterPoint, obj: Record<string, any>): void {
+    let el = point.startNode as HTMLElement
     if (el instanceof CompElem) {
       //判断是否prop
       let props: Record<string, any> = {};
@@ -41,6 +31,16 @@ class Bind extends Directive {
         el.setAttribute(k, v)
       })
     }
+  }
+  update(point: EnterPoint, newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
+    return DirectiveUpdateTag.NONE
+  }
+  static get scopes(): EnterPointType[] {
+    return [EnterPointType.TAG]
+  }
+
+  render(obj: Record<string, any>) {
+
   }
 }
 export const bind = directive<Parameters<typeof Bind.prototype.render>>(Bind);

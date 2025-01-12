@@ -1,10 +1,8 @@
 import {
   camelCase,
   concat,
-  each,
   get,
   has,
-  isArray,
   isFunction,
   isString,
   isUndefined,
@@ -15,10 +13,7 @@ import {
   snakeCase,
   startsWith,
   toArray,
-  toString,
-  trim,
-  trimEnd,
-  trimStart
+  trim
 } from "myfx";
 import { CompElem } from "../CompElem";
 import {
@@ -27,8 +22,10 @@ import {
   EnterPointType,
 } from "../directive/index";
 import { addEvent } from "../events/event";
-import { ExpPos } from "../types";
+import { UpdatePoint } from "../types";
 import { showError, showTagError } from "../utils";
+import { IView, SubView } from "./RenderContext";
+import { Template } from "./Template";
 
 export const ATTR_PREFIX_EVENT = "@";
 export const ATTR_PREFIX_PROP = ".";
@@ -37,8 +34,8 @@ export const ATTR_PREFIX_REF = "*";
 export const ATTR_PROP_DELIMITER = ":";
 export const ATTR_REF = "ref";
 
-const EXP_ATTR_CHECK = /[.?-a-z]+\s*=\s*(['"])\s*([^='"]*<\!--l_ui-pl_df-->){2,}.*?\1/ims;
-const EXP_PLACEHOLDER = /<\s*[a-z0-9-]+([^>]*<\!--l_ui-pl_df-->)*[^>]*?(?<!-)>/imgs;
+const EXP_ATTR_CHECK = /[.?-a-z]+\s*=\s*(['"])\s*([^='"]*<\!--c_ui-pl_df-->){2,}.*?\1/ims;
+const EXP_PLACEHOLDER = /<\s*[a-z0-9-]+([^>]*<\!--c_ui-pl_df-->)*[^>]*?(?<!-)>/imgs;
 const SLOT_KEY_PROPS = 'slot-props'
 /**
  * 提供渲染函数相关操作
@@ -54,35 +51,53 @@ const SLOT_KEY_PROPS = 'slot-props'
  *    1. 在后面追加同内容注释节点，标记两个节点，以便变量可以进行绑定
  *    2. 在中间插入变量内容
  * 3. 只有表达式是一个指令时才能绑定依赖
+ * @param component
  * @param tmpl
- * @param slotArgs
- * @returns
+ * @returns [html,vars]
  */
 export function buildHTML(
-  tmpl: Template | Template[]
-) {
+  component: CompElem,
+  tmpl: Template
+): [string, any[]] {
   let html = "";
-  let tmplList = isArray(tmpl) ? tmpl : [tmpl];
-  tmplList.forEach(({ strings, vars }) => {
-    let strList = toArray<string>(strings);
-    strList[0] = trimStart(strList[0]);
-    strList[strList.length - 1] = trimEnd(strList[strList.length - 1]);
+  let vars = concat(tmpl.vars)
+  let l = tmpl.strings.length - 1;
+  let vl = tmpl.vars.length - 1
+  for (let i = 0; i <= l; i++) {
+    const str = tmpl.strings[i];
+    let val = get<any>(tmpl.vars, i, '');
+    if (val && val.di) {
+      let rs = val.render(component)
+      if (rs instanceof Template) {
+        let [h, v] = buildHTML(component, rs)
+        Reflect.defineProperty(val, '_renderVars', { value: v })
+        // set(val, '_renderVars', v)
+        val = PLACEHOLDER_DI_START + h + PLACEHOLDER_DI_END
+      } else {
+        val = rs ?? PLACEHOLDER
+      }
+    }
+    else if (val instanceof Template) {
+      let [h, v] = buildHTML(component, val)
+      Reflect.defineProperty(val, '_renderVars', { value: v })
+      // set(val, '_renderVars', v)
+      val = PLACEHOLDER_TMPL_START + h + PLACEHOLDER_TMPL_END
+      // vars.splice(i + offset, 1, ...v)
+      // offset += v.length
+    }
+    else {
+      val = i > vl ? "" : PLACEHOLDER;
+    }
 
-    let l = strList.length - 1;
-    strList.forEach((str, i: number) => {
-      let val = get<any>(vars, i, "");
-      val = l === i ? "" : PLACEHOLDER;
-
-      html += str + val;
-    });
-  });
+    html += str + val;
+  }
 
   //attr check
   let rs = html.match(EXP_ATTR_CHECK)
   if (rs) {
     let errorMsg = replaceAll(rs[0], PLACEHOLDER, '${...}')
     showError(`Parse error: attribute value can be set only one interpolation —— \n ${errorMsg}`)
-    return '';
+    return ['', vars];
   }
 
   let i = 0;
@@ -90,25 +105,27 @@ export function buildHTML(
     let rs = replaceAll(a, PLACEHOLDER, () => PLACEHOLDER.replace('-->', '') + (i++))
     return rs
   })
+  html = html.replace(EXP_STR, '$1><').trim()
 
-  return html;
+  return [html, vars];
 }
-const PLACEHOLDER = "<!--l_ui-pl_df-->";
-const PLACEHOLDER_PREFFIX = "<!--l_ui-pl_df";
-export const PLACEHOLDER_EXP = /<!--l_ui-pl_df\d*(-->)?/
+const PLACEHOLDER_DI_START = "<!--c_ui-pl_di-start-->";
+const PLACEHOLDER_DI_END = "<!--c_ui-pl_di-end-->";
+const PLACEHOLDER_TMPL_START = "<!--c_ui-pl_tmpl-start-->";
+const PLACEHOLDER_TMPL_END = "<!--c_ui-pl_tmpl-end-->";
+const PLACEHOLDER = "<!--c_ui-pl_df-->";
+const PLACEHOLDER_PREFFIX = "<!--c_ui-pl_df";
+export const PLACEHOLDER_EXP = /<!--c_ui-pl_df\d*(-->)?/
 /**
  * 构建模板为DOM结构
  * @param html
  */
 export function buildTmplate(
-  expPos: Record<string, ExpPos>,
-  directives: Array<DirectiveWrapper>,
+  updatePoints: Array<UpdatePoint>,
   html: string,
   vars: any[],
   component: CompElem,
-  slotArgs?: Record<string, any>,
-  level = 0,
-  expressionChain = ''
+  viewContext: IView
 ): NodeListOf<ChildNode> {
   const container = document.createElement("div");
   container.innerHTML = html;
@@ -121,6 +138,13 @@ export function buildTmplate(
   let currentNode: any;
   let varIndex = 0;
   let slotComponent: CompElem | null = null;
+  let startDiCommentNode;
+  let startDiCommentNodeStack: Comment[] = [];
+  let startDiStack = [];
+  let startDiUpdatePointStack = [];
+  let updatePointsStack = [updatePoints]
+  let varStack = []
+  let varIndexStack = []
   while ((currentNode = nodeIterator.nextNode())) {
     if (currentNode instanceof HTMLElement || currentNode instanceof SVGElement) {
       if (currentNode instanceof CompElem) {
@@ -132,10 +156,11 @@ export function buildTmplate(
       }
       let props: Record<string, any> = {};
       let attrs = toArray<Attr>(currentNode.attributes);
-      each(attrs, (attr) => {
+      for (let i = 0; i < attrs.length; i++) {
+        const attr = attrs[i];
         let { name, value } = attr;
         if (name === SLOT_KEY_PROPS) {
-          let slotName = currentNode.name || 'default'
+          let slotName = currentNode.getAttribute('name') || 'default'
           if (slotComponent) {
             let ary = slotComponent._slotsPropMap[slotName]
             if (!ary) {
@@ -143,54 +168,62 @@ export function buildTmplate(
             }
             ary.push(currentNode)
           }
-        }
+        }//endif
         if (startsWith(name, PLACEHOLDER_PREFFIX)) {
           let val = vars[varIndex];
           //support directive only for now
           if (val instanceof DirectiveWrapper) {
             val.checkScope(EnterPointType.TAG)
             let point = new EnterPoint(
-              level,
               currentNode,
               name.substring(1),
               EnterPointType.TAG
             );
             val.point = point
-            val.varPath = expressionChain + varIndex;
-            val.slotComponent = slotComponent!;
-            directives.push(val)
-            let pos = expPos[expressionChain + varIndex] = new ExpPos(expressionChain + varIndex, currentNode);
-            pos.isDirective = true;
-            pos.value = val;
-            pos.isComponent = !!slotComponent
+
+            val.di.slotComponent = slotComponent!;
+            val.di.renderComponent = component
+
+            let po = new UpdatePoint(varIndex, currentNode)
+            po.isDirective = true;
+            po.value = val;
+            po.isComponent = !!slotComponent
+
+            updatePoints.push(po)
+
             varIndex++;
+
+            val.di.created(point, ...val.args)
           }
           currentNode.removeAttribute(name)
-          return;
-        }
+          continue;
+        }//endif
         //@event.stop.prevent.debounce
         if (name[0] === ATTR_PREFIX_EVENT) {
           let cbk: (ev: Event) => any = (e: Event) => {/* Do nothing */ }
-          let pos = null
+
           if (PLACEHOLDER_EXP.test(value)) {
             let val = vars[varIndex];
             if (!isFunction(val)) {
               showTagError(currentNode.tagName,
                 `Event '${name}' must be a function`
               );
-              return;
+              continue;
             }
             cbk = val.bind(component)
 
-            pos = expPos[expressionChain + varIndex] = new ExpPos(expressionChain + varIndex, currentNode, name.replace(/\.|\?|@/, ''), value);
-            pos.isComponent = !!slotComponent
-            pos.isEvent = true
+            let po = new UpdatePoint(varIndex, currentNode, name.replace(/\.|\?|@/, ''), value)
+            po.isComponent = !!slotComponent
+            po.isEvent = true
+
+            updatePoints.push(po)
+
             varIndex++;
           }
           cbk = addEvent(name.substring(1), cbk, currentNode, component)
           currentNode.removeAttribute(name)
-          return;
-        }
+          continue;
+        }//endif
         if (name === ATTR_REF) {
           if (PLACEHOLDER_EXP.test(value)) {
             let val = vars[varIndex];
@@ -198,26 +231,27 @@ export function buildTmplate(
               showTagError(currentNode.tagName,
                 `Ref must be a RefObject`
               );
-              return;
+              continue;
             }
             varIndex++;
             val.current = currentNode
           }
           currentNode.removeAttribute(name)
-          return;
-        }
+          continue;
+        }//endif
         //校验变量必须是表达式
         if (name[0] === ATTR_PREFIX_PROP && !PLACEHOLDER_EXP.test(value)) {
           showTagError(currentNode.tagName,
             `Prop '${name}' must be an interpolation`
           );
-          return;
+          continue;
         }
 
         if (PLACEHOLDER_EXP.test(value)) {
           let val = vars[varIndex];
-          let pos = expPos[expressionChain + varIndex] = new ExpPos(expressionChain + varIndex, currentNode, name.replace(/\.|\?|@/, ''), value);
-          pos.isComponent = !!slotComponent
+          let po = new UpdatePoint(varIndex, currentNode, name.replace(/\.|\?|@/, ''), value)
+          updatePoints.push(po)
+          po.isComponent = !!slotComponent
           if (
             name[0] === ATTR_PREFIX_PROP ||
             name[0] === ATTR_PREFIX_BOOLEAN ||
@@ -225,25 +259,28 @@ export function buildTmplate(
           ) {
             if (val instanceof DirectiveWrapper) {
               val.checkScope(EnterPointType.PROP)
-              directives.push(val)
+
               let point = new EnterPoint(
-                level,
                 currentNode,
                 name.substring(1),
                 EnterPointType.PROP
               );
-              val.varPath = expressionChain + varIndex;
+
               val.point = point
               val.slotComponent = slotComponent!;
-              pos.value = val;
-              pos.isDirective = true;
+              po.value = val;
+              po.isDirective = true;
+
+              if (val) {
+                val.di.created(val.point, ...val.args)
+              }
             } else if (name[0] === ATTR_PREFIX_BOOLEAN) {
-              pos.isToggleProp = true;
-              pos.value = !!val;
-              if (pos.value)
+              po.isToggleProp = true;
+              po.value = !!val;
+              if (po.value)
                 currentNode.setAttribute(name.substring(1), '')
             } else if (name[0] === ATTR_PREFIX_REF) {
-              pos.value = val;
+              po.value = val;
               let refNames = name.substring(1);
 
               const [refNamec, prop] = refNames.split(ATTR_PROP_DELIMITER)
@@ -259,21 +296,20 @@ export function buildTmplate(
                   refName = snakeCase(refName)
                   break;
               }
-              pos.attrName = refName
+              po.attrName = refName
               currentNode.setAttribute(refName, val)
 
             } else {
               if (!(currentNode instanceof CompElem) && currentNode.tagName !== 'SLOT') {
                 showTagError(currentNode.tagName, `Prop '${name}' can only be set on a CompElem or a slot`)
-                delete expPos[expressionChain + varIndex]
               } else {
                 let propName = camelCase(name.substring(1));
                 if (!(propName in currentNode) && currentNode.tagName !== 'SLOT') {
                   showTagError(currentNode.tagName, `Prop '${name}' is not defined in ${currentNode.tagName}`)
                 }
 
-                pos.value = val;
-                pos.isProp = true;
+                po.value = val;
+                po.isProp = true;
                 props[propName] = val;
               }
             }
@@ -281,7 +317,8 @@ export function buildTmplate(
             currentNode.removeAttribute(name)
             val = ''
           } else {
-            pos.value = val;
+            po.value = val;
+            let dw
             if (val instanceof DirectiveWrapper) {
               let type = EnterPointType.ATTR;
               if (name === "class") {
@@ -290,29 +327,34 @@ export function buildTmplate(
                 type = EnterPointType.STYLE;
               }
               val.checkScope(type)
-              directives.push(val)
-              pos.isDirective = true;
+
+              po.isDirective = true;
               let point = new EnterPoint(
-                level,
                 currentNode,
                 name,
                 type
               );
               val.point = point
-              val.slotComponent = slotComponent!;
-              val.varPath = expressionChain + varIndex;
+
+              val.di.slotComponent = slotComponent!;
+              val.di.renderComponent = component
+
+              dw = val
+              // val.di.created(point, ...val.args)
               val = ''
             }
             value = replace(value, PLACEHOLDER_EXP, val)
             //回填
             attr.value = value;
+            if (dw) {
+              dw.di.created(dw.point, ...dw.args)
+            }
+
           }
 
           varIndex++;
-        }
-
-      });
-
+        }//endif
+      }//endfor
       if (currentNode instanceof CompElem) {
         currentNode._initProps(props)
       } else if (currentNode instanceof HTMLSlotElement) {
@@ -320,47 +362,157 @@ export function buildTmplate(
       }
     } else {
       let comment = currentNode as Comment;
-      if (`<!--${comment.nodeValue}-->` !== PLACEHOLDER) {
+      let ph = `<!--${comment.nodeValue}-->`
+      if (ph === PLACEHOLDER_DI_START) {
+        if (startDiCommentNode) {
+          startDiCommentNodeStack.push(startDiCommentNode)
+        }
+        startDiCommentNode = comment
+
+        let val = vars[varIndex];
+        let po = new UpdatePoint(varIndex, currentNode)
+        po.isComponent = !!slotComponent
+        po.isDirective = true;
+        po.value = val
+        let pType = slotComponent ? EnterPointType.SLOT : EnterPointType.TEXT
+        let point = new EnterPoint(
+          startDiCommentNode,
+          "",
+          pType
+        );
+        val.point = point
+        val.di.slotComponent = slotComponent!;
+        val.di.renderComponent = component
+        startDiStack.push(val)
+
+        updatePoints.push(po)
+        startDiUpdatePointStack.push(po)
+        //stack updatePoints
+        updatePoints = []
+        updatePointsStack.push(updatePoints)
+
+        varIndex++;
+        //stack vars
+        varIndexStack.push(varIndex)
+        varStack.push(vars)
+        vars = val._renderVars
+        varIndex = 0
+
+        continue;
+      } else if (ph === PLACEHOLDER_DI_END) {
+        startDiUpdatePointStack.pop()!.textNode = comment
+        let startDi = startDiStack.pop()
+        startDi.point.endNode = comment;
+        //结束时调用created
+        startDi.di.created(startDi.point, ...startDi.args)
+        startDiCommentNode = startDiCommentNodeStack.pop()
+
+        startDi.di.__updatePoints = updatePoints
+        updatePointsStack.pop()
+        updatePoints = last(updatePointsStack)
+        //restore vars
+        vars = varStack.pop()!
+        varIndex = varIndexStack.pop()!
+      } else if (ph === PLACEHOLDER_TMPL_START) {
+        if (startDiCommentNode) {
+          startDiCommentNodeStack.push(startDiCommentNode)
+        }
+        startDiCommentNode = comment
+
+        let val = vars[varIndex];
+        let po = new UpdatePoint(varIndex, currentNode)
+        po.isComponent = !!slotComponent
+        po.isTmpl = true;
+        let parentDi = last(startDiStack)
+        if (parentDi && get(parentDi, 'diClass.name') === 'ForEach') {
+          po.key = val.getKey();
+        } else if (viewContext.constructor.name == 'ForEach') {
+          po.key = val.getKey();
+        }
+
+        val = po.value = new SubView(val)
+        let pType = slotComponent ? EnterPointType.SLOT : EnterPointType.TEXT
+        let point = new EnterPoint(
+          startDiCommentNode,
+          "",
+          pType
+        );
+        val.point = point
+        val.slotComponent = slotComponent!;
+        val.renderComponent = component
+        startDiStack.push(val)
+
+        updatePoints.push(po)
+        startDiUpdatePointStack.push(po)
+        //stack updatePoints
+        updatePoints = []
+        updatePointsStack.push(updatePoints)
+
+        varIndex++;
+        //stack vars
+        varIndexStack.push(varIndex)
+        varStack.push(vars)
+        vars = val._renderVars
+        varIndex = 0
+
+        continue;
+      } else if (ph === PLACEHOLDER_TMPL_END) {
+        startDiUpdatePointStack.pop()!.textNode = comment
+        let startDi = startDiStack.pop()
+        startDi.point.endNode = comment;
+        startDiCommentNode = startDiCommentNodeStack.pop()
+        startDi.__updatePoints = updatePoints
+        updatePointsStack.pop()
+        updatePoints = last(updatePointsStack)
+        //restore vars
+        vars = varStack.pop()!
+        varIndex = varIndexStack.pop()!
+      }
+      if (ph !== PLACEHOLDER) {
         continue;
       }
-      let pos = expPos[expressionChain + varIndex] = new ExpPos(expressionChain + varIndex, currentNode);
-      pos.isComponent = !!slotComponent
-      pos.isText = true;
+      let po = new UpdatePoint(varIndex, currentNode)
+      updatePoints.push(po)
+
+      po.isComponent = !!slotComponent
+      po.isText = true;
 
       let val = vars[varIndex];
       let startComment: Comment;
       //插入start占位符
       startComment = document.createComment(
-        `compelem-ui-${level}-${varIndex}-child-start`
+        `compelem-ui-${varIndex}-child-start`
       );
       comment.parentNode!.insertBefore(startComment, comment);
-      comment.nodeValue = `compelem-ui-${level}-${varIndex}-child-end`;
-      pos.textNode = startComment
+      comment.nodeValue = `compelem-ui-${varIndex}-child-end`;
+      po.textNode = startComment
       if (val instanceof DirectiveWrapper) {
-        pos.isDirective = true;
-        pos.value = val;
+        po.isDirective = true;
+        po.value = val;
 
         let pType = slotComponent ? EnterPointType.SLOT : EnterPointType.TEXT
-        directives.push(val)
+        // directives.push(val)
         let point = new EnterPoint(
-          level,
           startComment,
           "",
           pType
         );
         point.endNode = comment;
+
         val.point = point
-        val.slotComponent = slotComponent!;
-        val.varPath = expressionChain + varIndex;
+        val.di.slotComponent = slotComponent!;
+        val.di.renderComponent = component
+
+        val.di.created(point, ...val.args)
         val = ''
       } else if (val instanceof Template) {
-        pos.isTmpl = true;
-        pos.value = val;
-        let html = buildHTML(val)
-        val = buildTmplate(expPos, directives, html, val.vars, component, slotArgs, level, expressionChain + `${varIndex}-`)
+        po.isTmpl = true;
+        po.value = val;
+        let [html, vars] = buildHTML(component, val)
+        val = buildTmplate(updatePoints, html, vars, component, viewContext)
 
       } else {
-        pos.value = val
+        po.value = val
       }
       varIndex++;
 
@@ -382,81 +534,22 @@ export function buildTmplate(
 
 export const DomUtil = {
   insertBefore: function (node: Node, newNodes: any[]) {
+    if (!node.parentNode) return;
+
     let fragment = document.createDocumentFragment();
     fragment.append(...newNodes);
     node.parentNode!.insertBefore(fragment, node);
   },
   remove: function (startNode: Node, endNode: Node) {
+    if (startNode === endNode) {
+      startNode?.parentNode?.removeChild(startNode)
+      return;
+    }
     let nextNode = startNode.nextSibling
-    while (nextNode !== endNode) {
+    while (nextNode && nextNode !== endNode) {
       nextNode?.parentNode?.removeChild(nextNode)
       nextNode = startNode.nextSibling
     }
-  }
-}
-
-const EXP_KEY = /\s+\.?key\s*=/;
-export class Template {
-  strings: Array<string>;
-  vars: Array<any>;
-  //如果模板仅有一个root节点且含有key属性
-  key: string;
-  constructor(strings: Array<string>, vars: Array<any>) {
-    this.strings = concat(strings);
-    this.vars = vars;
-  }
-  //解析模板中的key
-  getKey() {
-    let vars = this.vars
-    let k = ''
-    each(this.strings, (str, i) => {
-      if (EXP_KEY.test(str)) {
-        k = toString(vars[i])
-        return false
-      }
-    })
-    this.key = k
-    return k
-  }
-  /**
-   * 追加tmpl
-   * 交接处模板进行合并
-   * @param tmpl
-   */
-  append(tmpl: Template) {
-    let lastStr = last(this.strings);
-
-    tmpl.strings.forEach((str, i) => {
-      if (i == 0) {
-        this.strings[this.strings.length - 1] = lastStr + str;
-        return;
-      }
-      this.strings.push(str);
-    });
-    this.vars = concat(this.vars, tmpl.vars);
-    return this;
-  }
-  /**
-   * 获取html字符串
-   */
-  getHTML() {
-    let html = '';
-    let strList = toArray<string>(this.strings);
-    strList[0] = trimStart(strList[0]);
-    strList[strList.length - 1] = trimEnd(strList[strList.length - 1]);
-
-    let l = strList.length - 1;
-    strList.forEach((str, i: number) => {
-      let val = get<any>(this.vars, i, "");
-      if (val instanceof Template) {
-        val = val.getHTML();
-      } else {
-        val = l === i ? "" : val;
-      }
-
-      html += str + val;
-    });
-    return html;
   }
 }
 
@@ -476,6 +569,7 @@ export function html(
   );
 }
 
+const EXP_STR = /([a-z0-9"'])\s*>\s*</img
 export interface RefObject<T> {
   current: T
 }

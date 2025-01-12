@@ -1,81 +1,71 @@
-import { compact, get, isArray, isBlank, isEmpty, isEqual, isObject, join, replace, set, size, split, toArray } from "myfx";
+import { camelCase, get, isBlank, isEqual, isObject, isPlainObject, join, replace, set, split } from "myfx";
 import { CompElem } from "../CompElem";
-import { Directive } from "../directive/Directive";
-import { DirectiveWrapper } from "../directive/index";
-import { ExpPos } from "../types";
-import { DomUtil, PLACEHOLDER_EXP, Template, buildHTML, buildTmplate } from "./render";
+import { PropOption } from "../decorators/prop";
+import { UpdatePoint } from "../types";
+import { DomUtil, PLACEHOLDER_EXP, buildHTML, buildTmplate } from "./render";
+import { Template } from "./Template";
 
-//todo 接口需要暴露出去
-export interface IRenderContext {
-  render(...args: any): Template | Template[] | void | ((...args: any[]) => (Template | Template[]))
-  slotComponent: CompElem;
-  renderComponent: CompElem;
-  renderContext(...args: any): [NodeListOf<ChildNode>, Record<string, ExpPos>, Record<string, typeof this.__expPos | null>];
-  updateContext(...args: any): void
-}
-
-/**
- * 为组件/指令提供渲染接口
- * @author holyhigh2
- */
-export function RenderContext<T extends new (...args: any[]) => any>(spuerClass: T) {
-  //mixin class
-  return class extends spuerClass implements IRenderContext {
-    /**
-   * 渲染实现
+export interface IView {
+  /**
+   * 对比新的模板数据，更新变化点
+   * @param tmpl 
    */
-    render(...args: any): Template | Template[] | void | ((...args: any[]) => (Template | Template[])) { }
-    //模板中变量位置信息
-    __expPos: Record<string, ExpPos> = {};
-    //对于each指令存在多个context，每个context需要单独更新 {contextKey:expPos}
-    __expPosMap: Record<string, typeof this.__expPos | null> = {};
-    //组件内所有的指令
-    __directives: Record<string, Directive> = {};/**
-    * 指令/组件所在的插槽所属组件
-    */
-    slotComponent: CompElem;
+  updateView(tmpl: Template): void
+  /**
+   * 构建模板返回nodes并更新 __updatePoints 属性
+   * @param tmpl 
+   */
+  buildView(tmpl: Template): NodeListOf<ChildNode>
+}
+/**
+ * 视图基类 为组件视图及指令子视图提供统一服务
+ * @param spuerClass 
+ * @returns 
+ */
+export function View<T extends new (...args: any[]) => any>(spuerClass: T) {
+  //mixin class
+  return class extends spuerClass implements IView {
+    __updatePoints: Array<UpdatePoint>
     /**
-     * 渲染上下文所属组件
+     * 渲染上下文所属组件，仅用于指令
      */
     renderComponent: CompElem;
-    //////////////////////////////////// methods
-    renderContext(...args: any): [NodeListOf<ChildNode>, Record<string, ExpPos>, Record<string, typeof this.__expPos | null>] {
-      return renderContext.call(this, ...args)
-    }
-    updateContext(...args: any) {
-      let tmpl = size(args) == 1 && ((isArray<Template>(args[0]) && args[0][0] instanceof Template) || (args[0] instanceof Template)) ? args[0] : this.render(...args);
 
-      if (tmpl instanceof Template) {
-        this.__updateExpPos(tmpl, this.__expPos)
-      } else if (isArray<Template>(tmpl) && tmpl[0] instanceof Template) {
-        tmpl.forEach((tmp, i) => {
-          this.__updateExpPos(tmp, this.__expPosMap[tmp.key ?? tmp.getKey()]!)
-        })
-      }
+    buildView(tmpl: Template) {
+      let comp = this instanceof CompElem ? this : this.renderComponent
+      let [html, vars] = buildHTML(comp, tmpl);
+      let updatePoints: UpdatePoint[] = []
+      let nodes = buildTmplate(updatePoints, html, vars, comp, this);
+      this.__updatePoints = updatePoints
+      return nodes
     }
-    __updateExpPos(tmpl: Template, _expPos: Record<string, ExpPos>) {
+    updateView(tmpl: Template): void {
       if (isBlank(join(tmpl.strings))) return;
-
+      if (!this.__updatePoints) return;
       let { vars } = tmpl;
+      let comp = this instanceof CompElem ? this : this.renderComponent;
 
-      _expPos && Object.values(_expPos).forEach(expPos => {
-        let varIndex = expPos.index;
-        let oldValue = expPos.value;
+      for (let i = 0; i < this.__updatePoints.length; i++) {
+        const up = this.__updatePoints[i];
+        let varIndex = up.varIndex;
+        let oldValue = up.value;
         let newValue: any = vars;
-        let node = expPos.node;
+        let node = up.node;
         let indexSegs = split(varIndex, '-')
-        indexSegs.forEach((seg, i) => {
+        for (let l = 0; l < indexSegs.length; l++) {
+          const seg = indexSegs[l];
           newValue = get(newValue, seg)
           if (newValue && newValue.vars && i < indexSegs.length - 1) {
             newValue = newValue.vars
           }
-        })
+        }
 
         //check
-        if (!isObject(oldValue) && oldValue === newValue) return;
+        if (!isObject(oldValue) && oldValue === newValue) continue;
 
         let elNode = node as HTMLElement
-        if (expPos.isDirective) {
+        if (up.isDirective) {
+          if (!oldValue.di) continue;//指令还在异步执行中，不更新
           //指令
           newValue.di = oldValue.di;
           newValue.di.renderParams = newValue.varChain;
@@ -83,30 +73,39 @@ export function RenderContext<T extends new (...args: any[]) => any>(spuerClass:
           newValue.point = oldValue.point;
           newValue.varPath = oldValue.varPath;
 
-          let nodes = getDirectiveNodes(newValue.point.startNode, newValue.point.endNode)
-
-          newValue.update(nodes, newValue.args, oldValue.args);
-        } else if (expPos.isToggleProp) {
+          oldValue.update(oldValue.point, newValue.args, oldValue.args);
+        } else if (up.isToggleProp) {
           //布尔特性
-          if ((!!newValue) === oldValue) return
+          if ((!!newValue) === oldValue) continue
 
-          elNode.toggleAttribute(expPos.attrName, !!newValue)
-          set(elNode, expPos.attrName, !!newValue)
+          elNode.toggleAttribute(up.attrName, !!newValue)
+          set(elNode, up.attrName, !!newValue)
 
-        } else if (expPos.isProp) {
+        } else if (up.isProp) {
           //子组件属性
-          if (!isObject(newValue) && newValue === oldValue) return;
-          if (isObject(newValue) && isEqual(newValue, oldValue)) return;
+          if (!isObject(newValue) && newValue === oldValue) continue;
+          let ck = camelCase(up.attrName)
+          let propDefs: Record<string, PropOption> = get(
+            up.node.constructor,
+            "__deco_props"
+          );
+          if (propDefs) {
+            let propDef = propDefs[ck]
+            if (propDef && propDef.hasChanged && !propDef.hasChanged.call(this, newValue, oldValue)) continue;
+          }
+
+          // if (isPlainObject(newValue) && isEqual(newValue, oldValue)) continue;
+          // if (isArray(newValue) && isArray(oldValue) && isEqual(newValue, oldValue)) continue;
           //如果node是slot则触发组件的slot更新
           if (node instanceof CompElem) {
-            node._updateProps({ [expPos.attrName]: newValue });
+            node._updateProps({ [up.attrName]: newValue });
           } else if (node instanceof HTMLSlotElement) {
-            this.renderComponent._updateSlot(node.getAttribute('name') || 'default', expPos.attrName, newValue)
+            comp._updateSlot(node.getAttribute('name') || 'default', up.attrName, newValue)
           }
-        } else if (expPos.attrName && !expPos.isEvent) {
+        } else if (up.attrName && !up.isEvent) {
           //特性
           if (!isEqual(oldValue, newValue)) {
-            switch (expPos.attrName) {
+            switch (up.attrName) {
               case 'value':
                 if (node instanceof HTMLInputElement) {
                   node.value = newValue
@@ -115,88 +114,44 @@ export function RenderContext<T extends new (...args: any[]) => any>(spuerClass:
                 }
 
               default:
-                (node as HTMLElement).setAttribute(expPos.attrName, replace(expPos.attrTmpl, PLACEHOLDER_EXP, newValue + ''))
+                (node as HTMLElement).setAttribute(up.attrName, replace(up.attrTmpl, PLACEHOLDER_EXP, newValue + ''))
             }
           }
-        } else if (expPos.isTmpl) {
+        } else if (up.isTmpl) {
           //这里一定是子视图更新，子视图仅更新内部__expose
-          if (!isEqual(newValue, oldValue)) {
-            let [subNodes, subExpPos, subExpPosMap] = renderContext.call(this, newValue/*newValue */)
-
-            if (isEmpty(subExpPos)) {
-              DomUtil.remove(expPos.textNode, expPos.node);
-              DomUtil.insertBefore(expPos.node, subNodes)
-            } else {
-              this.__updateExpPos(newValue, subExpPos)
-            }
+          if (newValue.strings.join() !== oldValue.tmpl.strings.join()) {
+            up.value.updateView(newValue)
+          } else if (newValue.vars.some((v: any) => isObject(v) && !isPlainObject(v)) || oldValue.tmpl.vars.some((v: any) => isObject(v) && !isPlainObject(v)) || !isEqual(newValue.vars, oldValue.tmpl.vars)) {
+            up.value.updateView(newValue)
           }
-        } else if (expPos.isText) {
-          let textNode = expPos.textNode.nextSibling
-          if (textNode && textNode === expPos.node.previousSibling) {
+
+          oldValue.tmpl = newValue
+          newValue = oldValue//new SubView(newValue)
+        } else if (up.isText) {
+          let textNode = up.textNode.nextSibling
+          if (textNode && textNode === up.node.previousSibling) {
             textNode.textContent = newValue
           } else {
-            DomUtil.remove(expPos.textNode, expPos.node);
-            DomUtil.insertBefore(expPos.node, [newValue])
+            DomUtil.remove(up.textNode, up.node);
+            DomUtil.insertBefore(up.node, [newValue])
           }
         }
 
-        expPos.value = newValue
-      })
+        up.value = newValue
+      }//endfor
+
     }
   }
 }
 
-function renderContext(...args: any) {
-  let tmpl = args.length === 1 && args[0] instanceof Template ? args[0] : this.render(...args);
-  let domTree;
-  let diWrappers: DirectiveWrapper[] = [];
-  let expPos = undefined
-  let expPosMap: Record<string, any> | undefined = undefined
-  if (tmpl instanceof Template) {
-    let html = buildHTML(tmpl);
-    // this.__expPos = {}
-    expPos = {}
-    domTree = buildTmplate(expPos, diWrappers, html, tmpl.vars, this.renderComponent);
-  } if (isArray<Template>(tmpl) && tmpl[0] instanceof Template) {
-    // this.__expPosMap = {}
-    let doms: any[] = []
-    expPosMap = {}
-    tmpl.forEach(tmp => {
-      let html = buildHTML(tmp);
-      let __expPos = {}
-      domTree = buildTmplate(__expPos, diWrappers, html, tmp.vars, this.renderComponent);
-      doms.push(...domTree)
-      expPosMap![tmp.key ?? tmp.getKey()] = __expPos
-      // this.__expPosMap[tmp.key ?? tmp.getKey()] = __expPos
-    })
-
-    domTree = doms
-  } else if (tmpl instanceof Function) {
-    //todo 目前仅支持slot，后续如有异步指令再行重构
-    this.slotComponent._asyncDirectives.set(tmpl, this)
+/**
+ * 子视图，用于组件视图模板中的非指令子模版
+ */
+export class SubView extends View(Object) {
+  tmpl: Template
+  constructor(tmpl: Template) {
+    super();
+    this._renderVars = get(tmpl, '_renderVars')
+    this.tmpl = tmpl
   }
-
-  if (diWrappers.length < 1) return [domTree, expPos, expPosMap];
-
-  diWrappers.forEach(diWrapper => {
-    let nodes = compact(toArray<Node>(diWrapper.render(this.renderComponent)))
-    if (!isEmpty(nodes)) {
-      let fragment = document.createDocumentFragment();
-      fragment.append(...nodes);
-      diWrapper.point.endNode.parentNode!.insertBefore(fragment, diWrapper.point.endNode);
-    }
-  })
-
-  return [domTree, expPos, expPosMap]
-}
-
-function getDirectiveNodes(startNode: Node, endNode: Node) {
-  let nextNode = startNode.nextSibling
-  if (!endNode) return [nextNode]
-  let rs = []
-  while (nextNode && nextNode !== endNode) {
-    rs.push(nextNode)
-    nextNode = nextNode?.nextSibling
-  }
-  return rs;
 }

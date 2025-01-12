@@ -8,8 +8,11 @@ import { DirectiveUpdateTag } from "../types";
  * @param styles 对象/字符串
  */
 class Styles extends Directive {
-  update(nodes: Node[], newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
-    this.render(newArgs[0])
+  created(point: EnterPoint, styles: Record<string, string> | string): void {
+    CssHelper.setStyle(styles, point.startNode as HTMLElement)
+  }
+  update(point: EnterPoint, newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
+    this.created(point, newArgs[0])
     return DirectiveUpdateTag.NONE
   }
   constructor(point: EnterPoint) {
@@ -20,7 +23,7 @@ class Styles extends Directive {
     return [EnterPointType.STYLE]
   }
   render(styles: Record<string, string> | string) {
-    CssHelper.setStyle(styles, this.point.startNode)
+
   }
 }
 export const styles = directive<Parameters<typeof Styles.prototype.render>>(Styles);

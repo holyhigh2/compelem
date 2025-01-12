@@ -24,11 +24,13 @@ export class DecoratorWrapper {
   decoratorClass: Constructor<Decorator>
   instanceMap: WeakMap<CompElem, Decorator>
   key?: string //装饰器唯一key
+  priority: number = 0
 
   constructor(args: any[], metadata: any[], decoratorClass: Constructor<Decorator>) {
     this.args = args;
     this.metadata = metadata;
     this.decoratorClass = decoratorClass;
+    this.priority = get(decoratorClass, 'priority', 0)
     this.instanceMap = new WeakMap
   }
 
@@ -54,9 +56,9 @@ export class DecoratorWrapper {
     this.instanceMap.set(comp, ins)
   }
 
-  propsReady(comp: CompElem, setReactive: (key: string, value: any) => any) {
+  beforeMount(comp: CompElem, setReactive: (key: string, value: any) => any) {
     let ins = this.instanceMap.get(comp)!
-    ins.propsReady(comp, setReactive, ...this.metadata)
+    ins.beforeMount(comp, setReactive, ...this.metadata)
   }
 
   mounted(comp: CompElem, setReactive: (key: string, value: any) => any) {
@@ -86,7 +88,7 @@ export function decorator<T extends Array<any>>(decoClass: Constructor<Decorator
         let parentAry = get(Object.getPrototypeOf(ctor), _DecoratorsKey)
         ary = parentAry ? concat(parentAry) : []
 
-        Object.defineProperty(ctor, _DecoratorsKey, {
+        Reflect.defineProperty(ctor, _DecoratorsKey, {
           configurable: false,
           enumerable: false,
           value: ary

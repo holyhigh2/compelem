@@ -1,12 +1,11 @@
-import { camelCase, compact, each, filter, get, head, initial, isArray, isEmpty, isFunction, last, map, remove, test, toArray } from "myfx";
+import { camelCase, compact, each, filter, get, initial, isEmpty, isFunction, last, remove, test, toArray } from "myfx";
 import { CompElem } from "../CompElem";
 import { Collector } from "../reactive";
-import { Template } from "../render/render";
+import { DomUtil } from "../render/render";
+import { Template } from "../render/Template";
 import { DirectiveUpdateTag } from "../types";
 import { showError } from "../utils";
 import { Directive } from "./Directive";
-
-const DI_KEY = "__directives";
 
 /**
  * 属性定义
@@ -34,7 +33,6 @@ export class EnterPoint {
 
   nodes: Node[];//如果是插入节点，保存插入的节点数组
   constructor(
-    level: number,
     node: Node,
     attrName: string,
     type: EnterPointType
@@ -46,6 +44,17 @@ export class EnterPoint {
 
   setVarIndex(varIndex: number) {
     this.varIndex = varIndex;
+  }
+
+  getNodes(): Node[] {
+    let nextNode = this.startNode.nextSibling
+    if (!this.endNode) return [nextNode as Node]
+    let rs: Node[] = []
+    while (nextNode && nextNode !== this.endNode) {
+      rs.push(nextNode)
+      nextNode = nextNode?.nextSibling
+    }
+    return rs;
   }
 }
 
@@ -70,6 +79,10 @@ export class DirectiveWrapper extends Function {
     this.diClass = diClass;
     this.args = args;
     this.varChain = Collector.popDirectiveQ();
+
+    this.di = new this.diClass();
+    this.di.renderParams = this.varChain;
+
   }
   //校验scope
   checkScope(scopeType: string) {
@@ -81,70 +94,83 @@ export class DirectiveWrapper extends Function {
   }
 
   render(component: CompElem) {
-    let diMap = get<Record<string, Directive>>(component, DI_KEY);
-
-    let di = this.di || diMap[this.varPath];
-    let update = true;
-    if (!di) {
-      update = false
-      di = new this.diClass(this.point);
-
+    let di = this.di;
+    let args = this.args
+    if (!di.renderComponent) {
       di.renderComponent = component;
-      di.slotComponent = this.slotComponent;
-      di.renderParams = this.varChain;
+      // for (let i = 0; i < args.length; i++) {
+      //   const arg = args[i];
+      //   if (isFunction(arg)) {
+      //     args[i] = arg.bind(component)
+      //   }
+      // }
     }
+
     this.di = di;
     di._renderArgs = this.args
-    let [nodes, expPos, expPosMap] = di.renderContext(...this.args)
-    if (expPosMap) {
-      di.__expPosMap = expPosMap
-    } else if (expPos) {
-      di.__expPos = expPos
-    }
-    return nodes;
+    // let [nodes, expPos, expPosMap] = di.renderContext(...this.args)
+    // if (expPosMap) {
+    //   di.__expPosMap = expPosMap
+    // } else if (expPos) {
+    //   di.__expPos = expPos
+    // }
+    return this.di.render(...this.args);
   }
 
-  update(nodes: Node[], newArgs: any[], oldArgs: any[]) {
-    let tag = this.di.update(nodes, newArgs, oldArgs)
+  update(point: EnterPoint, newArgs: any[], oldArgs: any[]) {
+    let tag = this.di.update(point, newArgs, oldArgs)
+
+    if (tag === DirectiveUpdateTag.NONE) return
+
+    let nodes = point.getNodes()
 
     if (tag === DirectiveUpdateTag.REMOVE) {
-      nodes.forEach(n => {
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
         n.parentNode?.removeChild(n)
-      })
-    } else if (tag === DirectiveUpdateTag.REPLACE) {
-
-      let newNodes: Node[] = [];
-      nodes.forEach(n => {
-        n.parentNode?.removeChild(n)
-      })
-
-      let rs = this.di.render(...newArgs)
-      let [nnodes, expPos, expPosMap] = this.di.renderContext(rs)
-      if (expPosMap) {
-        this.di.__expPosMap = expPosMap
-      } else if (expPos) {
-        this.di.__expPos = expPos
       }
+    } else if (tag === DirectiveUpdateTag.REPLACE) {
+      let newNodes: Node[] = [];
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        n.parentNode?.removeChild(n)
+      }
+
+      let rs = this.di.render(...newArgs)!
+      let nnodes = this.di.buildView(rs)
+
       newNodes = toArray(nnodes)
 
       let fragment = document.createDocumentFragment();
       fragment.append(...newNodes);
-      this.point.endNode.parentNode!.insertBefore(fragment, this.point.endNode);
+      point.endNode.parentNode!.insertBefore(fragment, point.endNode);
     } else if (tag === DirectiveUpdateTag.UPDATE) {
-      let newKeys: Record<string, string> = {}
-      let newKeyMap: Record<string, Template> = {}
+      let newKeys: Record<string, boolean> = {}
       let nodesToUpdate
       //原节点顺序
       let oldSeq: string[] = []
       let newSeq: string[] = []
-      let updateRs = this.di.render(...newArgs)
 
-      if (isArray<Template>(updateRs) && updateRs[0] instanceof Template) {
-        updateRs.forEach(tmpl => {
-          let k = tmpl.key ?? tmpl.getKey()
-          newKeys[k] = '1'
-          newKeyMap[k] = tmpl
-          newSeq.push(k)
+      let updateRs = this.di.render(...newArgs)
+      if (!updateRs) {
+        updateRs = new Template([], [])
+      }
+
+      if (isEmpty(nodes)) {
+        let nodes = this.di.buildView(updateRs);
+        ; (point.startNode as CharacterData).after(...nodes)
+        return
+      }
+
+      let newTmpls: Record<string, Template> = {}
+      if (updateRs instanceof Template) {
+        updateRs.vars.forEach(v => {
+          if (v instanceof Template) {
+            const k = v.getKey()
+            newTmpls[k] = v
+            newKeys[k] = true
+            newSeq.push(k)
+          }
         })
       }
 
@@ -154,28 +180,30 @@ export class DirectiveWrapper extends Function {
       nodesToUpdate = filter(compact(toArray<Node>(nodesToUpdate!)), n => n.nodeType === Node.ELEMENT_NODE);
       let oldNodeMap: Record<string, HTMLElement> = {}
       let dupKey = ''
-      let keyQ: Record<string, string> = {}
-      map<any, string>(nodes, (node) => {
+      let keyQ: Record<string, boolean> = {}
+      for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i];
         let treeNode = <HTMLElement>node;
         let k = treeNode.getAttribute("key")
-        if (!k) return;
+        if (!k) continue;
 
         if (oldNodeMap[k]) {
           dupKey = k
-          return false;
+          break
         }
         oldNodeMap[k] = treeNode
         oldSeq.push(k)
-        keyQ[k] = '1'
-      });
+        keyQ[k] = true
+      }
 
       if (dupKey) {
         showError(`${camelCase(this.diClass.name)} - duplicate key '${dupKey}'`)
+        return
       }
-      let newNodeMap: Record<string, any> = {}
+
       let updateQ = newKeys
 
-      const parentNode = this.point.startNode.parentNode
+      const parentNode = point.startNode.parentNode
       //compare
       let adds: Record<string, any>[] = [];
       let dels: string[] = [];
@@ -194,41 +222,46 @@ export class DirectiveWrapper extends Function {
         let lastMoveNodeId = '';
         let lastMoveIndex = -1
         let lastGroup: { targetId: string, nodeId: string }[] = []
-        let idWeightMap: Record<number, { group: { targetId: string, nodeId: string }[], targetId: string | undefined }> = {}
-        newSeq.forEach((nodeId, i) => {
+        let idWeightMap: Map<number, { group: { targetId: string, nodeId: string }[], targetId: string | undefined }> = new Map()
+        for (let i = 0; i < newSeq.length; i++) {
+          const nodeId = newSeq[i];
           let oldI = oldSeq.findIndex(c => c === nodeId)
           if (oldI > -1 && oldI !== i) {
             if (lastMoveIndex < 0 || lastMoveIndex - oldI == 1) {
               let lastEl = last(lastGroup)
               lastGroup.push({ nodeId, targetId: i === 0 ? MovePosition.AFTER_BEGIN : (lastEl ? lastEl.nodeId : newSeq[i - 1]) })
             } else {
-              idWeightMap[lastGroup.length] = { group: lastGroup, targetId: '' }
+              idWeightMap.set(lastGroup.length, { group: lastGroup, targetId: '' })
+              // idWeightMap[lastGroup.length] = { group: lastGroup, targetId: '' }
               lastGroup = []
               lastGroup.push({ nodeId, targetId: oldSeq[oldI] })
             }
             lastMoveIndex = oldI
           } else if (oldI < 0) {
-            let prev = lastMoveNodeId ? oldNodeMap[lastMoveNodeId] || this.point.endNode : this.point.startNode
+            let prev = lastMoveNodeId ? oldNodeMap[lastMoveNodeId] || point.endNode : point.startNode
             //add
             adds.push({ prevNode: prev, newkey: nodeId });
           }
           lastMoveNodeId = nodeId
-        })
-        if (isEmpty(idWeightMap) && lastGroup.length > 0) {
-          idWeightMap[lastGroup.length] = { group: lastGroup, targetId: '' }
         }
-        let keys = Object.keys(idWeightMap);
-        let keyNums = keys.map(k => parseInt(k)).sort((a, b) => a - b)
+
+        if (isEmpty(idWeightMap) && lastGroup.length > 0) {
+          idWeightMap.set(lastGroup.length, { group: lastGroup, targetId: '' })
+          // idWeightMap[lastGroup.length] = { group: lastGroup, targetId: '' }
+        }
+
+        let keys = idWeightMap.keys().toArray();
+        let keyNums = keys.sort((a, b) => a - b)
 
         if (keys.length > 0) {
           if (keys.length < 2) {
             //如果仅有一组，留最后一个节点
-            let { group } = idWeightMap[keyNums[0]]
+            let { group } = idWeightMap.get(keyNums[0])! //idWeightMap[keyNums[0]]
             initial(group).forEach(({ targetId, nodeId }) => {
               let srcEl = oldNodeMap[nodeId]
               let target
               if (targetId === MovePosition.AFTER_BEGIN) {
-                target = this.point.startNode as Element
+                target = point.startNode as Element
                 target.after(srcEl)
               } else {
                 target = oldNodeMap[targetId]
@@ -239,17 +272,19 @@ export class DirectiveWrapper extends Function {
             //如果多组，留最后一组
             console.debug('todo....')
           }
-
         }//endif
+        console.debug('test....')
       }
-
+      if (adds.length > 0) {
+        this.#addNodes(adds, newTmpls, newSeq)
+      }
       adds.forEach(v => {
         let k = v.newkey
-        let treeNode = newNodeMap[k] || this.#addNode(newKeyMap[k], k)
+        let treeNode = this.newNodeMap[k]
         let prevNode = v.prevNode
-        if (prevNode === this.point.endNode) {
+        if (prevNode === point.endNode) {
           prevNode.before(treeNode)
-        } else if (prevNode === this.point.startNode) {
+        } else if (prevNode === point.startNode) {
           prevNode.after(treeNode)
         } else {
           prevNode.after(treeNode)
@@ -257,34 +292,70 @@ export class DirectiveWrapper extends Function {
       })
 
       dels.forEach(k => {
-        this.#removeNode(k)
+        let vi = oldSeq.findIndex(s => s == k)
+        this.#removeNode(vi)
         // remove(adjustedQ, ak => ak === k)
         let treeNode = oldNodeMap[k]
-        if (treeNode) {
+        if (treeNode && treeNode.parentNode) {
           parentNode!.removeChild(treeNode)
         }
       })
+      //reset varIndex
+      this.di.__updatePoints.forEach(up => {
+        if (!up.key) {
+          up.key = up.value.tmpl.getKey()
+        }
+        const i = newSeq.findIndex(s => s == up.key)
+        up.varIndex = i
+      })
 
-      this.di.updateContext(updateRs)
+
+      this.di.updateView(updateRs)
     }
-
   }
 
   getDirective() {
     return this.di
   }
+  newNodeMap: Record<string, HTMLElement> = {}
+  #addNodes(adds: Record<string, any>[], newTmpls: Record<string, Template>, newSeq: string[]) {
+    const combStrings: string[] = []
+    const combVars: Template[] = []
+    const ks: number[] = []
+    adds.forEach(add => {
+      let k = add.newkey
+      ks.push(k)
+      combStrings.push('')
+      combVars.push(newTmpls[k])
+    })
 
-  #addNode(tmpl: Template, key: string) {
-    //追加expPos
-    let [nodes, expPos, expPosMap] = this.di.renderContext(tmpl)
-    let node = head(nodes)
-    this.di.__expPosMap[key] = expPos
-    // this.di.__expPosMap[key] = clone(this.di.__expPos)
-    return node;
+    combStrings.push('')
+    let tmpl = new Template(
+      combStrings,
+      combVars
+    )
+
+    let originalUps = this.di.__updatePoints
+    let nodes = this.di.buildView(tmpl)
+    this.di.__updatePoints.forEach((up, i) => {
+      const k = up.value.tmpl.getKey()
+      up.key = k
+    })
+    this.di.__updatePoints.push(...originalUps)
+
+    nodes.forEach((n: HTMLElement) => {
+      if (n instanceof HTMLElement)
+        this.newNodeMap[n.getAttribute('key')!] = n
+    })
   }
-  #removeNode(key: string) {
-    this.di.__expPosMap[key] = null;
-    delete this.di.__expPosMap[key]
+  //对于foreach指令，key就是序号
+  #removeNode(key: number) {
+    remove(this.di.__updatePoints, (v, k) => {
+      if (v.varIndex == key) {
+        DomUtil.remove(v.node, v.textNode)
+        return true
+      }
+    })
   }
 }
 

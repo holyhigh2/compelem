@@ -13,6 +13,12 @@ export enum DecoratorType {
  */
 export abstract class Decorator {
   /**
+   * 优先级，越大越先执行
+   */
+  static get priority(): number {
+    return 0
+  }
+  /**
    * 装饰器使用范围，超出范围会报错
    */
   abstract get targets(): Array<DecoratorType>
@@ -35,7 +41,7 @@ export abstract class Decorator {
    * @param setReactive 为实例设置响应属性，注意，仅是设置到了instance.reactiveData中并非this.key。如需实现this访问，可自行定义组件的properties
    * @param args 装饰器函数参数
    */
-  abstract propsReady(component: CompElem, setReactive: (key: string, value: any) => any, ...args: any[]): any
+  abstract beforeMount(component: CompElem, setReactive: (key: string, value: any) => any, ...args: any[]): any
   abstract mounted(component: CompElem, setReactive: (key: string, value: any) => any, ...args: any[]): any
   abstract updated(component: CompElem, changed: Record<string, any>): any
 }

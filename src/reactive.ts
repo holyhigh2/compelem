@@ -3,11 +3,11 @@
  * @author holyhigh2
  */
 
-import { clone, concat, get, includes, initial, isArray, isElement, isEqual, isFunction, isObject, last, startsWith } from "myfx";
+import { concat, get, initial, isArray, isFunction, isObject, last, startsWith } from "myfx";
 import { CompElem } from "./CompElem";
 import { PropOption } from "./decorators/prop";
 import { StateOption } from "./decorators/state";
-import { IRenderContext } from "./render/RenderContext";
+import { IView } from "./render/RenderContext";
 import { Getter } from "./types";
 import { _toUpdatePath, showWarn } from "./utils";
 
@@ -40,8 +40,10 @@ export const Collector = {
   __directiveQ: [] as any[][],
   setDirectiveQ(val: any[]) {
     let lastVar = last<Array<string>>(this.__directiveQ)
-    if (lastVar && isEqual(lastVar, val)) return;
-    if (lastVar && lastVar.length < val.length && startsWith(val.join(','), lastVar.join(','))) {
+    const vj = val ? val.join(',') : ''
+    const lj = lastVar ? lastVar.join(',') : ''
+    if (lastVar && vj === lj) return;
+    if (lastVar && lastVar.length < val.length && startsWith(vj, lj)) {
       this.__directiveQ[this.__directiveQ.length - 1] = val
       return;
     }
@@ -53,7 +55,7 @@ export const Collector = {
     this.__directiveQ = [];
     return rs;
   },
-  startRender(context: IRenderContext) {
+  startRender(context: IView) {
     this.__renderCollecting = true;
     this.__renderContext = context;
   },
@@ -106,12 +108,9 @@ export function reactive(obj: Record<string, any>, context: any) {
   const proxyObject = obj.__proxy ? obj : new Proxy(obj, {
     get(target: any, prop: string, receiver: any): any {
       if (!prop) return undefined;
-      const ks = Object.keys(target)
       const value = Reflect.get(target, prop, receiver);
-      if (!includes(ks, prop)) {
-        return value;
-      }
-      if (target.hasOwnProperty(prop)) {
+
+      if ((Collector.__renderCollecting || Collector.__computeCollecting || Collector.__cssCollecting) && target.hasOwnProperty(prop)) {
         let chain = OBJECT_VAR_PATH.get(receiver) ?? []
         let subChain = concat(chain, [prop])
         let subChainStr = subChain.join('-')
@@ -141,6 +140,11 @@ export function reactive(obj: Record<string, any>, context: any) {
     },
     set(target: any, prop: string, newValue: any, receiver: any) {
       if (!prop) return false;
+
+      let ov = target[prop];
+
+      if (!isObject(ov) && ov === newValue) return true;
+
       let sourceContext = OBJECT_META_DATA.get(receiver)!.from
       let propDefs = get<Record<string, PropOption>>(sourceContext.constructor, '__deco_props')
       if (propDefs && propDefs[prop] && target.__isData) {
@@ -148,7 +152,6 @@ export function reactive(obj: Record<string, any>, context: any) {
           sourceContext.emit(EVENT_UPDATE + ":" + prop, { value: newValue })
         }
       }
-      let ov = target[prop];
 
       let stateDefs = get<Record<string, StateOption>>(sourceContext.constructor, '__deco_states')
       let hasChanged = get<Function>(propDefs, [prop, 'hasChanged']) || get<Function>(stateDefs, [prop, 'hasChanged'])
@@ -161,9 +164,9 @@ export function reactive(obj: Record<string, any>, context: any) {
       }
 
       //todo 如果对象保存一层副本，如果要保存全部内容需要自行实现
-      if (isObject(ov)) {
-        ov = clone(ov)
-      }
+      // if (isObject(ov)) {
+      //   ov = clone(ov)
+      // }
 
       let deps = OBJECT_META_DATA.get(receiver)?.contextSet!
 
@@ -172,7 +175,7 @@ export function reactive(obj: Record<string, any>, context: any) {
       let subChain = concat(chain, [prop])
       let nv: any = newValue;
 
-      if (isObject(newValue) && !isFunction(newValue) && !isElement(newValue)) {
+      if (isObject(newValue) && !isFunction(newValue) && !(newValue instanceof Node) && !Object.isFrozen(newValue)) {
         deps.forEach(dep => {
           let pathMap = OBJECT_META_DATA.get(receiver)?.pathMap
           let pathAry = pathMap?.get(dep)
@@ -192,61 +195,52 @@ export function reactive(obj: Record<string, any>, context: any) {
         //view update
         let pathAry = pathMap.get(dep)
         if (!pathAry) return
+        if (dep === sourceContext) {
+          //fix the index change of array item
+          if (chain.length > 1 && pathAry.length > 1 && chain[0] === pathAry[0]) {
+            pathAry = chain
+          }
+        }
 
         //数组length属性变动直接通知为数组自身变动
         subChain = concat(pathAry, prop == 'length' && isArray(receiver) ? [] : [prop])
         dep._notify(ov, subChain);
-        let varPath = subChain.join('-')
-
         //computed
         let watchVarMap = COMPUTED_MAP.get(dep)!
-        if (watchVarMap) {
-          let computedList = watchVarMap[varPath]
-          if (computedList) {
-            computedList.forEach(computedGetter => {
-              computedGetter.call(dep)
-            })
-          }
-          let i = subChain.length - 1
-          while (i) {
-            let subPath = subChain.slice(0, i).join('-')
-            let computedList = watchVarMap[subPath]
-            if (computedList) {
-              computedList.forEach(computedGetter => {
-                computedGetter.call(dep)
-              })
-            }
-
-            i--;
-          }
-        }
-
         //css
         let cssMap = CSS_MAP.get(dep)!
-        if (cssMap) {
-          let computedCss = cssMap[varPath]
-          if (computedCss) {
-            computedCss.call(dep)
-          }
-          let i = subChain.length - 1
+
+        //recur path
+        if (watchVarMap || cssMap) {
+          let i = subChain.length
           while (i) {
             let subPath = subChain.slice(0, i).join('-')
-            let computedCss = cssMap[subPath]
-            if (computedCss) {
-              computedCss.call(dep)
+            if (watchVarMap) {
+              let computedList = watchVarMap[subPath]
+              if (computedList) {
+                for (let l = 0; l < computedList.length; l++) {
+                  const computedGetter = computedList[l];
+                  computedGetter.call(dep)
+                }
+              }
+            }
+            if (cssMap) {
+              let computedCss = cssMap[subPath]
+              if (computedCss) {
+                computedCss.call(dep)
+              }
             }
 
             i--;
           }
         }
-
       });
 
       return rs;
     }
   });
   if (!obj.__proxy) {
-    Object.defineProperty(obj, "__proxy", {
+    Reflect.defineProperty(obj, "__proxy", {
       enumerable: false,
       writable: false,
       configurable: false,
@@ -287,7 +281,8 @@ export function reactive(obj: Record<string, any>, context: any) {
 
   for (let k in obj) {
     const v = obj[k];
-    if (isObject(v) && !isFunction(v) && !isElement(v) && !(v instanceof Text)) {
+    if (isObject(v) && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v)
+    ) {
       OBJECT_VAR_PATH.set(v, concat(chain, [k]))
       obj[k] = reactive(v, context);
       OBJECT_VAR_PATH.set(obj[k], concat(chain, [k]))

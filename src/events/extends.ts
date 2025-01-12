@@ -51,7 +51,8 @@ enum MutationType {
 }
 const AllMutationEls = new WeakMap<Element, Record<string, (ev: Event) => any>>;
 const mutationObserver = new MutationObserver(mutations => {
-  mutations.forEach(mutation => {
+  for (let i = 0; i < mutations.length; i++) {
+    const mutation = mutations[i];
     let map = AllMutationEls.get(mutation.target as Element)
     if (!map) return;
     let detail: Record<string, any> = {
@@ -89,7 +90,7 @@ const mutationObserver = new MutationObserver(mutations => {
       })
       cbk(ev)
     }
-  });
+  }
 });
 function addMutation(node: Element, cbk: (ev: Event) => any, parts: string[]) {
   let child = includes(parts, 'child')

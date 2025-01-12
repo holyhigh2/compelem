@@ -10,10 +10,22 @@ import { DirectiveUpdateTag } from "../types";
  * @param syncValue 双向绑定的组件变量
  */
 class Sync extends Directive {
-  update(nodes: Node[], newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
+  created(point: EnterPoint, syncValue: any): void {
+    if (!this.modelPath)
+      this.modelPath = last(this.renderParams)
+    const targetComponent = point.startNode as CompElem
+    let attrName = point.attrName
+    //todo _setParentProps接口不应该外部使用
+    targetComponent._initProps({ [attrName]: syncValue })
+    targetComponent.addEventListener('update:' + attrName, (e: CustomEvent) => {
+      set(this.renderComponent, this.modelPath, e.detail.value)
+    });
+  }
+  update(point: EnterPoint, newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
     if (!isEqual(newArgs, oldArgs)) {
-      this.targetComponent._updateProps({ [this.attrName]: newArgs[0] })
-      // this.targetComponent._setParentProps({ [this.attrName]: newArgs[0] });
+      const targetComponent = point.startNode as CompElem
+      let attrName = point.attrName
+      targetComponent._updateProps({ [attrName]: newArgs[0] })
     }
     return DirectiveUpdateTag.NONE
   }
@@ -21,22 +33,11 @@ class Sync extends Directive {
     return [EnterPointType.PROP]
   }
   modelPath: string[]
-  attrName: string
-  targetComponent: CompElem
   constructor(point: EnterPoint) {
     super();
-    this.targetComponent = point.startNode as CompElem
-    this.attrName = point.attrName
   }
   render(syncValue: any) {
-    if (!this.modelPath)
-      this.modelPath = last(this.renderParams)
-    //todo _setParentProps接口不应该外部使用
-    this.targetComponent._initProps({ [this.attrName]: syncValue })
-    // this.targetComponent._setParentProps({ [this.attrName]: syncValue });
-    this.targetComponent.addEventListener('update:' + this.attrName, (e: CustomEvent) => {
-      set(this.renderComponent, this.modelPath, e.detail.value)
-    });
+
 
   }
 }

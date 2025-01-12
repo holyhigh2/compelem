@@ -1,5 +1,5 @@
 import { Directive } from "../directive/Directive";
-import { directive, EnterPointType } from "../directive/index";
+import { directive, EnterPoint, EnterPointType } from "../directive/index";
 import { html } from "../render/render";
 import { DirectiveUpdateTag, TmplFn } from "../types";
 
@@ -9,16 +9,18 @@ import { DirectiveUpdateTag, TmplFn } from "../types";
  * @param tmpl 模板
  */
 class IfTrue extends Directive {
+  created(point: EnterPoint, ...args: any): void {
+  }
   static get scopes(): EnterPointType[] {
     return [EnterPointType.TEXT, EnterPointType.SLOT]
   }
-  update(nodes: Node[], newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
-    if (newArgs[0] === oldArgs[0]) return DirectiveUpdateTag.UPDATE
+  update(point: EnterPoint, newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
+    if (newArgs[0] === oldArgs[0]) return DirectiveUpdateTag.NONE
 
     if (newArgs[0]) {
       return DirectiveUpdateTag.REPLACE
     }
-    this.cacheNodes = nodes;
+    // this.cacheNodes = nodes;
     return DirectiveUpdateTag.REMOVE
   }
 

@@ -8,20 +8,7 @@ import { DirectiveUpdateTag } from "../types";
  * @param styles 对象/数组/字符串
  */
 class Classes extends Directive {
-  update(nodes: Node[], newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
-    this.render(newArgs[0])
-    return DirectiveUpdateTag.NONE
-  }
-
-  static get scopes(): EnterPointType[] {
-    return [EnterPointType.CLASS]
-  }
-  constructor(point: EnterPoint) {
-    super(point);
-    this.point = point
-  }
-  lastCls: string[]
-  render(clazz: Record<string, boolean | string> | Array<string> | string) {
+  created(point: EnterPoint, clazz: Record<string, boolean | string> | Array<string> | string): void {
     let rs: string[] = [];
     if (isArray(clazz)) {
       rs = compact(clazz)
@@ -30,7 +17,7 @@ class Classes extends Directive {
     } else if (isString(clazz)) {
       rs = clazz.split(' ')
     }
-    let el = this.point.startNode as HTMLElement
+    let el = point.startNode as HTMLElement
 
     each(this.lastCls, cls => {
       el.classList.remove(cls)
@@ -40,6 +27,19 @@ class Classes extends Directive {
     })
 
     this.lastCls = concat(rs);
+  }
+  update(point: EnterPoint, newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
+    this.created(point, newArgs[0])
+    return DirectiveUpdateTag.NONE
+  }
+
+  static get scopes(): EnterPointType[] {
+    return [EnterPointType.CLASS]
+  }
+
+  lastCls: string[]
+  render(clazz: Record<string, boolean | string> | Array<string> | string) {
+
   }
 }
 export const classes = directive<Parameters<typeof Classes.prototype.render>>(Classes);

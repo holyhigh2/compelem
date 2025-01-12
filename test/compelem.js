@@ -1,4 +1,4 @@
-/* compelem 0.2.3-beta @holyhigh2 https://github.com/holyhigh2/compelem */
+/* compelem 0.2.4-beta @holyhigh2 https://github.com/holyhigh2/compelem */
 (function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
@@ -6893,9 +6893,9 @@
             ins.created(comp, ...this.metadata);
             this.instanceMap.set(comp, ins);
         }
-        propsReady(comp, setReactive) {
+        beforeMount(comp, setReactive) {
             let ins = this.instanceMap.get(comp);
-            ins.propsReady(comp, setReactive, ...this.metadata);
+            ins.beforeMount(comp, setReactive, ...this.metadata);
         }
         mounted(comp, setReactive) {
             let ins = this.instanceMap.get(comp);
@@ -7056,9 +7056,11 @@
         __directiveQ: [],
         setDirectiveQ(val) {
             let lastVar = last(this.__directiveQ);
-            if (lastVar && isEqual(lastVar, val))
+            const vj = val ? val.join(',') : '';
+            const lj = lastVar ? lastVar.join(',') : '';
+            if (lastVar && vj === lj)
                 return;
-            if (lastVar && lastVar.length < val.length && startsWith(val.join(','), lastVar.join(','))) {
+            if (lastVar && lastVar.length < val.length && startsWith(vj, lj)) {
                 this.__directiveQ[this.__directiveQ.length - 1] = val;
                 return;
             }
@@ -7110,6 +7112,8 @@
             return obj;
         const proxyObject = obj.__proxy ? obj : new Proxy(obj, {
             get(target, prop, receiver) {
+                if (!prop)
+                    return undefined;
                 const ks = Object.keys(target);
                 const value = Reflect.get(target, prop, receiver);
                 if (!includes(ks, prop)) {
@@ -7146,6 +7150,11 @@
                 return value;
             },
             set(target, prop, newValue, receiver) {
+                if (!prop)
+                    return false;
+                let ov = target[prop];
+                if (!isObject(ov) && ov === newValue)
+                    return true;
                 let sourceContext = OBJECT_META_DATA.get(receiver).from;
                 let propDefs = get(sourceContext.constructor, '__deco_props');
                 if (propDefs && propDefs[prop] && target.__isData) {
@@ -7153,7 +7162,6 @@
                         sourceContext.emit(EVENT_UPDATE + ":" + prop, { value: newValue });
                     }
                 }
-                let ov = target[prop];
                 let stateDefs = get(sourceContext.constructor, '__deco_states');
                 let hasChanged = get(propDefs, [prop, 'hasChanged']) || get(stateDefs, [prop, 'hasChanged']);
                 if (hasChanged) {
@@ -7176,7 +7184,7 @@
                 let chain = OBJECT_VAR_PATH.get(receiver) ?? [];
                 let subChain = concat(chain, [prop]);
                 let nv = newValue;
-                if (isObject(newValue) && !isFunction(newValue) && !isElement(newValue)) {
+                if (isObject(newValue) && !isFunction(newValue) && !(newValue instanceof Node) && !Object.isFrozen(newValue)) {
                     deps.forEach(dep => {
                         let pathMap = OBJECT_META_DATA.get(receiver)?.pathMap;
                         let pathAry = pathMap?.get(dep);
@@ -7195,44 +7203,38 @@
                     let pathAry = pathMap.get(dep);
                     if (!pathAry)
                         return;
+                    if (dep === sourceContext) {
+                        //fix the index change of array item
+                        if (chain.length > 1 && pathAry.length > 1 && chain[0] === pathAry[0]) {
+                            pathAry = chain;
+                        }
+                    }
                     //数组length属性变动直接通知为数组自身变动
                     subChain = concat(pathAry, prop == 'length' && isArray(receiver) ? [] : [prop]);
                     dep._notify(ov, subChain);
-                    let varPath = subChain.join('-');
                     //computed
                     let watchVarMap = COMPUTED_MAP.get(dep);
-                    if (watchVarMap) {
-                        let computedList = watchVarMap[varPath];
-                        if (computedList) {
-                            computedList.forEach(computedGetter => {
-                                computedGetter.call(dep);
-                            });
-                        }
-                        let i = subChain.length - 1;
-                        while (i) {
-                            let subPath = subChain.slice(0, i).join('-');
-                            let computedList = watchVarMap[subPath];
-                            if (computedList) {
-                                computedList.forEach(computedGetter => {
-                                    computedGetter.call(dep);
-                                });
-                            }
-                            i--;
-                        }
-                    }
                     //css
                     let cssMap = CSS_MAP.get(dep);
-                    if (cssMap) {
-                        let computedCss = cssMap[varPath];
-                        if (computedCss) {
-                            computedCss.call(dep);
-                        }
-                        let i = subChain.length - 1;
+                    //recur path
+                    if (watchVarMap || cssMap) {
+                        let i = subChain.length;
                         while (i) {
                             let subPath = subChain.slice(0, i).join('-');
-                            let computedCss = cssMap[subPath];
-                            if (computedCss) {
-                                computedCss.call(dep);
+                            if (watchVarMap) {
+                                let computedList = watchVarMap[subPath];
+                                if (computedList) {
+                                    for (let l = 0; l < computedList.length; l++) {
+                                        const computedGetter = computedList[l];
+                                        computedGetter.call(dep);
+                                    }
+                                }
+                            }
+                            if (cssMap) {
+                                let computedCss = cssMap[subPath];
+                                if (computedCss) {
+                                    computedCss.call(dep);
+                                }
                             }
                             i--;
                         }
@@ -7282,13 +7284,1451 @@
         }
         for (let k in obj) {
             const v = obj[k];
-            if (isObject(v) && !isFunction(v) && !isElement(v) && !(v instanceof Text)) {
+            if (isObject(v) && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v)) {
                 OBJECT_VAR_PATH.set(v, concat(chain, [k]));
                 obj[k] = reactive(v, context);
                 OBJECT_VAR_PATH.set(obj[k], concat(chain, [k]));
             }
         }
         return proxyObject;
+    }
+
+    /**
+     * 视图基类 为组件视图及指令子视图提供统一服务
+     * @param spuerClass
+     * @returns
+     */
+    function View(spuerClass) {
+        //mixin class
+        return class extends spuerClass {
+            __updatePoints;
+            /**
+             * 渲染上下文所属组件，仅用于指令
+             */
+            renderComponent;
+            buildView(tmpl) {
+                let comp = this instanceof CompElem ? this : this.renderComponent;
+                let [html, vars] = buildHTML(comp, tmpl);
+                let updatePoints = [];
+                let nodes = buildTmplate(updatePoints, html, vars, comp, this);
+                this.__updatePoints = updatePoints;
+                return nodes;
+            }
+            updateView(tmpl) {
+                if (isBlank(join(tmpl.strings)))
+                    return;
+                if (!this.__updatePoints)
+                    return;
+                let { vars } = tmpl;
+                let comp = this instanceof CompElem ? this : this.renderComponent;
+                for (let i = 0; i < this.__updatePoints.length; i++) {
+                    const up = this.__updatePoints[i];
+                    let varIndex = up.varIndex;
+                    let oldValue = up.value;
+                    let newValue = vars;
+                    let node = up.node;
+                    let indexSegs = split(varIndex, '-');
+                    for (let l = 0; l < indexSegs.length; l++) {
+                        const seg = indexSegs[l];
+                        newValue = get(newValue, seg);
+                        if (newValue && newValue.vars && i < indexSegs.length - 1) {
+                            newValue = newValue.vars;
+                        }
+                    }
+                    //check
+                    if (!isObject(oldValue) && oldValue === newValue)
+                        continue;
+                    let elNode = node;
+                    if (up.isDirective) {
+                        if (!oldValue.di)
+                            continue; //指令还在异步执行中，不更新
+                        //指令
+                        newValue.di = oldValue.di;
+                        newValue.di.renderParams = newValue.varChain;
+                        newValue.di._renderArgs = newValue.args;
+                        newValue.point = oldValue.point;
+                        newValue.varPath = oldValue.varPath;
+                        oldValue.update(oldValue.point, newValue.args, oldValue.args);
+                    }
+                    else if (up.isToggleProp) {
+                        //布尔特性
+                        if ((!!newValue) === oldValue)
+                            continue;
+                        elNode.toggleAttribute(up.attrName, !!newValue);
+                        set(elNode, up.attrName, !!newValue);
+                    }
+                    else if (up.isProp) {
+                        //子组件属性
+                        if (!isObject(newValue) && newValue === oldValue)
+                            continue;
+                        if (isPlainObject(newValue) && isEqual(newValue, oldValue))
+                            continue;
+                        //如果node是slot则触发组件的slot更新
+                        if (node instanceof CompElem) {
+                            node._updateProps({ [up.attrName]: newValue });
+                        }
+                        else if (node instanceof HTMLSlotElement) {
+                            comp._updateSlot(node.getAttribute('name') || 'default', up.attrName, newValue);
+                        }
+                    }
+                    else if (up.attrName && !up.isEvent) {
+                        //特性
+                        if (!isEqual(oldValue, newValue)) {
+                            switch (up.attrName) {
+                                case 'value':
+                                    if (node instanceof HTMLInputElement) {
+                                        node.value = newValue;
+                                        break;
+                                    }
+                                default:
+                                    node.setAttribute(up.attrName, replace(up.attrTmpl, PLACEHOLDER_EXP, newValue + ''));
+                            }
+                        }
+                    }
+                    else if (up.isTmpl) {
+                        //这里一定是子视图更新，子视图仅更新内部__expose
+                        if (newValue.strings.join() !== oldValue.tmpl.strings.join()) {
+                            up.value.updateView(newValue);
+                        }
+                        else if (newValue.vars.some((v) => isObject(v) && !isPlainObject(v)) || oldValue.tmpl.vars.some((v) => isObject(v) && !isPlainObject(v)) || !isEqual(newValue.vars, oldValue.tmpl.vars)) {
+                            up.value.updateView(newValue);
+                        }
+                        oldValue.tmpl = newValue;
+                        newValue = oldValue; //new SubView(newValue)
+                    }
+                    else if (up.isText) {
+                        let textNode = up.textNode.nextSibling;
+                        if (textNode && textNode === up.node.previousSibling) {
+                            textNode.textContent = newValue;
+                        }
+                        else {
+                            DomUtil.remove(up.textNode, up.node);
+                            DomUtil.insertBefore(up.node, [newValue]);
+                        }
+                    }
+                    up.value = newValue;
+                } //endfor
+            }
+        };
+    }
+    /**
+     * 子视图，用于组件视图模板中的非指令子模版
+     */
+    class SubView extends View(Object) {
+        tmpl;
+        constructor(tmpl) {
+            super();
+            this._renderVars = get(tmpl, '_renderVars');
+            this.tmpl = tmpl;
+        }
+    }
+
+    const ATTR_CSS_LINK = "css-link";
+    const PropTypeMap = {
+        boolean: Boolean,
+        string: String,
+        number: Number,
+        object: Object,
+        array: Array,
+        function: Function,
+        bigint: BigInt,
+        symbol: Symbol,
+        undefined: Object
+    };
+    const PrivatePreffix = '#';
+    //组件静态样式
+    const ComponentStyleMap = new WeakMap();
+    /**
+     * CompElem基类，意为组件元素。提供了基本内置属性及生命周期等必备接口
+     * 每个组件都需要继承自该类
+     *
+     * @author holyhigh2
+     */
+    class CompElem extends View(HTMLElement) {
+        static __l_globalRule = document.createElement("style");
+        static {
+            document.head.appendChild(CompElem.__l_globalRule);
+        }
+        #slotPropsMap = {};
+        #data = { '#slots': {} };
+        #reactiveData = {};
+        #updateTimer;
+        #updateSources = {};
+        #shadow;
+        #selfObserver;
+        //保存所有渲染上下文 {CompElem/Directive}
+        #renderContextList = {};
+        __events = {};
+        get reactiveData() {
+            return this.#reactiveData;
+        }
+        get attrs() {
+            return this.#attrs;
+        }
+        get props() {
+            return this.#props;
+        }
+        get renderRoot() {
+            return this.#renderRoot;
+        }
+        get renderRoots() {
+            return this.#renderRoots;
+        }
+        get parentComponent() {
+            return this.#parentComponent;
+        }
+        get slotHooks() {
+            return this.#slotHooks;
+        }
+        get styles() {
+            return ComponentStyleMap.get(this.constructor);
+        }
+        get isMounted() {
+            return this.#mounted;
+        }
+        //slots列表中绝对不会出现slot元素
+        get slots() {
+            return this.#data['#slots'];
+        }
+        #attrs;
+        #props;
+        #renderRoot;
+        #renderRoots;
+        #parentComponent;
+        #slotsEl = {};
+        #slotHooks = {};
+        #slotNodes = {};
+        #mounted = false;
+        #instanceCss = new CSSStyleSheet();
+        #nextTimerFn;
+        /**
+         * 是否自动插入插槽，如果需要控制插槽类型时，可以设置为false
+         */
+        static get autoSlot() {
+            return true;
+        }
+        //////////////////////////////////// styles
+        /**
+         * 组件样式，CSSStyleSheet可动态变更
+         */
+        static get styles() {
+            return [];
+        }
+        static get globalStyles() {
+            return [];
+        }
+        get css() {
+            return '';
+        }
+        #inited = false;
+        constructor(...args) {
+            super();
+            //init props via constructor
+            if (size(args) === 1) {
+                this.#props = {};
+                assign(this.#props, first(args));
+            }
+            let render = this.render.bind(this);
+            this.render = function () {
+                let rs;
+                Collector.startRender(this);
+                rs = render();
+                Collector.endRender(this);
+                return rs;
+            };
+            const p = Promise.resolve();
+            const nextFn = this.#flashNextQ.bind(this);
+            this.#nextTimerFn = () => {
+                p.then(nextFn);
+            };
+            /////////////////////////////////////////////////// styles
+            //global styles
+            let globalStyles = get(this.constructor, "globalStyles");
+            let beAttached = get(this.constructor, '_global_style_attached');
+            if (!isEmpty(globalStyles) && beAttached !== '1') {
+                let globalTextContent = "";
+                globalStyles.forEach((st) => {
+                    if (isString(st)) {
+                        globalTextContent += st + "\n";
+                    }
+                });
+                CompElem.__l_globalRule.textContent += globalTextContent;
+                set(this.constructor, '_global_style_attached', '1');
+            }
+            //component styles
+            let beAttached2 = ComponentStyleMap.get(this.constructor);
+            let styleSheets = beAttached2 ?? [];
+            if (!beAttached2) {
+                each(get(this.constructor, "styles"), (st) => {
+                    if (isString(st)) {
+                        let sheet = new CSSStyleSheet();
+                        sheet.replaceSync(st);
+                        styleSheets.push(sheet);
+                    }
+                    else {
+                        styleSheets.push(st);
+                    }
+                });
+                ComponentStyleMap.set(this.constructor, styleSheets);
+            }
+            /////////////////////////////////////////////////// shadow
+            this.#shadow = this.attachShadow({
+                mode: "open",
+                slotAssignment: get(this.constructor, "autoSlot", true) ? "named" : "manual",
+            });
+            this.#shadow.adoptedStyleSheets = concat(styleSheets, this.#instanceCss);
+            //check link
+            let cssLink = this.attributes.getNamedItem(ATTR_CSS_LINK)?.value;
+            if (cssLink) {
+                const link = document.createElement("style");
+                link.textContent = `@import "${cssLink}"`;
+                this.#shadow.appendChild(link);
+            }
+            let filterSlotFn = debounce(this.#filterSlot, 20);
+            this.#selfObserver = new MutationObserver(mutations => {
+                for (let i = 0; i < mutations.length; i++) {
+                    const mutation = mutations[i];
+                    if (mutation.type === 'childList') {
+                        filterSlotFn.call(this);
+                    }
+                }
+            });
+            //slots prop map
+            this._slotsPropMap = { default: [] };
+            /////////////////////////////////////////////////// decorators create
+            let ary = get(this.constructor, _DecoratorsKey);
+            ary && ary.forEach(dw => dw.create(this));
+            this.#updatedD = debounce(this.#update, 50);
+        }
+        #updatedD;
+        connectedCallback() {
+            //parent
+            let node = closest(this.parentNode, (node) => node instanceof CompElem || node.host instanceof CompElem, "parentNode");
+            this.#parentComponent = node
+                ? node instanceof CompElem
+                    ? node
+                    : node.host
+                : null;
+            this.__init();
+        }
+        disconnectedCallback() {
+            this.#selfObserver.disconnect();
+        }
+        //////////////////////////////////// lifecycles
+        //********************************** 首次渲染
+        //构造时上级传递的参数
+        __init() {
+            if (this.#inited)
+                return;
+            /////////////////////////////////////////////////// slots
+            this.#updateSlotsAry();
+            //check props
+            const props = this.#initProps();
+            this.propsReady(props);
+            for (const key in props) {
+                const v = props[key];
+                this.#data[key] = v;
+            }
+            this.#initStates();
+            //define reactive
+            each(this.#data, (v, k) => {
+                let descr = Reflect.getOwnPropertyDescriptor(this.#data, k);
+                Object.defineProperty(this, k, {
+                    get() {
+                        let v = Reflect.get(this.#reactiveData, k);
+                        return descr?.get ? descr?.get() : v;
+                    },
+                    set(v) {
+                        if (descr?.set) {
+                            descr?.set(v);
+                        }
+                        else {
+                            Reflect.set(this.#reactiveData, k, v);
+                        }
+                    },
+                });
+            });
+            Object.defineProperty(this.#data, '__isData', {
+                enumerable: false,
+                value: true
+            });
+            this.#reactiveData = reactive(this.#data, this);
+            //render
+            let tmpl = this.render();
+            let nodes = this.buildView(tmpl);
+            if (nodes) {
+                let children = toArray(nodes);
+                children.forEach((c) => {
+                    this.#shadow.appendChild(c);
+                });
+                this.#renderRoots = children;
+                this.#renderRoot = children[0];
+            }
+            //filter slot before append to dom
+            this.#filterSlot();
+            this.beforeMount();
+            /////////////////////////////////////////////////// before mount
+            const that = this;
+            let ary = get(this.constructor, _DecoratorsKey);
+            ary && ary.forEach(dw => {
+                dw.beforeMount(this, (key, value) => {
+                    that.#reactiveData[key] = value;
+                    return that.#reactiveData[key];
+                });
+            });
+            //computed props
+            let computedMap = get(this.constructor, "__deco_computed");
+            each(computedMap, ({ key, getter }, propKey) => {
+                Collector.startCompute(this);
+                Collector.setComputedProp(() => {
+                    this.#reactiveData[propKey] = getter.call(this);
+                });
+                this.#data[propKey] = getter.call(this);
+                Collector.endCompute();
+            });
+            each(computedMap, (v, k) => {
+                Object.defineProperty(this, k, {
+                    get() {
+                        return Reflect.get(this.#reactiveData, k);
+                    },
+                    set(v) {
+                        showTagError(this.tagName, "Cannot set a computed property '" + k + "'");
+                    },
+                });
+            });
+            this.#selfObserver.observe(this, { childList: true });
+            //events
+            let eventList = get(this.constructor, "__deco_events");
+            eventList && eventList.forEach((ev) => {
+                let name = ev.name;
+                let options = assign({ target: document, once: false, passive: false, capture: false }, ev.options);
+                let listener = bind(ev.fn, this);
+                let target = options.target;
+                if (isFunction(target)) {
+                    target = target.call(this, this);
+                }
+                if (!target) {
+                    showTagError(this.tagName, "The target of @event('" + name + "',...) is invalid");
+                    return;
+                }
+                target.addEventListener(name, listener, options);
+            });
+            //slot hook
+            each(this.#slotHooks, (v, k) => {
+                this.#updateSlot(k);
+            });
+            //instance dynamic style
+            Collector.startCss(this);
+            Collector.setCssUpdater(() => {
+                let css = this.css;
+                this.#instanceCss.replaceSync(css);
+            });
+            let css = this.css;
+            if (trim(css)) {
+                this.#instanceCss.replaceSync(css);
+            }
+            Collector.endCss();
+            setTimeout(() => {
+                this.#mounted = true;
+                this.mounted();
+                ary && ary.forEach(dw => {
+                    dw.mounted(this, (key, value) => {
+                        that.#reactiveData[key] = value;
+                        return that.#reactiveData[key];
+                    });
+                });
+            }, 0);
+            this.#inited = true;
+        }
+        propsReady(props) { }
+        render() {
+            throw Error(`[CompElem <${this.tagName}>] Missing render()`);
+        }
+        beforeMount() { }
+        mounted() { }
+        #onSlogChange(slot, name) {
+            //1. 更新 _slotsPropMap & slots
+            this.#updateSlotsAry();
+            //2. 设置attrs
+            let props = get(this.#slotPropsMap[name], 'props');
+            if (props) {
+                each(this.slots, (nodeAry, k) => {
+                    nodeAry.filter(node => node.nodeType === Node.ELEMENT_NODE).forEach((node) => {
+                        if (node instanceof CompElem) {
+                            // node._setParentProps(props)
+                            node._updateProps(props);
+                            return;
+                        }
+                        each(props, (v, k) => {
+                            if (node instanceof HTMLSlotElement) {
+                                let compOfSlot = get(node, '__l_comp');
+                                if (compOfSlot) {
+                                    let sname = node.name || 'default';
+                                    let slotMap = compOfSlot.#slotPropsMap[sname];
+                                    if (!slotMap) {
+                                        slotMap = compOfSlot.#slotPropsMap[sname] = { props: {} };
+                                    }
+                                    if (!slotMap.props) {
+                                        slotMap.props = {};
+                                    }
+                                    slotMap.props[k] = v;
+                                    compOfSlot.#onSlogChange(node, sname);
+                                }
+                            }
+                            else {
+                                node.setAttribute(k, v);
+                            }
+                        });
+                    });
+                });
+            }
+            //3. callback
+            this.slotChange(slot, name);
+        }
+        slotChange(slot, name) { }
+        attributeChangedCallback(attributeName, oldValue, newValue) {
+            this.#attrChanged(attributeName, oldValue, newValue);
+        }
+        //********************************** 更新
+        /**
+         * 是否需要更新，可获取变更属性
+         * 返回true时更新
+         */
+        shouldUpdate(changed) {
+            return true;
+        }
+        /**
+         * 1. 调用render
+         * 2. 更新@query/all
+         * 3. 更新ref
+         * 4. 更新prop到attr的映射
+         * @param changed
+         */
+        updated(changed) { }
+        /**
+         * 抛出自定义事件
+         * @param evName 事件名称
+         * @param args 自定义参数
+         */
+        emit(evName, arg = {}, options) {
+            if (options && options.event) {
+                arg.event = options.event;
+            }
+            arg.target = this;
+            this.dispatchEvent(new CustomEvent(evName, {
+                bubbles: get(options, "bubbles", false),
+                composed: get(options, "composed", false),
+                cancelable: true,
+                detail: arg,
+            }));
+        }
+        #rootEvs = {};
+        /**
+         * 在root上绑定事件
+         * @param evName
+         * @param hook
+         */
+        on(evName, hook) {
+            if (!this.#rootEvs[evName]) {
+                this.#rootEvs[evName] = [];
+            }
+            let cbk = hook.bind(this);
+            this.#rootEvs[evName].push(cbk);
+            this.addEventListener(evName, cbk);
+        }
+        #nextQ = [];
+        #nextPending = false;
+        #flashNextQ() {
+            this.#nextPending = false;
+            this.#nextQ.forEach(fn => fn());
+            this.#nextQ = [];
+        }
+        /**
+         * 下一帧执行
+         * @param cbk
+         */
+        nextTick(cbk) {
+            this.#nextQ.push(cbk);
+            if (!this.#nextPending) {
+                this.#nextPending = true;
+                this.#nextTimerFn();
+            }
+        }
+        /**
+         * 强制更新一次视图
+         */
+        forceUpdate() {
+            each(this.#reactiveData, (v, k) => {
+                this.#updateSources[k] = {
+                    value: undefined,
+                    chain: undefined,
+                };
+            });
+            this.#update();
+        }
+        /**
+         * 由监控变量调用
+         * @param stateKey
+         * @param ov
+         * @param rootStateKey 如果是对象内部属性变更，会返回根属性名
+         * @returns
+         */
+        _notify(ov, chain) {
+            //todo  1. 取消data - 0这个层级的监控；需要验证删除行时的路径
+            let varPath = [];
+            for (let i = 0; i < chain.length; i++) {
+                const seg = chain[i];
+                varPath.push(seg);
+                let v = get(this, varPath);
+                let pathStr = _toUpdatePath(varPath);
+                this.#updateSources[pathStr] = { value: v, chain: pathStr === "slots" ? ['slots'] : varPath, oldValue: ov, end: varPath.length === chain.length };
+            }
+            //debounce
+            this.#updatedD();
+        }
+        #update() {
+            if (size(this.#updateSources) < 1)
+                return;
+            const changed = Object.seal(clone(omitBy(this.#updateSources, (v, k) => k[0] === PrivatePreffix)));
+            //update decorators
+            let ary = get(this.constructor, _DecoratorsKey);
+            if (ary) {
+                for (let i = 0; i < ary.length; i++) {
+                    const dw = ary[i];
+                    dw.updated(this, changed);
+                }
+            }
+            let toBreak = !this.shouldUpdate(changed);
+            if (toBreak)
+                return;
+            let renderContextList = new Set();
+            //1. filter context
+            each(this.#updateSources, ({ value, chain, oldValue }, k) => {
+                if (this.#renderContextList[k]) {
+                    this.#renderContextList[k].forEach(cx => {
+                        renderContextList.add(cx);
+                    });
+                }
+            });
+            //2. update context
+            renderContextList.forEach(context => {
+                if (context === this) {
+                    this.updateView(this.render());
+                }
+                else {
+                    //指令在这里仅更新视图
+                    let rs = context.render(...(context._renderArgs ? context._renderArgs : []));
+                    if (rs)
+                        context.updateView(rs);
+                }
+            });
+            //update slot view
+            this.#updateSlots.forEach((v) => {
+                this.#updateSlot(v);
+            });
+            this.updated(changed);
+            this.#updateSources = {};
+        }
+        /**
+         * 1. 初始props中并未包含的属性，可从attributes取，且定义类型不是string时自动转换
+         * 2. 如果attributes中也未出现且必填报错
+         * 3. 否则设置默认值
+         * @returns 非props的attr集合
+         */
+        #initProps() {
+            let propDefs = get(this.constructor, "__deco_props");
+            let attrs = this.attributes;
+            let tagName = this.tagName;
+            let parentProps = this.#props;
+            let filterAttrs = {};
+            each(attrs, ({ name, value }) => {
+                if (name[0] === ATTR_PREFIX_EVENT ||
+                    name[0] === ATTR_PREFIX_PROP ||
+                    name[0] === ATTR_PREFIX_BOOLEAN ||
+                    name === ATTR_REF || name === 'slot')
+                    return;
+                let camelName = camelCase(name);
+                if (propDefs && !propDefs[camelName]) {
+                    filterAttrs[name] = value;
+                }
+            });
+            this.#attrs = this.#attrs ? assign(this.#attrs, filterAttrs) : filterAttrs;
+            let rs = {};
+            each(propDefs, (def, key) => {
+                let propDef = propDefs[key];
+                let isInited = has(parentProps, key);
+                let defaultVal = get(this, key);
+                if (!('_defaultValue' in propDef)) {
+                    //在构造结束后
+                    propDef._defaultValue = defaultVal;
+                    if (!propDef.type) {
+                        if (isUndefined(defaultVal)) {
+                            showTagError(tagName, "Prop '" + key + "' has neither propType nor defaultValue be used for type inference");
+                        }
+                        let type = typeof defaultVal;
+                        if (isArray(defaultVal))
+                            type = 'array';
+                        let inferredType = PropTypeMap[type];
+                        propDef.type = inferredType;
+                    }
+                }
+                let val = undefined;
+                if (isInited) {
+                    val = isNil(parentProps[key]) ? defaultVal : parentProps[key];
+                }
+                else {
+                    val = defaultVal;
+                    let attr = attrs.getNamedItem(kebabCase(key)) ||
+                        attrs.getNamedItem(ATTR_PREFIX_PROP + kebabCase(key));
+                    if (attr) {
+                        isInited = true;
+                        val = attr.value;
+                    }
+                }
+                //required check
+                let isRequired = propDef.required;
+                if (isRequired && !isInited) {
+                    showTagError(tagName, "Prop '" + key + "' is required");
+                    return false;
+                }
+                val = this.#propTypeCheck(propDefs, key, val);
+                let getter = get(propDefs, [key, 'getter']);
+                if (getter)
+                    getter = bind(getter, this);
+                let setter = get(propDefs, [key, 'setter']);
+                if (setter)
+                    setter = bind(setter, this);
+                if (getter || setter) {
+                    Object.defineProperty(this.#data, key, {
+                        set: setter || function (v) { },
+                        get: getter
+                    });
+                }
+                if (propDef.attribute && isDefined(val) && !isObject(val)) {
+                    this.setAttribute(kebabCase(key), trim(val));
+                }
+                this.#data[key] = val;
+                rs[key] = val;
+            });
+            return Object.seal(rs);
+        }
+        //属性值检测
+        #propTypeCheck(propDefs, propKey, newValue) {
+            let propDef = propDefs[propKey];
+            if (!propDef)
+                return newValue;
+            let validator = propDef.isValid;
+            let expectType = propDef.type;
+            let expectTypeAry = isArray(expectType) ? expectType : [expectType];
+            let typeConverter = propDef.converter;
+            let val = newValue;
+            if (!some(expectTypeAry, (et) => et === String) && isString(val) && !isNull(val)) {
+                try {
+                    val = typeConverter ? typeConverter(val) : fval(val, { html });
+                }
+                catch (error) {
+                    showTagError(this.tagName, `Convert attribute '${propKey}' error with ` + val);
+                }
+            } //endif
+            //extra work
+            for (let i = 0; i < expectTypeAry.length; i++) {
+                const et = expectTypeAry[i];
+                if (et.name === 'Boolean') {
+                    if (isString(val) && /(?:^true$)|(?:^false$)/.test(val)) {
+                        val = fval(val);
+                    }
+                    else if (isUndefined(val) || isBlank(val)) {
+                        val = true;
+                    }
+                }
+            }
+            let realType = typeof val;
+            let matched = isDefined(val) ? false : true;
+            for (let i = 0; i < expectTypeAry.length; i++) {
+                const et = expectTypeAry[i];
+                if (
+                //base form
+                test(realType, et.name, "i") ||
+                    //object form
+                    val instanceof et) {
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
+                showTagError(this.tagName, `Invalid prop '${propKey}'. expected '${expectTypeAry.map((t) => t.name || t)}' but got '${realType}'`);
+            }
+            if (validator) {
+                if (!validator.call(this, val, this.#data)) {
+                    showTagError(this.tagName, `Invalid prop '${propKey}'. IsValid() check failed`);
+                }
+            }
+            return val;
+        }
+        #initStates() {
+            let stateDefs = get(this.constructor, "__deco_states");
+            each(stateDefs, (def, key) => {
+                let stateDef = stateDefs[key];
+                let val = get(this, key);
+                if (stateDef) {
+                    let propName = stateDef.prop;
+                    val = propName ? cloneDeep(this.#data[propName]) : get(this, key);
+                }
+                this.#data[key] = val;
+            });
+        }
+        /**
+         * 由外部调用，在初始化及更新时。
+         * @param props
+         * @param attrs
+         */
+        #propsReady = debounce(this.propsReady, 100);
+        /**
+         * @deprecated
+         */
+        _setParentProps(props, attrs) {
+            if (this.#inited) {
+                let propDefs = get(this.constructor, "__deco_props");
+                //存在attrs表示已初始化完成
+                each(props, (v, k) => {
+                    let ck = camelCase(k);
+                    let propDef = propDefs[ck];
+                    if (!propDef)
+                        return;
+                    let ov = this.#data[ck];
+                    v = this.#propTypeCheck(propDefs, ck, v);
+                    if (propDef.hasChanged && !propDef.hasChanged.call(this, v, ov))
+                        return;
+                    this.#data[ck] = v;
+                    this._notify(ov, [ck]);
+                });
+                assign(this.#props, props);
+                assign(this.#attrs, attrs);
+                this.#propsReady(this.#props);
+            }
+        }
+        //todo 这里需要直接修改prop
+        _updateProps(props) {
+            let propDefs = get(this.constructor, "__deco_props");
+            //存在attrs表示已初始化完成
+            each(props, (v, k) => {
+                let ck = camelCase(k);
+                let propDef = propDefs[ck];
+                if (!propDef)
+                    return;
+                let ov = this.#data[ck];
+                v = this.#propTypeCheck(propDefs, ck, v);
+                if (propDef.hasChanged && !propDef.hasChanged.call(this, v, ov))
+                    return;
+                Collector.__skipCheck = true;
+                set(this, ck, v);
+                Collector.__skipCheck = false;
+            });
+            assign(this.#props, props);
+            this.#propsReady(this.#props);
+        }
+        _initProps(props, attrs) {
+            this.#props = merge(this.#props || {}, props);
+            this.#attrs = merge({}, attrs);
+        }
+        /**
+         * 绑定slot标签，render时调用
+         */
+        _bindSlot(slot, name, props) {
+            //1. 设置map
+            if (!this.#slotsEl[name]) {
+                this.#slotsEl[name] = slot;
+                Object.defineProperty(slot, '__l_comp', {
+                    value: this
+                });
+            }
+            slot.addEventListener('slotchange', (e) => {
+                if (this.#inited)
+                    this.#onSlogChange(slot, name === 'default' ? '' : name);
+            });
+            //3. 保存参数
+            if (!isEmpty(props)) {
+                let slotMap = this.#slotPropsMap[name];
+                if (!slotMap) {
+                    slotMap = this.#slotPropsMap[name] = {};
+                }
+                if (props.nodeFilter) {
+                    slotMap.filter = props.nodeFilter;
+                }
+                slotMap.props = omit(props, 'nodeFilter');
+            }
+        }
+        _bindSlotHook(name, hook) {
+            this.#slotHooks[name] = hook;
+        }
+        //slot变量变动时触发
+        #updateSlots = new Set();
+        _updateSlot(name, propName, value) {
+            let slotEl = this.#slotsEl[name];
+            let hook = this.#slotHooks[name];
+            if (!hook && !slotEl)
+                return;
+            let slotMap = this.#slotPropsMap[name];
+            if (propName) {
+                if (!slotMap.props) {
+                    slotMap.props = {};
+                }
+                slotMap.props[propName] = value;
+            }
+            if (!!hook) {
+                this.#updateSlots.add(name);
+            }
+            else {
+                //update nodes
+                let els = slotEl.assignedElements({ flatten: true });
+                for (let i = 0; i < els.length; i++) {
+                    const el = els[i];
+                    el.setAttribute(propName, value + '');
+                }
+            }
+        }
+        #updateSlotsAry() {
+            const cs = flatMap(this.childNodes, node => {
+                if (node.nodeType === Node.COMMENT_NODE)
+                    return [];
+                if (node instanceof HTMLSlotElement)
+                    return node.assignedNodes({ flatten: true });
+                return node;
+            });
+            let groups = groupBy(cs, node => {
+                // if (node.nodeType === Node.COMMENT_NODE) return ''
+                if (node.nodeType === Node.TEXT_NODE)
+                    return 'default';
+                if (node instanceof Element) {
+                    return node.getAttribute('slot') || 'default';
+                }
+            });
+            if (isEmpty(groups)) {
+                if (!isEmpty(this.#data['#slots'])) {
+                    this.#inited ? this.#reactiveData['#slots'] = {} : this.#data['#slots'] = {};
+                }
+                return;
+            }
+            each(groups, (nodeAry, k) => {
+                if (!k)
+                    return;
+                while (nodeAry.length > 0) {
+                    let node = nodeAry[0];
+                    if ((node.nodeType === Node.TEXT_NODE && isBlank(node.textContent)) ||
+                        (node instanceof HTMLSlotElement && isEmpty(node.assignedNodes({ flatten: true })))) {
+                        nodeAry.shift();
+                        continue;
+                    }
+                    break;
+                }
+                while (nodeAry.length > 0) {
+                    let node = last(nodeAry);
+                    if ((node.nodeType === Node.TEXT_NODE && isBlank(node.textContent)) ||
+                        (node instanceof HTMLSlotElement && isEmpty(node.assignedNodes({ flatten: true })))) {
+                        nodeAry.pop();
+                        continue;
+                    }
+                    break;
+                }
+            });
+            let rs = {};
+            each(groups, (v, k) => {
+                if (!isEmpty(v)) {
+                    rs[k] = v;
+                }
+            });
+            this.#inited ? this.#reactiveData['#slots'] = rs : this.#data['#slots'] = rs;
+        }
+        #updateSlot(name) {
+            let hook = this.#slotHooks[name];
+            if (!hook)
+                return;
+            let slotMap = this.#slotPropsMap[name];
+            let slot = this.#data['#slots'][name];
+            //slot not ready yet
+            //1. 可能是if/each等指令还未插入
+            if (!slot)
+                return;
+            //组件通知渲染异步指令
+            this.renderAsync(hook, get(slotMap, 'props'));
+            const rc = this._asyncDirectives.get(hook);
+            //todo 如果要做成通用异步指令，元素必须插入到指令挂载的位置，并且slot的插入节点还要去掉注释
+            let nodes = rc?.buildView(hook(get(slotMap, 'props')));
+            let nnodes = reject(toArray(nodes), n => n.nodeType === Node.COMMENT_NODE);
+            if (nnodes) {
+                let slottedNodes = this.#slotNodes[name];
+                if (!isEmpty(slottedNodes)) {
+                    for (let i = 0; i < slottedNodes.length; i++) {
+                        const n = slottedNodes[i];
+                        n.parentNode?.removeChild(n);
+                    }
+                }
+                this.#slotNodes[name] = nnodes;
+                this.append(...nnodes);
+                this.#updateSlots.clear();
+            }
+        }
+        _asyncDirectives = new WeakMap();
+        renderAsync(cbk, ...args) {
+        }
+        //children变化时触发
+        #filterSlot() {
+            if (isEmpty(this.#slotPropsMap))
+                return;
+            each(this.slots, (slottedNodes, k) => {
+                if (isEmpty(slottedNodes))
+                    return;
+                let slotMap = this.#slotPropsMap[k];
+                let filterNodes = slottedNodes;
+                if (slotMap) {
+                    let filterFn = slotMap.filter;
+                    if (isFunction(filterFn)) {
+                        filterNodes = filterFn(slottedNodes);
+                    }
+                    else if (isObject(filterFn)) {
+                        let type = filterFn.type;
+                        let maxCount = filterFn.maxCount;
+                        if (type) {
+                            let ts = isArray(type) ? type : [type];
+                            filterNodes = filter(slottedNodes, n => some(ts, t => n instanceof t));
+                        }
+                        if (maxCount > 0) {
+                            filterNodes = slice(slottedNodes, 0, maxCount);
+                        }
+                    }
+                }
+                if (this.#shadow.slotAssignment === 'named') {
+                    let removeNodes = [];
+                    for (let i = 0; i < slottedNodes.length; i++) {
+                        const c = slottedNodes[i];
+                        if (!filterNodes.includes(c)) {
+                            removeNodes.push(c);
+                        }
+                    }
+                    while (removeNodes.length > 0) {
+                        let n = removeNodes.pop();
+                        n.parentNode?.removeChild(n);
+                    }
+                }
+                else {
+                    this.#slotsEl[k].assign(...filterNodes);
+                }
+                if (this.#inited)
+                    this.#onSlogChange(this.#slotsEl[k], k === 'default' ? '' : k);
+            });
+        }
+        #attrChanged(name, oldValue, newValue) {
+            if (!this.isMounted)
+                return;
+            let observedAttrs = _getObservedAttrs(this.constructor);
+            if (observedAttrs.has(name)) {
+                let camelName = camelCase(name);
+                if (isNull(newValue)) {
+                    let propDefs = get(this.constructor, "__deco_props");
+                    //使用默认值
+                    newValue = propDefs[camelName]._defaultValue;
+                }
+                this._updateProps({ [camelName]: newValue });
+            }
+        }
+        /**
+         * todo
+         * 1. 取消上溯递归路径
+         */
+        _regDeps(varPath, renderContext) {
+            let list = this.#renderContextList[varPath];
+            if (!list) {
+                list = this.#renderContextList[varPath] = new Set();
+            }
+            list.add(renderContext);
+            let restPath = varPath.split('-');
+            restPath.pop();
+            if (restPath.length < 1)
+                return;
+            let upperPath = restPath.join('-');
+            list = this.#renderContextList[upperPath];
+            if (!list) {
+                list = this.#renderContextList[upperPath] = new Set();
+            }
+            list.add(renderContext);
+            // for (let i = 0; i < restPath.length; i++) {
+            //   const vp = restPath[i];
+            //   lastPath = isEmpty(lastPath) ? vp : lastPath + '-' + vp
+            //   let list = this.#renderContextList[lastPath]
+            //   if (!list) {
+            //     list = this.#renderContextList[lastPath] = new Set<CompElem | Directive>()
+            //   }
+            //   list.add(renderContext)
+            // }
+        }
+    }
+
+    /**
+     * @author holyhigh2
+     */
+    var DirectiveUpdateTag;
+    (function (DirectiveUpdateTag) {
+        DirectiveUpdateTag["NONE"] = "NONE";
+        DirectiveUpdateTag["REMOVE"] = "REMOVE";
+        DirectiveUpdateTag["REPLACE"] = "REPLACE";
+        DirectiveUpdateTag["UPDATE"] = "UPDATE";
+        DirectiveUpdateTag["APPEND"] = "APPEND";
+    })(DirectiveUpdateTag || (DirectiveUpdateTag = {}));
+    /**
+     * 视图更新点
+     */
+    class UpdatePoint {
+        //在子视图中的平级key
+        key;
+        //表达式对应的vars位置
+        varIndex;
+        value;
+        isText = false;
+        //是否模板
+        isTmpl = false;
+        isDirective = false;
+        //表达式所在节点，可能是元素/文本
+        node;
+        //如果是文本位置，与node一起构成插入范围
+        textNode;
+        //是否组件
+        isComponent = false;
+        //如果在属性中，属性名
+        attrName;
+        //属性值模板
+        attrTmpl;
+        //是否组件属性
+        isProp = false;
+        //是否布尔属性
+        isToggleProp = false;
+        //是否事件
+        isEvent;
+        constructor(varIndex, node, attrName, attrTmpl) {
+            this.varIndex = varIndex;
+            this.node = node;
+            if (attrName)
+                this.attrName = attrName;
+            if (attrTmpl) {
+                this.attrTmpl = attrTmpl;
+            }
+        }
+    }
+
+    /**
+     * 属性定义
+     */
+    var EnterPointType;
+    (function (EnterPointType) {
+        EnterPointType["ATTR"] = "attr";
+        EnterPointType["PROP"] = "prop";
+        EnterPointType["TEXT"] = "text";
+        EnterPointType["CLASS"] = "class";
+        EnterPointType["STYLE"] = "style";
+        EnterPointType["SLOT"] = "slot";
+        EnterPointType["TAG"] = "tag"; //在标签内但不是属性内
+    })(EnterPointType || (EnterPointType = {}));
+    /**
+     * 交互点信息
+     */
+    class EnterPoint {
+        startNode; //依赖节点
+        endNode; //依赖节点2
+        type; //依赖类型
+        attrName; //依赖属性名
+        varIndex;
+        expressionChain; //所在层级序号 [parentVarIndex-varIndex-]+，如1-6 表示根的第2个表达式下的context的第7个表达式
+        nodes; //如果是插入节点，保存插入的节点数组
+        constructor(node, attrName, type) {
+            this.startNode = node;
+            this.attrName = attrName;
+            this.type = type;
+        }
+        setVarIndex(varIndex) {
+            this.varIndex = varIndex;
+        }
+        getNodes() {
+            let nextNode = this.startNode.nextSibling;
+            if (!this.endNode)
+                return [nextNode];
+            let rs = [];
+            while (nextNode && nextNode !== this.endNode) {
+                rs.push(nextNode);
+                nextNode = nextNode?.nextSibling;
+            }
+            return rs;
+        }
+    }
+    var MovePosition;
+    (function (MovePosition) {
+        MovePosition["AFTER_BEGIN"] = "afterbegin";
+    })(MovePosition || (MovePosition = {}));
+    /**
+     * Delay the actual time of execution of directive
+     */
+    class DirectiveWrapper extends Function {
+        diClass;
+        args;
+        di;
+        varPath;
+        point;
+        slotComponent;
+        varChain;
+        constructor(diClass, ...args) {
+            super();
+            this.diClass = diClass;
+            this.args = args;
+            this.varChain = Collector.popDirectiveQ();
+            this.di = new this.diClass();
+            this.di.renderParams = this.varChain;
+        }
+        //校验scope
+        checkScope(scopeType) {
+            let scopes = get(this.diClass, 'scopes');
+            if (!isEmpty(scopes) && !test(scopes.join(','), scopeType)) {
+                showError(`Directive '${this.diClass.name}' is out of scopes, expect '${scopes.join(',')}' bug got '${scopeType}'`);
+                return;
+            }
+        }
+        render(component) {
+            let di = this.di;
+            this.args;
+            if (!di.renderComponent) {
+                di.renderComponent = component;
+                // for (let i = 0; i < args.length; i++) {
+                //   const arg = args[i];
+                //   if (isFunction(arg)) {
+                //     args[i] = arg.bind(component)
+                //   }
+                // }
+            }
+            this.di = di;
+            di._renderArgs = this.args;
+            // let [nodes, expPos, expPosMap] = di.renderContext(...this.args)
+            // if (expPosMap) {
+            //   di.__expPosMap = expPosMap
+            // } else if (expPos) {
+            //   di.__expPos = expPos
+            // }
+            return this.di.render(...this.args);
+        }
+        update(point, newArgs, oldArgs) {
+            let tag = this.di.update(point, newArgs, oldArgs);
+            if (tag === DirectiveUpdateTag.NONE)
+                return;
+            let nodes = point.getNodes();
+            if (tag === DirectiveUpdateTag.REMOVE) {
+                for (let i = 0; i < nodes.length; i++) {
+                    const n = nodes[i];
+                    n.parentNode?.removeChild(n);
+                }
+            }
+            else if (tag === DirectiveUpdateTag.REPLACE) {
+                let newNodes = [];
+                for (let i = 0; i < nodes.length; i++) {
+                    const n = nodes[i];
+                    n.parentNode?.removeChild(n);
+                }
+                let rs = this.di.render(...newArgs);
+                let nnodes = this.di.buildView(rs);
+                newNodes = toArray(nnodes);
+                let fragment = document.createDocumentFragment();
+                fragment.append(...newNodes);
+                point.endNode.parentNode.insertBefore(fragment, point.endNode);
+            }
+            else if (tag === DirectiveUpdateTag.UPDATE) {
+                let newKeys = {};
+                let nodesToUpdate;
+                //原节点顺序
+                let oldSeq = [];
+                let newSeq = [];
+                let updateRs = this.di.render(...newArgs);
+                if (!updateRs) {
+                    updateRs = new Template([], []);
+                }
+                if (isEmpty(nodes)) {
+                    let nodes = this.di.buildView(updateRs);
+                    point.startNode.after(...nodes);
+                    return;
+                }
+                let newTmpls = {};
+                if (updateRs instanceof Template) {
+                    updateRs.vars.forEach(v => {
+                        if (v instanceof Template) {
+                            const k = v.getKey();
+                            newTmpls[k] = v;
+                            newKeys[k] = true;
+                            newSeq.push(k);
+                        }
+                    });
+                }
+                //UPDATE仅处理元素节点
+                nodes = filter(compact(nodes), n => n.nodeType === Node.ELEMENT_NODE);
+                nodesToUpdate = filter(compact(toArray(nodesToUpdate)), n => n.nodeType === Node.ELEMENT_NODE);
+                let oldNodeMap = {};
+                let dupKey = '';
+                let keyQ = {};
+                for (let i = 0; i < nodes.length; i++) {
+                    const node = nodes[i];
+                    let treeNode = node;
+                    let k = treeNode.getAttribute("key");
+                    if (!k)
+                        continue;
+                    if (oldNodeMap[k]) {
+                        dupKey = k;
+                        break;
+                    }
+                    oldNodeMap[k] = treeNode;
+                    oldSeq.push(k);
+                    keyQ[k] = true;
+                }
+                if (dupKey) {
+                    showError(`${camelCase(this.diClass.name)} - duplicate key '${dupKey}'`);
+                    return;
+                }
+                let updateQ = newKeys;
+                const parentNode = point.startNode.parentNode;
+                //compare
+                let adds = [];
+                let dels = [];
+                //计算del
+                each(keyQ, (v, k) => {
+                    if (!updateQ[k]) {
+                        dels.push(k);
+                        delete keyQ[k];
+                        remove(oldSeq, k);
+                    }
+                });
+                //计算move
+                if (!isEmpty(newSeq)) {
+                    let lastMoveNodeId = '';
+                    let lastMoveIndex = -1;
+                    let lastGroup = [];
+                    let idWeightMap = {};
+                    for (let i = 0; i < newSeq.length; i++) {
+                        const nodeId = newSeq[i];
+                        let oldI = oldSeq.findIndex(c => c === nodeId);
+                        if (oldI > -1 && oldI !== i) {
+                            if (lastMoveIndex < 0 || lastMoveIndex - oldI == 1) {
+                                let lastEl = last(lastGroup);
+                                lastGroup.push({ nodeId, targetId: i === 0 ? MovePosition.AFTER_BEGIN : (lastEl ? lastEl.nodeId : newSeq[i - 1]) });
+                            }
+                            else {
+                                idWeightMap[lastGroup.length] = { group: lastGroup, targetId: '' };
+                                lastGroup = [];
+                                lastGroup.push({ nodeId, targetId: oldSeq[oldI] });
+                            }
+                            lastMoveIndex = oldI;
+                        }
+                        else if (oldI < 0) {
+                            let prev = lastMoveNodeId ? oldNodeMap[lastMoveNodeId] || point.endNode : point.startNode;
+                            //add
+                            adds.push({ prevNode: prev, newkey: nodeId });
+                        }
+                        lastMoveNodeId = nodeId;
+                    }
+                    if (isEmpty(idWeightMap) && lastGroup.length > 0) {
+                        idWeightMap[lastGroup.length] = { group: lastGroup, targetId: '' };
+                    }
+                    let keys = Object.keys(idWeightMap);
+                    let keyNums = keys.map(k => parseInt(k)).sort((a, b) => a - b);
+                    if (keys.length > 0) {
+                        if (keys.length < 2) {
+                            //如果仅有一组，留最后一个节点
+                            let { group } = idWeightMap[keyNums[0]];
+                            initial(group).forEach(({ targetId, nodeId }) => {
+                                let srcEl = oldNodeMap[nodeId];
+                                let target;
+                                if (targetId === MovePosition.AFTER_BEGIN) {
+                                    target = point.startNode;
+                                    target.after(srcEl);
+                                }
+                                else {
+                                    target = oldNodeMap[targetId];
+                                    target.after(srcEl);
+                                }
+                            });
+                        }
+                        else {
+                            //如果多组，留最后一组
+                            console.debug('todo....');
+                        }
+                    } //endif
+                    console.debug('test....');
+                }
+                if (adds.length > 0) {
+                    this.#addNodes(adds, newTmpls, newSeq);
+                }
+                adds.forEach(v => {
+                    let k = v.newkey;
+                    let treeNode = this.newNodeMap[k];
+                    let prevNode = v.prevNode;
+                    if (prevNode === point.endNode) {
+                        prevNode.before(treeNode);
+                    }
+                    else if (prevNode === point.startNode) {
+                        prevNode.after(treeNode);
+                    }
+                    else {
+                        prevNode.after(treeNode);
+                    }
+                });
+                dels.forEach(k => {
+                    let vi = oldSeq.findIndex(s => s == k);
+                    this.#removeNode(vi);
+                    // remove(adjustedQ, ak => ak === k)
+                    let treeNode = oldNodeMap[k];
+                    if (treeNode && treeNode.parentNode) {
+                        parentNode.removeChild(treeNode);
+                    }
+                });
+                //reset varIndex
+                this.di.__updatePoints.forEach(up => {
+                    const i = newSeq.findIndex(s => s == up.key);
+                    up.varIndex = i;
+                });
+                this.di.updateView(updateRs);
+            }
+        }
+        getDirective() {
+            return this.di;
+        }
+        newNodeMap = {};
+        #addNodes(adds, newTmpls, newSeq) {
+            const combStrings = [];
+            const combVars = [];
+            adds.forEach(add => {
+                let k = add.newkey;
+                combStrings.push('');
+                combVars.push(newTmpls[k]);
+            });
+            combStrings.push('');
+            let tmpl = new Template(combStrings, combVars);
+            let originalUps = this.di.__updatePoints;
+            let nodes = this.di.buildView(tmpl);
+            this.di.__updatePoints.forEach((up, i) => {
+                const k = up.value.tmpl.getKey();
+                up.key = k;
+            });
+            this.di.__updatePoints.push(...originalUps);
+            //reset varIndex
+            // this.di.__updatePoints.forEach(up => {
+            //   const i = newSeq.findIndex(s => s == up.key)
+            //   up.varIndex = i
+            // })
+            nodes.forEach((n) => {
+                if (n instanceof HTMLElement)
+                    this.newNodeMap[n.getAttribute('key')] = n;
+            });
+        }
+        //对于foreach指令，key就是序号
+        #removeNode(key) {
+            remove(this.di.__updatePoints, (v, k) => {
+                if (v.varIndex == key) {
+                    DomUtil.remove(v.node, v.textNode);
+                    return true;
+                }
+            });
+        }
     }
 
     /*************************************************************
@@ -7342,7 +8782,8 @@
     })(MutationType || (MutationType = {}));
     const AllMutationEls = new WeakMap;
     const mutationObserver = new MutationObserver(mutations => {
-        mutations.forEach(mutation => {
+        for (let i = 0; i < mutations.length; i++) {
+            const mutation = mutations[i];
             let map = AllMutationEls.get(mutation.target);
             if (!map)
                 return;
@@ -7381,7 +8822,7 @@
                 });
                 cbk(ev);
             }
-        });
+        }
     });
     function addMutation(node, cbk, parts) {
         let child = includes(parts, 'child');
@@ -7539,1405 +8980,14 @@
         return listener;
     }
 
-    /**
-     * 为组件/指令提供渲染接口
-     * @author holyhigh2
-     */
-    function RenderContext(spuerClass) {
-        //mixin class
-        return class extends spuerClass {
-            /**
-           * 渲染实现
-           */
-            render(...args) { }
-            //模板中变量位置信息
-            __expPos = {};
-            //对于each指令存在多个context，每个context需要单独更新 {contextKey:expPos}
-            __expPosMap = {};
-            //组件内所有的指令
-            __directives = {}; /**
-            * 指令/组件所在的插槽所属组件
-            */
-            slotComponent;
-            /**
-             * 渲染上下文所属组件
-             */
-            renderComponent;
-            //////////////////////////////////// methods
-            renderContext(...args) {
-                return renderContext.call(this, ...args);
-            }
-            updateContext(...args) {
-                let tmpl = size(args) == 1 && ((isArray(args[0]) && args[0][0] instanceof Template) || (args[0] instanceof Template)) ? args[0] : this.render(...args);
-                if (tmpl instanceof Template) {
-                    this.__updateExpPos(tmpl, this.__expPos);
-                }
-                else if (isArray(tmpl) && tmpl[0] instanceof Template) {
-                    tmpl.forEach((tmp, i) => {
-                        this.__updateExpPos(tmp, this.__expPosMap[tmp.key ?? tmp.getKey()]);
-                    });
-                }
-            }
-            __updateExpPos(tmpl, _expPos) {
-                if (isBlank(join(tmpl.strings)))
-                    return;
-                let { vars } = tmpl;
-                _expPos && Object.values(_expPos).forEach(expPos => {
-                    let varIndex = expPos.index;
-                    let oldValue = expPos.value;
-                    let newValue = vars;
-                    let node = expPos.node;
-                    let indexSegs = split(varIndex, '-');
-                    indexSegs.forEach((seg, i) => {
-                        newValue = get(newValue, seg);
-                        if (newValue && newValue.vars && i < indexSegs.length - 1) {
-                            newValue = newValue.vars;
-                        }
-                    });
-                    //check
-                    if (!isObject(oldValue) && oldValue === newValue)
-                        return;
-                    let elNode = node;
-                    if (expPos.isDirective) {
-                        //指令
-                        newValue.di = oldValue.di;
-                        newValue.di.renderParams = newValue.varChain;
-                        newValue.di._renderArgs = newValue.args;
-                        newValue.point = oldValue.point;
-                        newValue.varPath = oldValue.varPath;
-                        let nodes = getDirectiveNodes(newValue.point.startNode, newValue.point.endNode);
-                        newValue.update(nodes, newValue.args, oldValue.args);
-                    }
-                    else if (expPos.isToggleProp) {
-                        //布尔特性
-                        if ((!!newValue) === oldValue)
-                            return;
-                        elNode.toggleAttribute(expPos.attrName, !!newValue);
-                        set(elNode, expPos.attrName, !!newValue);
-                    }
-                    else if (expPos.isProp) {
-                        //子组件属性
-                        if (!isObject(newValue) && newValue === oldValue)
-                            return;
-                        if (isObject(newValue) && isEqual(newValue, oldValue))
-                            return;
-                        //如果node是slot则触发组件的slot更新
-                        if (node instanceof CompElem) {
-                            node._updateProps({ [expPos.attrName]: newValue });
-                        }
-                        else if (node instanceof HTMLSlotElement) {
-                            this.renderComponent._updateSlot(node.getAttribute('name') || 'default', expPos.attrName, newValue);
-                        }
-                    }
-                    else if (expPos.eventName) {
-                        elNode.removeEventListener(expPos.eventName, oldValue);
-                        newValue = newValue.bind(this.renderComponent);
-                        newValue = addEvent(expPos.attrName, newValue, elNode, this.renderComponent);
-                    }
-                    else if (expPos.attrName) {
-                        //特性
-                        if (!isEqual(oldValue, newValue)) {
-                            switch (expPos.attrName) {
-                                case 'value':
-                                    if (node instanceof HTMLInputElement) {
-                                        node.value = newValue;
-                                        break;
-                                    }
-                                default:
-                                    node.setAttribute(expPos.attrName, replace(expPos.attrTmpl, PLACEHOLDER_EXP, newValue + ''));
-                            }
-                        }
-                    }
-                    else if (expPos.isTmpl) {
-                        //这里一定是子视图更新，子视图仅更新内部__expose
-                        if (!isEqual(newValue, oldValue)) {
-                            let [subNodes, subExpPos, subExpPosMap] = renderContext.call(this, newValue /*newValue */);
-                            if (isEmpty(subExpPos)) {
-                                DomUtil.remove(expPos.textNode, expPos.node);
-                                DomUtil.insertBefore(expPos.node, subNodes);
-                            }
-                            else {
-                                this.__updateExpPos(newValue, subExpPos);
-                            }
-                        }
-                    }
-                    else if (expPos.isText) {
-                        let textNode = expPos.textNode.nextSibling;
-                        if (textNode && textNode === expPos.node.previousSibling) {
-                            textNode.textContent = newValue;
-                        }
-                        else {
-                            DomUtil.remove(expPos.textNode, expPos.node);
-                            DomUtil.insertBefore(expPos.node, [newValue]);
-                        }
-                    }
-                    expPos.value = newValue;
-                });
-            }
-        };
-    }
-    function renderContext(...args) {
-        let tmpl = args.length === 1 && args[0] instanceof Template ? args[0] : this.render(...args);
-        let domTree;
-        let diWrappers = [];
-        let expPos = undefined;
-        let expPosMap = undefined;
-        if (tmpl instanceof Template) {
-            let html = buildHTML(tmpl);
-            // this.__expPos = {}
-            expPos = {};
-            domTree = buildTmplate(expPos, diWrappers, html, tmpl.vars, this.renderComponent);
-        }
-        if (isArray(tmpl) && tmpl[0] instanceof Template) {
-            // this.__expPosMap = {}
-            let doms = [];
-            expPosMap = {};
-            tmpl.forEach(tmp => {
-                let html = buildHTML(tmp);
-                let __expPos = {};
-                domTree = buildTmplate(__expPos, diWrappers, html, tmp.vars, this.renderComponent);
-                doms.push(...domTree);
-                expPosMap[tmp.key ?? tmp.getKey()] = __expPos;
-                // this.__expPosMap[tmp.key ?? tmp.getKey()] = __expPos
-            });
-            domTree = doms;
-        }
-        else if (tmpl instanceof Function) {
-            //todo 目前仅支持slot，后续如有异步指令再行重构
-            this.slotComponent._asyncDirectives.set(tmpl, this);
-        }
-        if (diWrappers.length < 1)
-            return [domTree, expPos, expPosMap];
-        diWrappers.forEach(diWrapper => {
-            let nodes = compact(toArray(diWrapper.render(this.renderComponent)));
-            if (!isEmpty(nodes)) {
-                let fragment = document.createDocumentFragment();
-                fragment.append(...nodes);
-                diWrapper.point.endNode.parentNode.insertBefore(fragment, diWrapper.point.endNode);
-            }
-        });
-        return [domTree, expPos, expPosMap];
-    }
-    function getDirectiveNodes(startNode, endNode) {
-        let nextNode = startNode.nextSibling;
-        if (!endNode)
-            return [nextNode];
-        let rs = [];
-        while (nextNode && nextNode !== endNode) {
-            rs.push(nextNode);
-            nextNode = nextNode?.nextSibling;
-        }
-        return rs;
-    }
-
-    const ATTR_CSS_LINK = "css-link";
-    const PropTypeMap = {
-        boolean: Boolean,
-        string: String,
-        number: Number,
-        object: Object,
-        array: Array,
-        function: Function,
-        bigint: BigInt,
-        symbol: Symbol,
-        undefined: Object
-    };
-    const PrivatePreffix = '#';
-    //组件静态样式
-    const ComponentStyleMap = new WeakMap();
-    /**
-     * CompElem基类，意为组件元素。提供了基本内置属性及生命周期等必备接口
-     * 每个组件都需要继承自该类
-     *
-     * @author holyhigh2
-     */
-    class CompElem extends RenderContext(HTMLElement) {
-        static __l_globalRule = document.createElement("style");
-        static {
-            document.head.appendChild(CompElem.__l_globalRule);
-        }
-        #slotPropsMap = {};
-        #data = { '#slots': {} };
-        #reactiveData = {};
-        #updateTimer;
-        #updateSources = {};
-        #shadow;
-        #selfObserver;
-        //保存所有渲染上下文 {CompElem/Directive}
-        #renderContextList = {};
-        __events = {};
-        get reactiveData() {
-            return this.#reactiveData;
-        }
-        get attrs() {
-            return this.#attrs;
-        }
-        get props() {
-            return this.#props;
-        }
-        get renderRoot() {
-            return this.#renderRoot;
-        }
-        get renderRoots() {
-            return this.#renderRoots;
-        }
-        get parentComponent() {
-            return this.#parentComponent;
-        }
-        get slotHooks() {
-            return this.#slotHooks;
-        }
-        get styles() {
-            return ComponentStyleMap.get(this.constructor);
-        }
-        get isMounted() {
-            return this.#mounted;
-        }
-        //slots列表中绝对不会出现slot元素
-        get slots() {
-            return this.#data['#slots'];
-        }
-        #attrs;
-        #props;
-        #renderRoot;
-        #renderRoots;
-        #parentComponent;
-        #slotsEl = {};
-        #slotHooks = {};
-        #slotNodes = {};
-        #mounted = false;
-        #instanceCss = new CSSStyleSheet();
-        /**
-         * 是否自动插入插槽，如果需要控制插槽类型时，可以设置为false
-         */
-        static get autoSlot() {
-            return true;
-        }
-        //////////////////////////////////// styles
-        /**
-         * 组件样式，CSSStyleSheet可动态变更
-         */
-        static get styles() {
-            return [];
-        }
-        static get globalStyles() {
-            return [];
-        }
-        get css() {
-            return '';
-        }
-        #inited = false;
-        constructor(...args) {
-            super();
-            //init props via constructor
-            if (size(args) === 1) {
-                this.#props = {};
-                assign(this.#props, first(args));
-            }
-            this.renderComponent = this;
-            let render = this.render;
-            this.render = () => {
-                let rs;
-                Collector.startRender(this);
-                rs = render.call(this);
-                Collector.endRender(this.renderComponent);
-                return rs;
-            };
-            /////////////////////////////////////////////////// styles
-            //global styles
-            let globalStyles = get(this.constructor, "globalStyles");
-            let beAttached = get(this.constructor, '_global_style_attached');
-            if (!isEmpty(globalStyles) && beAttached !== '1') {
-                let globalTextContent = "";
-                each(globalStyles, (st) => {
-                    if (isString(st)) {
-                        globalTextContent += st + "\n";
-                    }
-                });
-                CompElem.__l_globalRule.textContent += globalTextContent;
-                set(this.constructor, '_global_style_attached', '1');
-            }
-            //component styles
-            let beAttached2 = ComponentStyleMap.get(this.constructor);
-            let styleSheets = beAttached2 ?? [];
-            if (!beAttached2) {
-                each(get(this.constructor, "styles"), (st) => {
-                    if (isString(st)) {
-                        let sheet = new CSSStyleSheet();
-                        sheet.replace(st);
-                        styleSheets.push(sheet);
-                    }
-                    else {
-                        styleSheets.push(st);
-                    }
-                });
-                ComponentStyleMap.set(this.constructor, styleSheets);
-            }
-            /////////////////////////////////////////////////// shadow
-            this.#shadow = this.attachShadow({
-                mode: "open",
-                slotAssignment: get(this.constructor, "autoSlot", true) ? "named" : "manual",
-            });
-            this.#shadow.adoptedStyleSheets = concat(styleSheets, this.#instanceCss);
-            //check link
-            let cssLink = this.attributes.getNamedItem(ATTR_CSS_LINK)?.value;
-            if (cssLink) {
-                const link = document.createElement("style");
-                link.textContent = `@import "${cssLink}"`;
-                this.#shadow.appendChild(link);
-            }
-            let filterSlotFn = debounce(this.#filterSlot, 20);
-            this.#selfObserver = new MutationObserver(mutations => {
-                mutations.forEach(mutation => {
-                    if (mutation.type === 'childList') {
-                        filterSlotFn.call(this);
-                    }
-                });
-            });
-            //slots prop map
-            this._slotsPropMap = { default: [] };
-            /////////////////////////////////////////////////// decorators create
-            let ary = get(this.constructor, _DecoratorsKey);
-            each(ary, dw => {
-                dw.create(this);
-            });
-        }
-        connectedCallback() {
-            //parent
-            let node = closest(this.parentNode, (node) => node instanceof CompElem || node.host instanceof CompElem, "parentNode");
-            this.#parentComponent = node
-                ? node instanceof CompElem
-                    ? node
-                    : node.host
-                : null;
-            this.connected();
-            this.__init();
-        }
-        disconnectedCallback() {
-            this.#selfObserver.disconnect();
-        }
-        //////////////////////////////////// lifecycles
-        //********************************** 首次渲染
-        //构造时上级传递的参数
-        __init() {
-            if (this.#inited)
-                return;
-            /////////////////////////////////////////////////// slots
-            this.#updateSlotsAry();
-            //check props
-            this.#initProps();
-            this.#initStates();
-            //define reactive
-            each(this.#data, (v, k) => {
-                let descr = Reflect.getOwnPropertyDescriptor(this.#data, k);
-                Object.defineProperty(this, k, {
-                    get() {
-                        let v = Reflect.get(this.#reactiveData, k);
-                        return descr?.get ? descr?.get() : v;
-                    },
-                    set(v) {
-                        if (descr?.set) {
-                            descr?.set(v);
-                        }
-                        else {
-                            Reflect.set(this.#reactiveData, k, v);
-                        }
-                    },
-                });
-            });
-            Object.defineProperty(this.#data, '__isData', {
-                enumerable: false,
-                value: true
-            });
-            this.#reactiveData = reactive(this.#data, this);
-            /////////////////////////////////////////////////// decorators propsReady
-            const that = this;
-            let ary = get(this.constructor, _DecoratorsKey);
-            each(ary, dw => {
-                dw.propsReady(this, (key, value) => {
-                    that.#reactiveData[key] = value;
-                    return that.#reactiveData[key];
-                });
-            });
-            this.propsReady();
-            //computed props
-            let computedMap = get(this.constructor, "__deco_computed");
-            each(computedMap, ({ key, getter }, propKey) => {
-                Collector.startCompute(this);
-                Collector.setComputedProp(() => {
-                    this.#reactiveData[propKey] = getter.call(this);
-                });
-                this.#data[propKey] = getter.call(this);
-                Collector.endCompute();
-            });
-            each(computedMap, (v, k) => {
-                Object.defineProperty(this, k, {
-                    get() {
-                        return Reflect.get(this.#reactiveData, k);
-                    },
-                    set(v) {
-                        showTagError(this.tagName, "Cannot set a computed property '" + k + "'");
-                    },
-                });
-            });
-            //render
-            let [nodes, expPos, expPosMap] = this.renderContext();
-            this.__expPos = expPos;
-            if (nodes) {
-                let children = toArray(nodes);
-                each(children, (c) => {
-                    this.#shadow.appendChild(c);
-                });
-                this.#renderRoots = children;
-                this.#renderRoot = children[0];
-            }
-            //filter slot before append to dom
-            this.#filterSlot();
-            this.#selfObserver.observe(this, { childList: true });
-            //events
-            let eventList = get(this.constructor, "__deco_events");
-            each(eventList, (ev) => {
-                let name = ev.name;
-                let options = assign({ target: document, once: false, passive: false, capture: false }, ev.options);
-                let listener = bind(ev.fn, this);
-                let target = options.target;
-                if (isFunction(target)) {
-                    target = target.call(this, this);
-                }
-                target.addEventListener(name, listener, options);
-            });
-            //slot hook
-            each(this.#slotHooks, (v, k) => {
-                this.#updateSlot(k);
-            });
-            //instance dynamic style
-            Collector.startCss(this);
-            Collector.setCssUpdater(() => {
-                let css = this.css;
-                this.#instanceCss.replace(css);
-            });
-            let css = this.css;
-            if (trim(css)) {
-                this.#instanceCss.replace(css);
-            }
-            Collector.endCss();
-            setTimeout(() => {
-                this.#mounted = true;
-                this.mounted();
-                each(ary, dw => {
-                    dw.mounted(this, (key, value) => {
-                        that.#reactiveData[key] = value;
-                        return that.#reactiveData[key];
-                    });
-                });
-            }, 0);
-            this.#inited = true;
-        }
-        /**
-         * 初始化属性及状态，该回调内可以访问props和state
-         * 此时组件dom并未构建，但已有parent 属性，没有root属性
-         */
-        connected() { }
-        /**
-         * props初始化完成回调
-         */
-        propsReady() { }
-        /**
-         * 每次更新时调用
-         */
-        render() {
-            throw Error(`[CompElem <${this.tagName}>] Missing render()`);
-        }
-        /**
-         * dom渲染完毕后调用，该回调内可以query注解初始化完成
-         */
-        mounted() { }
-        #onSlogChange(slot, name) {
-            //1. 更新 _slotsPropMap & slots
-            this.#updateSlotsAry();
-            //2. 设置attrs
-            let props = get(this.#slotPropsMap[name], 'props');
-            if (props) {
-                each(this.slots, (nodeAry, k) => {
-                    nodeAry.filter(node => node.nodeType === Node.ELEMENT_NODE).forEach((node) => {
-                        if (node instanceof CompElem) {
-                            // node._setParentProps(props)
-                            node._updateProps(props);
-                            return;
-                        }
-                        each(props, (v, k) => {
-                            if (node instanceof HTMLSlotElement) {
-                                let compOfSlot = get(node, '__l_comp');
-                                if (compOfSlot) {
-                                    let sname = node.name || 'default';
-                                    let slotMap = compOfSlot.#slotPropsMap[sname];
-                                    if (!slotMap) {
-                                        slotMap = compOfSlot.#slotPropsMap[sname] = { props: {} };
-                                    }
-                                    if (!slotMap.props) {
-                                        slotMap.props = {};
-                                    }
-                                    slotMap.props[k] = v;
-                                    compOfSlot.#onSlogChange(node, sname);
-                                }
-                            }
-                            else {
-                                node.setAttribute(k, v);
-                            }
-                        });
-                    });
-                });
-            }
-            //3. callback
-            this.slotChange(slot, name);
-        }
-        slotChange(slot, name) { }
-        attributeChangedCallback(attributeName, oldValue, newValue) {
-            this.#attrChanged(attributeName, oldValue, newValue);
-        }
-        //********************************** 更新
-        /**
-         * 是否需要更新，可获取变更属性
-         * 返回true时更新
-         */
-        shouldUpdate(changed) {
-            return true;
-        }
-        /**
-         * 1. 调用render
-         * 2. 更新@query/all
-         * 3. 更新ref
-         * 4. 更新prop到attr的映射
-         * @param changed
-         */
-        updated(changed) { }
-        /**
-         * 抛出自定义事件
-         * @param evName 事件名称
-         * @param args 自定义参数
-         */
-        emit(evName, arg = {}, options) {
-            if (options && options.event) {
-                arg.event = options.event;
-            }
-            arg.target = this;
-            this.dispatchEvent(new CustomEvent(evName, {
-                bubbles: get(options, "bubbles", false),
-                composed: get(options, "composed", false),
-                cancelable: true,
-                detail: arg,
-            }));
-        }
-        #rootEvs = {};
-        /**
-         * 在root上绑定事件
-         * @param evName
-         * @param hook
-         */
-        on(evName, hook) {
-            if (!this.#rootEvs[evName]) {
-                this.#rootEvs[evName] = [];
-            }
-            let cbk = hook.bind(this);
-            this.#rootEvs[evName].push(cbk);
-            this.addEventListener(evName, cbk);
-        }
-        /**
-         * 下一帧执行
-         * @param cbk
-         */
-        nextTick(cbk) {
-            requestAnimationFrame(cbk);
-        }
-        /**
-         * 强制更新一次视图
-         */
-        forceUpdate() {
-            each(this.#reactiveData, (v, k) => {
-                this.#updateSources[k] = {
-                    value: undefined,
-                    chain: undefined,
-                };
-            });
-            this.#update();
-        }
-        /**
-         * 由监控变量调用
-         * @param stateKey
-         * @param ov
-         * @param rootStateKey 如果是对象内部属性变更，会返回根属性名
-         * @returns
-         */
-        _notify(ov, chain) {
-            let varPath = [];
-            each(chain, (seg) => {
-                varPath.push(seg);
-                let v = get(this, varPath);
-                let pathStr = _toUpdatePath(varPath);
-                this.#updateSources[pathStr] = { value: v, chain: pathStr === "slots" ? ['slots'] : varPath, oldValue: ov, end: varPath.length === chain.length };
-            });
-            //debounce
-            if (this.#updateTimer) {
-                clearTimeout(this.#updateTimer);
-            }
-            this.#updateTimer = setTimeout(this.#update.bind(this), 10);
-        }
-        #update() {
-            const changed = Object.seal(clone(omitBy(this.#updateSources, (v, k) => k[0] === PrivatePreffix)));
-            //update decorators
-            let ary = get(this.constructor, _DecoratorsKey);
-            each(ary, dw => {
-                dw.updated(this, changed);
-            });
-            let toBreak = !this.shouldUpdate(changed);
-            if (toBreak)
-                return;
-            let renderContextList = new Set();
-            //1. filter context
-            each(this.#updateSources, ({ value, chain, oldValue }, k) => {
-                if (this.#renderContextList[k]) {
-                    this.#renderContextList[k].forEach(cx => {
-                        renderContextList.add(cx);
-                    });
-                }
-            });
-            //2. update context
-            renderContextList.forEach(context => {
-                context.updateContext(...(context._renderArgs ? context._renderArgs : []));
-            });
-            //update slot view
-            each(this.#updateSlots, (v) => {
-                this.#updateSlot(v);
-            });
-            this.updated(changed);
-            this.#updateSources = {};
-        }
-        /**
-         * 1. 初始props中并未包含的属性，可从attributes取，且定义类型不是string时自动转换
-         * 2. 如果attributes中也未出现且必填报错
-         * 3. 否则设置默认值
-         * @returns 非props的attr集合
-         */
-        #initProps() {
-            let propDefs = get(this.constructor, "__deco_props");
-            let attrs = this.attributes;
-            let tagName = this.tagName;
-            let parentProps = this.#props;
-            let filterAttrs = {};
-            each(attrs, ({ name, value }) => {
-                if (name[0] === ATTR_PREFIX_EVENT ||
-                    name[0] === ATTR_PREFIX_PROP ||
-                    name[0] === ATTR_PREFIX_BOOLEAN ||
-                    name === ATTR_REF || name === 'slot')
-                    return;
-                let camelName = camelCase(name);
-                if (propDefs && !propDefs[camelName]) {
-                    filterAttrs[name] = value;
-                }
-            });
-            this.#attrs = this.#attrs ? assign(this.#attrs, filterAttrs) : filterAttrs;
-            each(propDefs, (def, key) => {
-                let propDef = propDefs[key];
-                let isInited = has(parentProps, key);
-                let defaultVal = get(this, key);
-                if (!('_defaultValue' in propDef)) {
-                    //在构造结束后
-                    propDef._defaultValue = defaultVal;
-                    if (!propDef.type) {
-                        if (isUndefined(defaultVal)) {
-                            showTagError(tagName, "Prop '" + key + "' has neither propType nor defaultValue be used for type inference");
-                        }
-                        let type = typeof defaultVal;
-                        if (isArray(defaultVal))
-                            type = 'array';
-                        let inferredType = PropTypeMap[type];
-                        propDef.type = inferredType;
-                    }
-                }
-                let val = undefined;
-                if (isInited) {
-                    val = isNil(parentProps[key]) ? defaultVal : parentProps[key];
-                }
-                else {
-                    val = defaultVal;
-                    let attr = attrs.getNamedItem(kebabCase(key)) ||
-                        attrs.getNamedItem(ATTR_PREFIX_PROP + kebabCase(key));
-                    if (attr) {
-                        isInited = true;
-                        val = attr.value;
-                    }
-                }
-                //required check
-                let isRequired = propDef.required;
-                if (isRequired && !isInited) {
-                    showTagError(tagName, "Prop '" + key + "' is required");
-                    return false;
-                }
-                val = this.#propTypeCheck(propDefs, key, val);
-                let getter = get(propDefs, [key, 'getter']);
-                if (getter)
-                    getter = bind(getter, this);
-                let setter = get(propDefs, [key, 'setter']);
-                if (setter)
-                    setter = bind(setter, this);
-                if (getter || setter) {
-                    Object.defineProperty(this.#data, key, {
-                        set: setter || function (v) { },
-                        get: getter
-                    });
-                }
-                if (propDef.attribute && isDefined(val) && !isObject(val)) {
-                    this.setAttribute(kebabCase(key), trim(val));
-                }
-                this.#data[key] = val;
-            });
-        }
-        //属性值检测
-        #propTypeCheck(propDefs, propKey, newValue) {
-            let propDef = propDefs[propKey];
-            if (!propDef)
-                return newValue;
-            let validator = propDef.isValid;
-            let expectType = propDef.type;
-            let expectTypeAry = isArray(expectType) ? expectType : [expectType];
-            let typeConverter = propDef.converter;
-            let val = newValue;
-            if (!some(expectTypeAry, (et) => et === String) && isString(val) && !isNull(val)) {
-                try {
-                    val = typeConverter ? typeConverter(val) : fval(val, { html });
-                }
-                catch (error) {
-                    showTagError(this.tagName, `Convert attribute '${propKey}' error with ` + val);
-                }
-            } //endif
-            //extra work
-            expectTypeAry.forEach(et => {
-                if (et.name === 'Boolean') {
-                    if (isString(val) && /(?:^true$)|(?:^false$)/.test(val)) {
-                        val = fval(val);
-                    }
-                    else if (isUndefined(val) || isBlank(val)) {
-                        val = true;
-                    }
-                }
-            });
-            let realType = typeof val;
-            let matched = isDefined(val) ? false : true;
-            each(expectTypeAry, (et) => {
-                if (
-                //base form
-                test(realType, et.name, "i") ||
-                    //object form
-                    val instanceof et) {
-                    matched = true;
-                    return false;
-                }
-            });
-            if (!matched) {
-                showTagError(this.tagName, `Invalid prop '${propKey}'. expected '${expectTypeAry.map((t) => t.name || t)}' but got '${realType}'`);
-            }
-            if (validator) {
-                if (!validator.call(this, val, this.#data)) {
-                    showTagError(this.tagName, `Invalid prop '${propKey}'. IsValid() check failed`);
-                }
-            }
-            return val;
-        }
-        #initStates() {
-            let stateDefs = get(this.constructor, "__deco_states");
-            each(stateDefs, (def, key) => {
-                let stateDef = stateDefs[key];
-                let val = get(this, key);
-                if (stateDef) {
-                    let propName = stateDef.prop;
-                    val = propName ? cloneDeep(this.#data[propName]) : get(this, key);
-                }
-                this.#data[key] = val;
-            });
-        }
-        /**
-         * 由外部调用，在初始化及更新时。
-         * @param props
-         * @param attrs
-         */
-        #propsReady = debounce(this.propsReady, 100);
-        /**
-         * @deprecated
-         */
-        _setParentProps(props, attrs) {
-            if (this.#inited) {
-                let propDefs = get(this.constructor, "__deco_props");
-                //存在attrs表示已初始化完成
-                each(props, (v, k) => {
-                    let ck = camelCase(k);
-                    let propDef = propDefs[ck];
-                    if (!propDef)
-                        return;
-                    let ov = this.#data[ck];
-                    v = this.#propTypeCheck(propDefs, ck, v);
-                    if (propDef.hasChanged && !propDef.hasChanged.call(this, v, ov))
-                        return;
-                    this.#data[ck] = v;
-                    this._notify(ov, [ck]);
-                });
-                assign(this.#props, props);
-                assign(this.#attrs, attrs);
-                this.#propsReady();
-            }
-        }
-        //todo 这里需要直接修改prop
-        _updateProps(props) {
-            let propDefs = get(this.constructor, "__deco_props");
-            //存在attrs表示已初始化完成
-            each(props, (v, k) => {
-                let ck = camelCase(k);
-                let propDef = propDefs[ck];
-                if (!propDef)
-                    return;
-                let ov = this.#data[ck];
-                v = this.#propTypeCheck(propDefs, ck, v);
-                if (propDef.hasChanged && !propDef.hasChanged.call(this, v, ov))
-                    return;
-                Collector.__skipCheck = true;
-                set(this, ck, v);
-                Collector.__skipCheck = false;
-            });
-            assign(this.#props, props);
-            this.#propsReady();
-        }
-        _initProps(props, attrs) {
-            this.#props = merge(this.#props || {}, props);
-            this.#attrs = merge({}, attrs);
-        }
-        /**
-         * 绑定slot标签，render时调用
-         */
-        _bindSlot(slot, name, props) {
-            //1. 设置map
-            if (!this.#slotsEl[name]) {
-                this.#slotsEl[name] = slot;
-                Object.defineProperty(slot, '__l_comp', {
-                    value: this
-                });
-            }
-            slot.addEventListener('slotchange', (e) => {
-                if (this.#inited)
-                    this.#onSlogChange(slot, name === 'default' ? '' : name);
-            });
-            //3. 保存参数
-            if (!isEmpty(props)) {
-                let slotMap = this.#slotPropsMap[name];
-                if (!slotMap) {
-                    slotMap = this.#slotPropsMap[name] = {};
-                }
-                if (props.nodeFilter) {
-                    slotMap.filter = props.nodeFilter;
-                }
-                slotMap.props = omit(props, 'nodeFilter');
-            }
-        }
-        _bindSlotHook(name, hook) {
-            this.#slotHooks[name] = hook;
-        }
-        //slot变量变动时触发
-        #updateSlots = new Set();
-        _updateSlot(name, propName, value) {
-            let slotEl = this.#slotsEl[name];
-            let hook = this.#slotHooks[name];
-            if (!hook && !slotEl)
-                return;
-            let slotMap = this.#slotPropsMap[name];
-            if (propName) {
-                if (!slotMap.props) {
-                    slotMap.props = {};
-                }
-                slotMap.props[propName] = value;
-            }
-            if (!!hook) {
-                this.#updateSlots.add(name);
-            }
-            else {
-                //update nodes
-                let els = slotEl.assignedElements({ flatten: true });
-                each(els, el => {
-                    el.setAttribute(propName, value + '');
-                });
-            }
-        }
-        #updateSlotsAry() {
-            const cs = flatMap(this.childNodes, node => {
-                if (node.nodeType === Node.COMMENT_NODE)
-                    return [];
-                if (node instanceof HTMLSlotElement)
-                    return node.assignedNodes({ flatten: true });
-                return node;
-            });
-            let groups = groupBy(cs, node => {
-                // if (node.nodeType === Node.COMMENT_NODE) return ''
-                if (node.nodeType === Node.TEXT_NODE)
-                    return 'default';
-                if (node instanceof Element) {
-                    return node.getAttribute('slot') || 'default';
-                }
-            });
-            if (isEmpty(groups)) {
-                if (!isEmpty(this.#data['#slots'])) {
-                    this.#inited ? this.#reactiveData['#slots'] = {} : this.#data['#slots'] = {};
-                }
-                return;
-            }
-            each(groups, (nodeAry, k) => {
-                if (!k)
-                    return;
-                while (nodeAry.length > 0) {
-                    let node = nodeAry[0];
-                    if ((node.nodeType === Node.TEXT_NODE && isBlank(node.textContent)) ||
-                        (node instanceof HTMLSlotElement && isEmpty(node.assignedNodes({ flatten: true })))) {
-                        nodeAry.shift();
-                        continue;
-                    }
-                    break;
-                }
-                while (nodeAry.length > 0) {
-                    let node = last(nodeAry);
-                    if ((node.nodeType === Node.TEXT_NODE && isBlank(node.textContent)) ||
-                        (node instanceof HTMLSlotElement && isEmpty(node.assignedNodes({ flatten: true })))) {
-                        nodeAry.pop();
-                        continue;
-                    }
-                    break;
-                }
-            });
-            let rs = {};
-            each(groups, (v, k) => {
-                if (!isEmpty(v)) {
-                    rs[k] = v;
-                }
-            });
-            this.#inited ? this.#reactiveData['#slots'] = rs : this.#data['#slots'] = rs;
-        }
-        #updateSlot(name) {
-            let hook = this.#slotHooks[name];
-            if (!hook)
-                return;
-            let slotMap = this.#slotPropsMap[name];
-            let slot = this.#data['#slots'][name];
-            //slot not ready yet
-            //1. 可能是if/each等指令还未插入
-            if (!slot)
-                return;
-            //组件通知渲染异步指令
-            this.renderAsync(hook, get(slotMap, 'props'));
-            const rc = this._asyncDirectives.get(hook);
-            //todo 如果要做成通用异步指令，元素必须插入到指令挂载的位置，并且slot的插入节点还要去掉注释
-            let [nodes, expPos, expPosMap] = rc?.renderContext(hook(get(slotMap, 'props')));
-            let nnodes = reject(toArray(nodes), n => n.nodeType === Node.COMMENT_NODE);
-            if (nnodes) {
-                let slottedNodes = this.#slotNodes[name];
-                if (!isEmpty(slottedNodes)) {
-                    each(slottedNodes, n => {
-                        n.parentNode?.removeChild(n);
-                    });
-                }
-                this.#slotNodes[name] = nnodes;
-                this.append(...nnodes);
-                this.#updateSlots.clear();
-            }
-        }
-        _asyncDirectives = new WeakMap();
-        renderAsync(cbk, ...args) {
-        }
-        //children变化时触发
-        #filterSlot() {
-            if (isEmpty(this.#slotPropsMap))
-                return;
-            each(this.slots, (slottedNodes, k) => {
-                if (isEmpty(slottedNodes))
-                    return;
-                let slotMap = this.#slotPropsMap[k];
-                let filterNodes = slottedNodes;
-                if (slotMap) {
-                    let filterFn = slotMap.filter;
-                    if (isFunction(filterFn)) {
-                        filterNodes = filterFn(slottedNodes);
-                    }
-                    else if (isObject(filterFn)) {
-                        let type = filterFn.type;
-                        let maxCount = filterFn.maxCount;
-                        if (type) {
-                            let ts = isArray(type) ? type : [type];
-                            filterNodes = filter(slottedNodes, n => some(ts, t => n instanceof t));
-                        }
-                        if (maxCount > 0) {
-                            filterNodes = slice(slottedNodes, 0, maxCount);
-                        }
-                    }
-                }
-                if (this.#shadow.slotAssignment === 'named') {
-                    let removeNodes = [];
-                    each(slottedNodes, c => {
-                        if (!filterNodes.includes(c)) {
-                            removeNodes.push(c);
-                        }
-                    });
-                    while (removeNodes.length > 0) {
-                        let n = removeNodes.pop();
-                        n.parentNode?.removeChild(n);
-                    }
-                }
-                else {
-                    this.#slotsEl[k].assign(...filterNodes);
-                }
-                if (this.#inited)
-                    this.#onSlogChange(this.#slotsEl[k], k === 'default' ? '' : k);
-            });
-        }
-        #attrChanged(name, oldValue, newValue) {
-            if (!this.isMounted)
-                return;
-            let observedAttrs = _getObservedAttrs(this.constructor);
-            if (observedAttrs.has(name)) {
-                let camelName = camelCase(name);
-                if (isNull(newValue)) {
-                    let propDefs = get(this.constructor, "__deco_props");
-                    //使用默认值
-                    newValue = propDefs[camelName]._defaultValue;
-                }
-                this._updateProps({ [camelName]: newValue });
-            }
-        }
-        _regDeps(varPath, renderContext) {
-            let list = this.#renderContextList[varPath];
-            if (!list) {
-                list = this.#renderContextList[varPath] = new Set();
-            }
-            list.add(renderContext);
-            let lastPath = '';
-            let restPath = varPath.split('-');
-            restPath.pop();
-            restPath.forEach(vp => {
-                lastPath = isEmpty(lastPath) ? vp : lastPath + '-' + vp;
-                let list = this.#renderContextList[lastPath];
-                if (!list) {
-                    list = this.#renderContextList[lastPath] = new Set();
-                }
-                list.add(renderContext);
-            });
-        }
-    }
-
-    /**
-     * @author holyhigh2
-     */
-    var DirectiveUpdateTag;
-    (function (DirectiveUpdateTag) {
-        DirectiveUpdateTag["NONE"] = "NONE";
-        DirectiveUpdateTag["REMOVE"] = "REMOVE";
-        DirectiveUpdateTag["REPLACE"] = "REPLACE";
-        DirectiveUpdateTag["UPDATE"] = "UPDATE";
-        DirectiveUpdateTag["APPEND"] = "APPEND";
-    })(DirectiveUpdateTag || (DirectiveUpdateTag = {}));
-    /**
-     * 模板中的表达式位置
-     */
-    class ExpPos {
-        //表达式位置，多层使用-分割
-        index;
-        value;
-        isText = false;
-        //是否模板
-        isTmpl = false;
-        isDirective = false;
-        //表达式所在节点，可能是元素/文本
-        node;
-        //如果是文本位置，与node一起构成插入范围
-        textNode;
-        //是否组件
-        isComponent = false;
-        //如果在属性中，属性名
-        attrName;
-        //属性值模板
-        attrTmpl;
-        //是否组件属性
-        isProp = false;
-        //是否布尔属性
-        isToggleProp = false;
-        //事件名称
-        eventName;
-        constructor(varIndex, node, attrName, attrTmpl) {
-            this.index = varIndex + '';
-            this.node = node;
-            if (attrName)
-                this.attrName = attrName;
-            if (attrTmpl) {
-                this.attrTmpl = attrTmpl;
-            }
-        }
-    }
-
-    const DI_KEY = "__directives";
-    /**
-     * 属性定义
-     */
-    var EnterPointType;
-    (function (EnterPointType) {
-        EnterPointType["ATTR"] = "attr";
-        EnterPointType["PROP"] = "prop";
-        EnterPointType["TEXT"] = "text";
-        EnterPointType["CLASS"] = "class";
-        EnterPointType["STYLE"] = "style";
-        EnterPointType["SLOT"] = "slot";
-        EnterPointType["TAG"] = "tag"; //在标签内但不是属性内
-    })(EnterPointType || (EnterPointType = {}));
-    /**
-     * 交互点信息
-     */
-    class EnterPoint {
-        startNode; //依赖节点
-        endNode; //依赖节点2
-        type; //依赖类型
-        attrName; //依赖属性名
-        varIndex;
-        expressionChain; //所在层级序号 [parentVarIndex-varIndex-]+，如1-6 表示根的第2个表达式下的context的第7个表达式
-        nodes; //如果是插入节点，保存插入的节点数组
-        constructor(level, node, attrName, type) {
-            this.startNode = node;
-            this.attrName = attrName;
-            this.type = type;
-        }
-        setVarIndex(varIndex) {
-            this.varIndex = varIndex;
-        }
-    }
-    var MovePosition;
-    (function (MovePosition) {
-        MovePosition["AFTER_BEGIN"] = "afterbegin";
-    })(MovePosition || (MovePosition = {}));
-    /**
-     * Delay the actual time of execution of directive
-     */
-    class DirectiveWrapper extends Function {
-        diClass;
-        args;
-        di;
-        varPath;
-        point;
-        slotComponent;
-        varChain;
-        constructor(diClass, ...args) {
-            super();
-            this.diClass = diClass;
-            this.args = args;
-            this.varChain = Collector.popDirectiveQ();
-        }
-        //校验scope
-        checkScope(scopeType) {
-            let scopes = get(this.diClass, 'scopes');
-            if (!isEmpty(scopes) && !test(scopes.join(','), scopeType)) {
-                showError(`Directive '${this.diClass.name}' is out of scopes, expect '${scopes.join(',')}' bug got '${scopeType}'`);
-                return;
-            }
-        }
-        render(component) {
-            let diMap = get(component, DI_KEY);
-            let di = this.di || diMap[this.varPath];
-            if (!di) {
-                di = new this.diClass(this.point);
-                di.renderComponent = component;
-                di.slotComponent = this.slotComponent;
-                di.renderParams = this.varChain;
-            }
-            this.di = di;
-            di._renderArgs = this.args;
-            let [nodes, expPos, expPosMap] = di.renderContext(...this.args);
-            if (expPosMap) {
-                di.__expPosMap = expPosMap;
-            }
-            else if (expPos) {
-                di.__expPos = expPos;
-            }
-            return nodes;
-        }
-        update(nodes, newArgs, oldArgs) {
-            let tag = this.di.update(nodes, newArgs, oldArgs);
-            if (tag === DirectiveUpdateTag.REMOVE) {
-                nodes.forEach(n => {
-                    n.parentNode?.removeChild(n);
-                });
-            }
-            else if (tag === DirectiveUpdateTag.REPLACE) {
-                let newNodes = [];
-                nodes.forEach(n => {
-                    n.parentNode?.removeChild(n);
-                });
-                let rs = this.di.render(...newArgs);
-                let [nnodes, expPos, expPosMap] = this.di.renderContext(rs);
-                if (expPosMap) {
-                    this.di.__expPosMap = expPosMap;
-                }
-                else if (expPos) {
-                    this.di.__expPos = expPos;
-                }
-                newNodes = toArray(nnodes);
-                let fragment = document.createDocumentFragment();
-                fragment.append(...newNodes);
-                this.point.endNode.parentNode.insertBefore(fragment, this.point.endNode);
-            }
-            else if (tag === DirectiveUpdateTag.UPDATE) {
-                let newKeys = {};
-                let newKeyMap = {};
-                let nodesToUpdate;
-                //原节点顺序
-                let oldSeq = [];
-                let newSeq = [];
-                let updateRs = this.di.render(...newArgs);
-                if (isArray(updateRs) && updateRs[0] instanceof Template) {
-                    updateRs.forEach(tmpl => {
-                        let k = tmpl.key ?? tmpl.getKey();
-                        newKeys[k] = '1';
-                        newKeyMap[k] = tmpl;
-                        newSeq.push(k);
-                    });
-                }
-                //UPDATE仅处理元素节点
-                nodes = filter(compact(nodes), n => n.nodeType === Node.ELEMENT_NODE);
-                nodesToUpdate = filter(compact(toArray(nodesToUpdate)), n => n.nodeType === Node.ELEMENT_NODE);
-                let oldNodeMap = {};
-                let dupKey = '';
-                let keyQ = {};
-                map(nodes, (node) => {
-                    let treeNode = node;
-                    let k = treeNode.getAttribute("key");
-                    if (!k)
-                        return;
-                    if (oldNodeMap[k]) {
-                        dupKey = k;
-                        return false;
-                    }
-                    oldNodeMap[k] = treeNode;
-                    oldSeq.push(k);
-                    keyQ[k] = '1';
-                });
-                if (dupKey) {
-                    showError(`${camelCase(this.diClass.name)} - duplicate key '${dupKey}'`);
-                }
-                let newNodeMap = {};
-                let updateQ = newKeys;
-                const parentNode = this.point.startNode.parentNode;
-                //compare
-                let adds = [];
-                let dels = [];
-                //计算del
-                each(keyQ, (v, k) => {
-                    if (!updateQ[k]) {
-                        dels.push(k);
-                        delete keyQ[k];
-                        remove(oldSeq, k);
-                    }
-                });
-                //计算move
-                if (!isEmpty(newSeq)) {
-                    let lastMoveNodeId = '';
-                    let lastMoveIndex = -1;
-                    let lastGroup = [];
-                    let idWeightMap = {};
-                    newSeq.forEach((nodeId, i) => {
-                        let oldI = oldSeq.findIndex(c => c === nodeId);
-                        if (oldI > -1 && oldI !== i) {
-                            if (lastMoveIndex < 0 || lastMoveIndex - oldI == 1) {
-                                let lastEl = last(lastGroup);
-                                lastGroup.push({ nodeId, targetId: i === 0 ? MovePosition.AFTER_BEGIN : (lastEl ? lastEl.nodeId : newSeq[i - 1]) });
-                            }
-                            else {
-                                idWeightMap[lastGroup.length] = { group: lastGroup, targetId: '' };
-                                lastGroup = [];
-                                lastGroup.push({ nodeId, targetId: oldSeq[oldI] });
-                            }
-                            lastMoveIndex = oldI;
-                        }
-                        else if (oldI < 0) {
-                            let prev = lastMoveNodeId ? oldNodeMap[lastMoveNodeId] || this.point.endNode : this.point.startNode;
-                            //add
-                            adds.push({ prevNode: prev, newkey: nodeId });
-                        }
-                        lastMoveNodeId = nodeId;
-                    });
-                    if (isEmpty(idWeightMap) && lastGroup.length > 0) {
-                        idWeightMap[lastGroup.length] = { group: lastGroup, targetId: '' };
-                    }
-                    let keys = Object.keys(idWeightMap);
-                    let keyNums = keys.map(k => parseInt(k)).sort((a, b) => a - b);
-                    if (keys.length < 2 && keys.length > 0) {
-                        //如果仅有一组，留最后一个节点
-                        let { group } = idWeightMap[keyNums[0]];
-                        initial(group).forEach(({ targetId, nodeId }) => {
-                            let srcEl = oldNodeMap[nodeId];
-                            let target;
-                            if (targetId === MovePosition.AFTER_BEGIN) {
-                                target = this.point.startNode;
-                                target.after(srcEl);
-                            }
-                            else {
-                                target = oldNodeMap[targetId];
-                                target.after(srcEl);
-                            }
-                        });
-                    }
-                    else {
-                        //如果多组，留最后一组
-                        console.debug('todo....');
-                    }
-                }
-                adds.forEach(v => {
-                    let k = v.newkey;
-                    let treeNode = newNodeMap[k] || this.#addNode(newKeyMap[k], k);
-                    let prevNode = v.prevNode;
-                    if (prevNode === this.point.endNode) {
-                        prevNode.before(treeNode);
-                    }
-                    else if (prevNode === this.point.startNode) {
-                        prevNode.after(treeNode);
-                    }
-                    else {
-                        prevNode.after(treeNode);
-                    }
-                });
-                dels.forEach(k => {
-                    this.#removeNode(k);
-                    // remove(adjustedQ, ak => ak === k)
-                    let treeNode = oldNodeMap[k];
-                    if (treeNode) {
-                        parentNode.removeChild(treeNode);
-                    }
-                });
-                this.di.updateContext(updateRs);
-            }
-        }
-        getDirective() {
-            return this.di;
-        }
-        #addNode(tmpl, key) {
-            //追加expPos
-            let [nodes, expPos, expPosMap] = this.di.renderContext(tmpl);
-            let node = first(nodes);
-            this.di.__expPosMap[key] = expPos;
-            // this.di.__expPosMap[key] = clone(this.di.__expPos)
-            return node;
-        }
-        #removeNode(key) {
-            this.di.__expPosMap[key] = null;
-            delete this.di.__expPosMap[key];
-        }
-    }
-
     const ATTR_PREFIX_EVENT = "@";
     const ATTR_PREFIX_PROP = ".";
     const ATTR_PREFIX_BOOLEAN = "?";
     const ATTR_PREFIX_REF = "*";
     const ATTR_PROP_DELIMITER = ":";
     const ATTR_REF = "ref";
-    const EXP_ATTR_CHECK = /[.?-a-z]+\s*=\s*(['"])\s*([^='"]*<\!--l_ui-pl_df-->){2,}.*?\1/ims;
-    const EXP_PLACEHOLDER = /<\s*[a-z0-9-]+([^>]*<\!--l_ui-pl_df-->)*[^>]*?(?<!-)>/imgs;
+    const EXP_ATTR_CHECK = /[.?-a-z]+\s*=\s*(['"])\s*([^='"]*<\!--c_ui-pl_df-->){2,}.*?\1/ims;
+    const EXP_PLACEHOLDER = /<\s*[a-z0-9-]+([^>]*<\!--c_ui-pl_df-->)*[^>]*?(?<!-)>/imgs;
     const SLOT_KEY_PROPS = 'slot-props';
     /**
      * 提供渲染函数相关操作
@@ -8952,46 +9002,70 @@
      *    1. 在后面追加同内容注释节点，标记两个节点，以便变量可以进行绑定
      *    2. 在中间插入变量内容
      * 3. 只有表达式是一个指令时才能绑定依赖
+     * @param component
      * @param tmpl
-     * @param slotArgs
-     * @returns
+     * @returns [html,vars]
      */
-    function buildHTML(tmpl) {
+    function buildHTML(component, tmpl) {
         let html = "";
-        let tmplList = isArray(tmpl) ? tmpl : [tmpl];
-        tmplList.forEach(({ strings, vars }) => {
-            let strList = toArray(strings);
-            strList[0] = trimStart(strList[0]);
-            strList[strList.length - 1] = trimEnd(strList[strList.length - 1]);
-            let l = strList.length - 1;
-            strList.forEach((str, i) => {
-                let val = get(vars, i, "");
-                val = l === i ? "" : PLACEHOLDER;
-                html += str + val;
-            });
-        });
+        let vars = concat(tmpl.vars);
+        let l = tmpl.strings.length - 1;
+        let vl = tmpl.vars.length - 1;
+        for (let i = 0; i <= l; i++) {
+            const str = tmpl.strings[i];
+            let val = get(tmpl.vars, i, '');
+            if (val && val.di) {
+                let rs = val.render(component);
+                if (rs instanceof Template) {
+                    let [h, v] = buildHTML(component, rs);
+                    Object.defineProperty(val, '_renderVars', { value: v });
+                    // set(val, '_renderVars', v)
+                    val = PLACEHOLDER_DI_START + h + PLACEHOLDER_DI_END;
+                }
+                else {
+                    val = rs ?? PLACEHOLDER;
+                }
+            }
+            else if (val instanceof Template) {
+                let [h, v] = buildHTML(component, val);
+                Object.defineProperty(val, '_renderVars', { value: v });
+                // set(val, '_renderVars', v)
+                val = PLACEHOLDER_TMPL_START + h + PLACEHOLDER_TMPL_END;
+                // vars.splice(i + offset, 1, ...v)
+                // offset += v.length
+            }
+            else {
+                val = i > vl ? "" : PLACEHOLDER;
+            }
+            html += str + val;
+        }
         //attr check
         let rs = html.match(EXP_ATTR_CHECK);
         if (rs) {
             let errorMsg = replaceAll(rs[0], PLACEHOLDER, '${...}');
             showError(`Parse error: attribute value can be set only one interpolation —— \n ${errorMsg}`);
-            return '';
+            return ['', vars];
         }
         let i = 0;
         html = html.replace(EXP_PLACEHOLDER, (a, b) => {
             let rs = replaceAll(a, PLACEHOLDER, () => PLACEHOLDER.replace('-->', '') + (i++));
             return rs;
         });
-        return html;
+        html = html.replace(EXP_STR, '$1><').trim();
+        return [html, vars];
     }
-    const PLACEHOLDER = "<!--l_ui-pl_df-->";
-    const PLACEHOLDER_PREFFIX = "<!--l_ui-pl_df";
-    const PLACEHOLDER_EXP = /<!--l_ui-pl_df\d*(-->)?/;
+    const PLACEHOLDER_DI_START = "<!--c_ui-pl_di-start-->";
+    const PLACEHOLDER_DI_END = "<!--c_ui-pl_di-end-->";
+    const PLACEHOLDER_TMPL_START = "<!--c_ui-pl_tmpl-start-->";
+    const PLACEHOLDER_TMPL_END = "<!--c_ui-pl_tmpl-end-->";
+    const PLACEHOLDER = "<!--c_ui-pl_df-->";
+    const PLACEHOLDER_PREFFIX = "<!--c_ui-pl_df";
+    const PLACEHOLDER_EXP = /<!--c_ui-pl_df\d*(-->)?/;
     /**
      * 构建模板为DOM结构
      * @param html
      */
-    function buildTmplate(expPos, directives, html, vars, component, slotArgs, level = 0, expressionChain = '') {
+    function buildTmplate(updatePoints, html, vars, component, viewContext) {
         const container = document.createElement("div");
         container.innerHTML = html;
         //遍历dom
@@ -8999,6 +9073,13 @@
         let currentNode;
         let varIndex = 0;
         let slotComponent = null;
+        let startDiCommentNode;
+        let startDiCommentNodeStack = [];
+        let startDiStack = [];
+        let startDiUpdatePointStack = [];
+        let updatePointsStack = [updatePoints];
+        let varStack = [];
+        let varIndexStack = [];
         while ((currentNode = nodeIterator.nextNode())) {
             if (currentNode instanceof HTMLElement || currentNode instanceof SVGElement) {
                 if (currentNode instanceof CompElem) {
@@ -9011,10 +9092,11 @@
                 }
                 let props = {};
                 let attrs = toArray(currentNode.attributes);
-                each(attrs, (attr) => {
+                for (let i = 0; i < attrs.length; i++) {
+                    const attr = attrs[i];
                     let { name, value } = attr;
                     if (name === SLOT_KEY_PROPS) {
-                        let slotName = currentNode.name || 'default';
+                        let slotName = currentNode.getAttribute('name') || 'default';
                         if (slotComponent) {
                             let ary = slotComponent._slotsPropMap[slotName];
                             if (!ary) {
@@ -9022,94 +9104,89 @@
                             }
                             ary.push(currentNode);
                         }
-                    }
+                    } //endif
                     if (startsWith(name, PLACEHOLDER_PREFFIX)) {
                         let val = vars[varIndex];
                         //support directive only for now
                         if (val instanceof DirectiveWrapper) {
                             val.checkScope(EnterPointType.TAG);
-                            let point = new EnterPoint(level, currentNode, name.substring(1), EnterPointType.TAG);
+                            let point = new EnterPoint(currentNode, name.substring(1), EnterPointType.TAG);
                             val.point = point;
-                            val.varPath = expressionChain + varIndex;
-                            val.slotComponent = slotComponent;
-                            directives.push(val);
-                            let pos = expPos[expressionChain + varIndex] = new ExpPos(expressionChain + varIndex, currentNode);
-                            pos.isDirective = true;
-                            pos.value = val;
-                            pos.isComponent = !!slotComponent;
+                            val.di.slotComponent = slotComponent;
+                            val.di.renderComponent = component;
+                            let po = new UpdatePoint(varIndex, currentNode);
+                            po.isDirective = true;
+                            po.value = val;
+                            po.isComponent = !!slotComponent;
+                            updatePoints.push(po);
                             varIndex++;
+                            val.di.created(point, ...val.args);
                         }
                         currentNode.removeAttribute(name);
-                        return;
-                    }
+                        continue;
+                    } //endif
                     //@event.stop.prevent.debounce
                     if (name[0] === ATTR_PREFIX_EVENT) {
                         let cbk = (e) => { };
-                        let pos = null;
                         if (PLACEHOLDER_EXP.test(value)) {
                             let val = vars[varIndex];
                             if (!isFunction(val)) {
                                 showTagError(currentNode.tagName, `Event '${name}' must be a function`);
-                                return;
+                                continue;
                             }
                             cbk = val.bind(component);
-                            pos = expPos[expressionChain + varIndex] = new ExpPos(expressionChain + varIndex, currentNode, name.replace(/\.|\?|@/, ''), value);
-                            pos.isComponent = !!slotComponent;
+                            let po = new UpdatePoint(varIndex, currentNode, name.replace(/\.|\?|@/, ''), value);
+                            po.isComponent = !!slotComponent;
+                            po.isEvent = true;
+                            updatePoints.push(po);
                             varIndex++;
                         }
-                        let parts = name.substring(1).split('.');
-                        let evName = parts.shift();
                         cbk = addEvent(name.substring(1), cbk, currentNode, component);
                         currentNode.removeAttribute(name);
-                        if (pos) {
-                            pos.eventName = evName;
-                            pos.value = cbk;
-                        }
-                        return;
-                    }
+                        continue;
+                    } //endif
                     if (name === ATTR_REF) {
                         if (PLACEHOLDER_EXP.test(value)) {
                             let val = vars[varIndex];
                             if (!has(val, 'current')) {
                                 showTagError(currentNode.tagName, `Ref must be a RefObject`);
-                                return;
+                                continue;
                             }
                             varIndex++;
                             val.current = currentNode;
                         }
                         currentNode.removeAttribute(name);
-                        return;
-                    }
+                        continue;
+                    } //endif
                     //校验变量必须是表达式
                     if (name[0] === ATTR_PREFIX_PROP && !PLACEHOLDER_EXP.test(value)) {
                         showTagError(currentNode.tagName, `Prop '${name}' must be an interpolation`);
-                        return;
+                        continue;
                     }
                     if (PLACEHOLDER_EXP.test(value)) {
                         let val = vars[varIndex];
-                        let pos = expPos[expressionChain + varIndex] = new ExpPos(expressionChain + varIndex, currentNode, name.replace(/\.|\?|@/, ''), value);
-                        pos.isComponent = !!slotComponent;
+                        let po = new UpdatePoint(varIndex, currentNode, name.replace(/\.|\?|@/, ''), value);
+                        updatePoints.push(po);
+                        po.isComponent = !!slotComponent;
                         if (name[0] === ATTR_PREFIX_PROP ||
                             name[0] === ATTR_PREFIX_BOOLEAN ||
                             name[0] === ATTR_PREFIX_REF) {
                             if (val instanceof DirectiveWrapper) {
                                 val.checkScope(EnterPointType.PROP);
-                                directives.push(val);
-                                let point = new EnterPoint(level, currentNode, name.substring(1), EnterPointType.PROP);
-                                val.varPath = expressionChain + varIndex;
+                                let point = new EnterPoint(currentNode, name.substring(1), EnterPointType.PROP);
                                 val.point = point;
                                 val.slotComponent = slotComponent;
-                                pos.value = val;
-                                pos.isDirective = true;
+                                po.value = val;
+                                po.isDirective = true;
                             }
                             else if (name[0] === ATTR_PREFIX_BOOLEAN) {
-                                pos.isToggleProp = true;
-                                pos.value = !!val;
-                                if (pos.value)
+                                po.isToggleProp = true;
+                                po.value = !!val;
+                                if (po.value)
                                     currentNode.setAttribute(name.substring(1), '');
                             }
                             else if (name[0] === ATTR_PREFIX_REF) {
-                                pos.value = val;
+                                po.value = val;
                                 let refNames = name.substring(1);
                                 const [refNamec, prop] = refNames.split(ATTR_PROP_DELIMITER);
                                 let refName = refNamec;
@@ -9124,21 +9201,20 @@
                                         refName = snakeCase(refName);
                                         break;
                                 }
-                                pos.attrName = refName;
+                                po.attrName = refName;
                                 currentNode.setAttribute(refName, val);
                             }
                             else {
                                 if (!(currentNode instanceof CompElem) && currentNode.tagName !== 'SLOT') {
                                     showTagError(currentNode.tagName, `Prop '${name}' can only be set on a CompElem or a slot`);
-                                    delete expPos[expressionChain + varIndex];
                                 }
                                 else {
                                     let propName = camelCase(name.substring(1));
                                     if (!(propName in currentNode) && currentNode.tagName !== 'SLOT') {
                                         showTagError(currentNode.tagName, `Prop '${name}' is not defined in ${currentNode.tagName}`);
                                     }
-                                    pos.value = val;
-                                    pos.isProp = true;
+                                    po.value = val;
+                                    po.isProp = true;
                                     props[propName] = val;
                                 }
                             }
@@ -9146,7 +9222,8 @@
                             val = '';
                         }
                         else {
-                            pos.value = val;
+                            po.value = val;
+                            let dw;
                             if (val instanceof DirectiveWrapper) {
                                 let type = EnterPointType.ATTR;
                                 if (name === "class") {
@@ -9156,23 +9233,26 @@
                                     type = EnterPointType.STYLE;
                                 }
                                 val.checkScope(type);
-                                directives.push(val);
-                                pos.isDirective = true;
-                                let point = new EnterPoint(level, currentNode, name, type);
+                                po.isDirective = true;
+                                let point = new EnterPoint(currentNode, name, type);
                                 val.point = point;
-                                val.slotComponent = slotComponent;
-                                val.varPath = expressionChain + varIndex;
+                                val.di.slotComponent = slotComponent;
+                                val.di.renderComponent = component;
+                                dw = val;
+                                // val.di.created(point, ...val.args)
                                 val = '';
                             }
                             value = replace(value, PLACEHOLDER_EXP, val);
                             //回填
                             attr.value = value;
+                            if (dw) {
+                                dw.di.created(dw.point, ...dw.args);
+                            }
                         }
                         varIndex++;
-                    }
-                });
+                    } //endif
+                } //endfor
                 if (currentNode instanceof CompElem) {
-                    // currentNode._setParentProps(props)
                     currentNode._initProps(props);
                 }
                 else if (currentNode instanceof HTMLSlotElement) {
@@ -9181,39 +9261,133 @@
             }
             else {
                 let comment = currentNode;
-                if (`<!--${comment.nodeValue}-->` !== PLACEHOLDER) {
+                let ph = `<!--${comment.nodeValue}-->`;
+                if (ph === PLACEHOLDER_DI_START) {
+                    if (startDiCommentNode) {
+                        startDiCommentNodeStack.push(startDiCommentNode);
+                    }
+                    startDiCommentNode = comment;
+                    let val = vars[varIndex];
+                    let po = new UpdatePoint(varIndex, currentNode);
+                    po.isComponent = !!slotComponent;
+                    po.isDirective = true;
+                    po.value = val;
+                    let pType = slotComponent ? EnterPointType.SLOT : EnterPointType.TEXT;
+                    let point = new EnterPoint(startDiCommentNode, "", pType);
+                    val.point = point;
+                    val.di.slotComponent = slotComponent;
+                    val.di.renderComponent = component;
+                    startDiStack.push(val);
+                    updatePoints.push(po);
+                    startDiUpdatePointStack.push(po);
+                    //stack updatePoints
+                    updatePoints = [];
+                    updatePointsStack.push(updatePoints);
+                    varIndex++;
+                    //stack vars
+                    varIndexStack.push(varIndex);
+                    varStack.push(vars);
+                    vars = val._renderVars;
+                    varIndex = 0;
                     continue;
                 }
-                let pos = expPos[expressionChain + varIndex] = new ExpPos(expressionChain + varIndex, currentNode);
-                pos.isComponent = !!slotComponent;
-                pos.isText = true;
+                else if (ph === PLACEHOLDER_DI_END) {
+                    startDiUpdatePointStack.pop().textNode = comment;
+                    let startDi = startDiStack.pop();
+                    startDi.point.endNode = comment;
+                    //结束时调用created
+                    startDi.di.created(startDi.point, ...startDi.args);
+                    startDiCommentNode = startDiCommentNodeStack.pop();
+                    startDi.di.__updatePoints = updatePoints;
+                    updatePointsStack.pop();
+                    updatePoints = last(updatePointsStack);
+                    //restore vars
+                    vars = varStack.pop();
+                    varIndex = varIndexStack.pop();
+                }
+                else if (ph === PLACEHOLDER_TMPL_START) {
+                    if (startDiCommentNode) {
+                        startDiCommentNodeStack.push(startDiCommentNode);
+                    }
+                    startDiCommentNode = comment;
+                    let val = vars[varIndex];
+                    let po = new UpdatePoint(varIndex, currentNode);
+                    po.isComponent = !!slotComponent;
+                    po.isTmpl = true;
+                    let parentDi = last(startDiStack);
+                    if (parentDi && get(parentDi, 'diClass.name') === 'ForEach') {
+                        po.key = val.getKey();
+                    }
+                    else if (viewContext.constructor.name == 'ForEach') {
+                        po.key = val.getKey();
+                    }
+                    val = po.value = new SubView(val);
+                    let pType = slotComponent ? EnterPointType.SLOT : EnterPointType.TEXT;
+                    let point = new EnterPoint(startDiCommentNode, "", pType);
+                    val.point = point;
+                    val.slotComponent = slotComponent;
+                    val.renderComponent = component;
+                    startDiStack.push(val);
+                    updatePoints.push(po);
+                    startDiUpdatePointStack.push(po);
+                    //stack updatePoints
+                    updatePoints = [];
+                    updatePointsStack.push(updatePoints);
+                    varIndex++;
+                    //stack vars
+                    varIndexStack.push(varIndex);
+                    varStack.push(vars);
+                    vars = val._renderVars;
+                    varIndex = 0;
+                    continue;
+                }
+                else if (ph === PLACEHOLDER_TMPL_END) {
+                    startDiUpdatePointStack.pop().textNode = comment;
+                    let startDi = startDiStack.pop();
+                    startDi.point.endNode = comment;
+                    startDiCommentNode = startDiCommentNodeStack.pop();
+                    startDi.__updatePoints = updatePoints;
+                    updatePointsStack.pop();
+                    updatePoints = last(updatePointsStack);
+                    //restore vars
+                    vars = varStack.pop();
+                    varIndex = varIndexStack.pop();
+                }
+                if (ph !== PLACEHOLDER) {
+                    continue;
+                }
+                let po = new UpdatePoint(varIndex, currentNode);
+                updatePoints.push(po);
+                po.isComponent = !!slotComponent;
+                po.isText = true;
                 let val = vars[varIndex];
                 let startComment;
                 //插入start占位符
-                startComment = document.createComment(`compelem-ui-${level}-${varIndex}-child-start`);
+                startComment = document.createComment(`compelem-ui-${varIndex}-child-start`);
                 comment.parentNode.insertBefore(startComment, comment);
-                comment.nodeValue = `compelem-ui-${level}-${varIndex}-child-end`;
-                pos.textNode = startComment;
+                comment.nodeValue = `compelem-ui-${varIndex}-child-end`;
+                po.textNode = startComment;
                 if (val instanceof DirectiveWrapper) {
-                    pos.isDirective = true;
-                    pos.value = val;
+                    po.isDirective = true;
+                    po.value = val;
                     let pType = slotComponent ? EnterPointType.SLOT : EnterPointType.TEXT;
-                    directives.push(val);
-                    let point = new EnterPoint(level, startComment, "", pType);
+                    // directives.push(val)
+                    let point = new EnterPoint(startComment, "", pType);
                     point.endNode = comment;
                     val.point = point;
-                    val.slotComponent = slotComponent;
-                    val.varPath = expressionChain + varIndex;
+                    val.di.slotComponent = slotComponent;
+                    val.di.renderComponent = component;
+                    val.di.created(point, ...val.args);
                     val = '';
                 }
                 else if (val instanceof Template) {
-                    pos.isTmpl = true;
-                    pos.value = val;
-                    let html = buildHTML(val);
-                    val = buildTmplate(expPos, directives, html, val.vars, component, slotArgs, level, expressionChain + `${varIndex}-`);
+                    po.isTmpl = true;
+                    po.value = val;
+                    let [html, vars] = buildHTML(component, val);
+                    val = buildTmplate(updatePoints, html, vars, component, viewContext);
                 }
                 else {
-                    pos.value = val;
+                    po.value = val;
                 }
                 varIndex++;
                 if (isUndefined(val))
@@ -9236,24 +9410,43 @@
     }
     const DomUtil = {
         insertBefore: function (node, newNodes) {
+            if (!node.parentNode)
+                return;
             let fragment = document.createDocumentFragment();
             fragment.append(...newNodes);
             node.parentNode.insertBefore(fragment, node);
         },
         remove: function (startNode, endNode) {
+            if (startNode === endNode) {
+                startNode?.parentNode?.removeChild(startNode);
+                return;
+            }
             let nextNode = startNode.nextSibling;
-            while (nextNode !== endNode) {
+            while (nextNode && nextNode !== endNode) {
                 nextNode?.parentNode?.removeChild(nextNode);
                 nextNode = startNode.nextSibling;
             }
         }
     };
+    //////////////////////////////////////////////////// interfaces
+    /**
+     * 标签函数，用于构建模板
+     * @param strings
+     * @param vars
+     */
+    function html(strings, ...vars) {
+        return new Template(isString(strings) ? [strings] : strings, vars);
+    }
+    const EXP_STR = /([a-z0-9"'])\s*>\s*</img;
+
     const EXP_KEY = /\s+\.?key\s*=/;
+    /**
+     * 视图模板
+     * @author holyhigh2
+     */
     class Template {
         strings;
         vars;
-        //如果模板仅有一个root节点且含有key属性
-        key;
         constructor(strings, vars) {
             this.strings = concat(strings);
             this.vars = vars;
@@ -9268,14 +9461,33 @@
                     return false;
                 }
             });
-            this.key = k;
             return k;
         }
+        getKeys() {
+            let vars = this.vars;
+            let ks = [];
+            for (let i = 0; i < this.strings.length; i++) {
+                const str = this.strings[i];
+                if (EXP_KEY.test(str)) {
+                    let k = toString(vars[i]);
+                    ks.push(k);
+                }
+            }
+            if (isEmpty(ks)) {
+                vars.forEach(v => {
+                    if (v instanceof Template) {
+                        let k = v.getKey();
+                        ks.push(k);
+                    }
+                });
+            }
+            return ks;
+        }
         /**
-         * 追加tmpl
-         * 交接处模板进行合并
-         * @param tmpl
-         */
+       * 追加tmpl
+       * 交接处模板进行合并
+       * @param tmpl
+       */
         append(tmpl) {
             let lastStr = last(this.strings);
             tmpl.strings.forEach((str, i) => {
@@ -9289,35 +9501,23 @@
             return this;
         }
         /**
-         * 获取html字符串
+         * 指定位置插入模板
+         * @param position 字符模板位置
+         * @param tmpl
+         * @returns
          */
-        getHTML() {
-            let html = '';
-            let strList = toArray(this.strings);
-            strList[0] = trimStart(strList[0]);
-            strList[strList.length - 1] = trimEnd(strList[strList.length - 1]);
-            let l = strList.length - 1;
-            strList.forEach((str, i) => {
-                let val = get(this.vars, i, "");
-                if (val instanceof Template) {
-                    val = val.getHTML();
-                }
-                else {
-                    val = l === i ? "" : val;
-                }
-                html += str + val;
-            });
-            return html;
+        insert(position, tmpl) {
+            let firstStr = tmpl.strings.shift();
+            this.strings[position] += firstStr;
+            this.strings.splice(position + 1, 0, ...tmpl.strings);
+            this.vars.splice(position, 0, ...tmpl.vars);
+            return this;
         }
-    }
-    //////////////////////////////////////////////////// interfaces
-    /**
-     * 标签函数，用于构建模板
-     * @param strings
-     * @param vars
-     */
-    function html(strings, ...vars) {
-        return new Template(isString(strings) ? [strings] : strings, vars);
+        getHTML(comp) {
+            let [html, vars] = buildHTML(comp, this);
+            let nodes = buildTmplate([], html, vars, comp, comp);
+            return reduce(nodes, (a, v) => a + v.outerHTML, '');
+        }
     }
 
     function computed(target, propertyKey, descriptor) {
@@ -9365,7 +9565,7 @@
         getter(component) {
             this.result = component.shadowRoot?.querySelector(this.selector);
         }
-        propsReady(component, setReactive, classProto, fieldName, ...args) {
+        beforeMount(component, setReactive, classProto, fieldName, ...args) {
             const that = this;
             Object.defineProperty(component, fieldName, {
                 get() {
@@ -9458,9 +9658,24 @@
      *  @watch('a.b.c')
      */
     class WatchDecorator extends Decorator {
-        created(component, ...args) {
+        created(component, classProto, fnName, ...args) {
+            if (!this.handler) {
+                this.handler = isFunction(fnName) ? fnName : component[fnName];
+            }
+            let onceWatch = get(this.options, "once", false);
+            if (onceWatch) {
+                this.handler = once(this.handler.bind(component));
+            }
         }
-        propsReady(component, setReactive, ...args) {
+        beforeMount(component, setReactive, classProto, fnName, ...args) {
+            let handler = this.handler;
+            let immediate = get(this.options, "immediate", false);
+            this.sources.forEach(src => {
+                let nv = get(component, src.replaceAll('-', '.'));
+                if (immediate) {
+                    handler.call(component, get(component, src), nv, src);
+                }
+            });
         }
         get targets() {
             return [DecoratorType.METHOD];
@@ -9478,26 +9693,13 @@
             return isArray(source) ? source.sort().join('') : source;
         }
         mounted(component, setReactive, classProto, fnName, ...args) {
-            if (!this.handler) {
-                this.handler = isFunction(fnName) ? fnName : component[fnName];
-            }
             let handler = this.handler;
             let immediate = get(this.options, "immediate", false);
-            let onceWatch = get(this.options, "once", false);
-            if (onceWatch) {
-                handler = once(handler.bind(component));
-            }
-            let invocations = [];
             this.sources.forEach(src => {
                 let nv = get(component, src.replaceAll('-', '.'));
-                if (immediate) {
-                    invocations.push({
-                        handler, value: nv, varPath: src
-                    });
+                if (!immediate) {
+                    handler.call(component, get(component, src), nv, src);
                 }
-            });
-            invocations.forEach(({ handler, value, varPath }) => {
-                handler.call(component, get(component, varPath), value, varPath);
             });
         }
         updated(component, changed) {

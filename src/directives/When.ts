@@ -1,7 +1,8 @@
 import { call, each, findIndex, isEqual, isFunction } from "myfx";
 import { Directive } from "../directive/Directive";
-import { directive, EnterPointType } from "../directive/index";
+import { directive, EnterPoint, EnterPointType } from "../directive/index";
 import { html } from "../render/render";
+import { Template } from "../render/Template";
 import { DirectiveUpdateTag, TmplFn } from "../types";
 
 /**
@@ -25,11 +26,13 @@ import { DirectiveUpdateTag, TmplFn } from "../types";
  * @param tmpl 模板
  */
 class When extends Directive {
+  created(point: EnterPoint, ...args: any): void {
+  }
   static get scopes(): EnterPointType[] {
     return [EnterPointType.TEXT, EnterPointType.SLOT]
   }
 
-  update(nodes: Node[], newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
+  update(point: EnterPoint, newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
     if (isEqual(newArgs, oldArgs)) {
       return DirectiveUpdateTag.NONE;
     }
@@ -62,7 +65,7 @@ class When extends Directive {
         return c == value;
       }
     })
-    return call(tmplList[i] ?? defaultFn)
+    return call(tmplList[i] ?? defaultFn) as Template
   }
 }
 export const when = directive<Parameters<typeof When.prototype.render>>(When);

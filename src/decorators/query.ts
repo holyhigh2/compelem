@@ -1,6 +1,6 @@
-import { decorator } from "../decorator"
-import { DecoratorType, Decorator } from "../decorator/Decorator"
 import { CompElem } from "../CompElem"
+import { decorator } from "../decorator"
+import { Decorator, DecoratorType } from "../decorator/Decorator"
 
 /**
  * 缓存策略
@@ -34,7 +34,10 @@ export type QueryOption = {
  *  @query('l-popup', QueryCache.ONCE)
  */
 class QueryDecorator extends Decorator {
-  created(component: CompElem, ...args: any[]) {
+  static get priority(): number {
+    return Number.MAX_VALUE
+  }
+  created(component: CompElem, classProto: CompElem, fieldName: string, ...args: any[]) {
   }
   mounted(component: CompElem, setReactive: (key: string, value: any) => any, ...args: any[]) {
   }
@@ -56,9 +59,9 @@ class QueryDecorator extends Decorator {
   getter(component: CompElem) {
     this.result = component.shadowRoot?.querySelector(this.selector)
   }
-  propsReady(component: CompElem, setReactive: (key: string, value: any) => any, classProto: CompElem, fieldName: string, ...args: any[]) {
+  beforeMount(component: CompElem, setReactive: (key: string, value: any) => any, classProto: CompElem, fieldName: string, ...args: any[]) {
     const that = this
-    Object.defineProperty(component, fieldName, {
+    Reflect.defineProperty(component, fieldName, {
       get() {
         if (that.result && that.cache) {
           return that.result

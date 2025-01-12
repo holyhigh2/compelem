@@ -35,9 +35,25 @@ export type DecoratorWatch = {
  *  @watch('a.b.c')
  */
 class WatchDecorator extends Decorator {
-  created(component: CompElem, ...args: any[]) {
+  created(component: CompElem, classProto: CompElem, fnName: string | Function, ...args: any[]) {
+    if (!this.handler) {
+      this.handler = isFunction(fnName) ? fnName : component[fnName]
+    }
+    let onceWatch = get<WatchOptions>(this.options, "once", false);
+    if (onceWatch) {
+      this.handler = once(this.handler.bind(component))
+    }
   }
-  propsReady(component: CompElem, setReactive: (key: string, value: any) => any, ...args: any[]) {
+  beforeMount(component: CompElem, setReactive: (key: string, value: any) => any, classProto: CompElem, fnName: string | Function, ...args: any[]) {
+    let handler = this.handler
+
+    let immediate = get<WatchOptions>(this.options, "immediate", false);
+    this.sources.forEach(src => {
+      let nv = get(component, src.replaceAll('-', '.'));
+      if (immediate) {
+        handler.call(component, get(component, src), nv, src);
+      }
+    })
   }
   get targets(): DecoratorType[] {
     return [DecoratorType.METHOD]
@@ -57,27 +73,14 @@ class WatchDecorator extends Decorator {
   }
 
   mounted(component: CompElem, setReactive: (key: string, value: any) => any, classProto: CompElem, fnName: string | Function, ...args: any[]) {
-    if (!this.handler) {
-      this.handler = isFunction(fnName) ? fnName : component[fnName]
-    }
     let handler = this.handler
 
     let immediate = get<WatchOptions>(this.options, "immediate", false);
-    let onceWatch = get<WatchOptions>(this.options, "once", false);
-    if (onceWatch) {
-      handler = once(handler.bind(component))
-    }
-    let invocations: { handler: Function, value: any, varPath: string }[] = []
     this.sources.forEach(src => {
       let nv = get(component, src.replaceAll('-', '.'));
-      if (immediate) {
-        invocations.push({
-          handler, value: nv, varPath: src
-        })
+      if (!immediate) {
+        handler.call(component, get(component, src), nv, src);
       }
-    })
-    invocations.forEach(({ handler, value, varPath }) => {
-      handler.call(component, get(component, varPath), value, varPath);
     })
 
   }
