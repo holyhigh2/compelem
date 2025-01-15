@@ -18,7 +18,7 @@ const MODI_EV_KEYBOARD_COMBO_META = 'meta';
 const MODI_EV_KEYBOARD_KEY_MAP: Record<string, any> = {
   'esc': 'escape'
 };
-export const MODI_PARAM_DIVIDER = ":";
+const MODI_PARAM_DIVIDER = ":";
 
 /*************************************************************
  * 事件修饰符

@@ -22,11 +22,11 @@ export interface IComponent {
   //动态slot中的render函数，可传递给子元素的动态插槽
   get slotHooks(): Record<string, (...args: any[]) => Template>;
   //通过静态getter创建的所有样式表对象，所有实例共享
-  get styles(): CSSStyleSheet[];
+  get css(): CSSStyleSheet[];
   //是否已挂载
   get isMounted(): boolean;
-  //响应式样式
-  get css(): string;
+  //响应式样式数组
+  get styles(): Array<() => string>
 
   //----------------------------------------------------- lifecycles —— 首次渲染
   // 1. 在props初始化及更新时调用

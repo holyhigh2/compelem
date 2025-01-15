@@ -3,8 +3,9 @@
  * @author holyhigh2
  */
 
-import { concat, get, initial, isArray, isFunction, isObject, last, startsWith } from "myfx";
+import { concat, get, initial, isArray, isEmpty, isFunction, isObject, last, startsWith } from "myfx";
 import { CompElem } from "./CompElem";
+import { ChangedMap } from "./constants";
 import { PropOption } from "./decorators/prop";
 import { StateOption } from "./decorators/state";
 import { IView } from "./render/RenderContext";
@@ -92,7 +93,7 @@ interface MetaData {
 const OBJECT_META_DATA = new WeakMap<any, MetaData>()
 const OBJECT_VAR_PATH = new WeakMap<any, Array<string>>()
 const COMPUTED_MAP = new WeakMap<CompElem, Record<string, Getter[] | null>>()
-const CSS_MAP = new WeakMap<CompElem, Record<string, Getter | null>>()
+const CSS_MAP = new WeakMap<CompElem, Record<string, Getter[] | null>>()
 
 /**
  * 1. 初始化时obj都是普通对象
@@ -132,7 +133,9 @@ export function reactive(obj: Record<string, any>, context: any) {
             watchVarMap = {}
             CSS_MAP.set(Collector.__cssCollecting, watchVarMap)
           }
-          watchVarMap[subChainStr] = Collector.__cssUpdater
+          let list = watchVarMap[subChainStr]
+          if (!list) list = watchVarMap[subChainStr] = []
+          list.push(Collector.__cssUpdater!);
         }
       }
 
@@ -142,37 +145,34 @@ export function reactive(obj: Record<string, any>, context: any) {
       if (!prop) return false;
 
       let ov = target[prop];
-
       if (!isObject(ov) && ov === newValue) return true;
+      if (Number.isNaN(newValue) && Number.isNaN(ov)) return true;
+
+      let chain = OBJECT_VAR_PATH.get(receiver) ?? []
+      let subChain = concat(chain, [prop])
 
       let sourceContext = OBJECT_META_DATA.get(receiver)!.from
       let propDefs = get<Record<string, PropOption>>(sourceContext.constructor, '__deco_props')
+      let stateDefs = get<Record<string, StateOption>>(sourceContext.constructor, '__deco_states')
+      let hasChanged = get<Function>(propDefs, [subChain[0], 'hasChanged']) || get<Function>(stateDefs, [subChain[0], 'hasChanged'])
+      if (hasChanged) {
+        if (!hasChanged.call(sourceContext, newValue, ov)) return true;
+      } else {
+        //默认对比算法
+        if (ov === newValue && !ChangedMap.has(ov)) {
+          return true;
+        }
+      }
+
       if (propDefs && propDefs[prop] && target.__isData) {
         if (propDefs[prop].sync) {
           sourceContext.emit(EVENT_UPDATE + ":" + prop, { value: newValue })
         }
       }
 
-      let stateDefs = get<Record<string, StateOption>>(sourceContext.constructor, '__deco_states')
-      let hasChanged = get<Function>(propDefs, [prop, 'hasChanged']) || get<Function>(stateDefs, [prop, 'hasChanged'])
-      if (hasChanged) {
-        if (!hasChanged.call(sourceContext, newValue, ov)) return false;
-      } else {
-        //防止重复设置，如Array.length
-        if (target[prop] === newValue) return true;
-        if (Number.isNaN(newValue) && Number.isNaN(target[prop])) return false;
-      }
-
-      //todo 如果对象保存一层副本，如果要保存全部内容需要自行实现
-      // if (isObject(ov)) {
-      //   ov = clone(ov)
-      // }
-
       let deps = OBJECT_META_DATA.get(receiver)?.contextSet!
 
       //get oldValue from sourceContext
-      let chain = OBJECT_VAR_PATH.get(receiver) ?? []
-      let subChain = concat(chain, [prop])
       let nv: any = newValue;
 
       if (isObject(newValue) && !isFunction(newValue) && !(newValue instanceof Node) && !Object.isFrozen(newValue)) {
@@ -216,8 +216,8 @@ export function reactive(obj: Record<string, any>, context: any) {
           while (i) {
             let subPath = subChain.slice(0, i).join('-')
             if (watchVarMap) {
-              let computedList = watchVarMap[subPath]
-              if (computedList) {
+              let computedList = watchVarMap[subPath]!
+              if (!isEmpty(computedList)) {
                 for (let l = 0; l < computedList.length; l++) {
                   const computedGetter = computedList[l];
                   computedGetter.call(dep)
@@ -225,9 +225,12 @@ export function reactive(obj: Record<string, any>, context: any) {
               }
             }
             if (cssMap) {
-              let computedCss = cssMap[subPath]
-              if (computedCss) {
-                computedCss.call(dep)
+              let computedCssList = cssMap[subPath]!
+              if (!isEmpty(computedCssList)) {
+                for (let l = 0; l < computedCssList.length; l++) {
+                  const updater = computedCssList[l];
+                  updater.call(dep)
+                }
               }
             }
 
@@ -281,7 +284,7 @@ export function reactive(obj: Record<string, any>, context: any) {
 
   for (let k in obj) {
     const v = obj[k];
-    if (isObject(v) && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v)
+    if (isObject(v) && !(v as any).__proxy && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v)
     ) {
       OBJECT_VAR_PATH.set(v, concat(chain, [k]))
       obj[k] = reactive(v, context);

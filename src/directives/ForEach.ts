@@ -8,13 +8,14 @@ import {
   toArray,
   trim
 } from "myfx";
+import { EXP_KEY } from "../constants";
 import { Directive } from "../directive/Directive";
 import { EnterPoint, EnterPointType, directive } from "../directive/index";
 import { Template } from "../render/Template";
 import { DirectiveUpdateTag, TmplFn } from "../types";
 import { showError } from "../utils";
 
-const EXP_KEY = /\s+\.?key\s*=/;
+
 /**
  * 循环列表并自动优化列表更新
  * foreach循环的只能是节点，且必须有key属性。非节点元素会被过滤掉

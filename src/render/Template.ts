@@ -1,8 +1,8 @@
 import { concat, each, isEmpty, last, reduce, toString } from "myfx";
 import { CompElem } from "../CompElem";
+import { EXP_KEY } from "../constants";
 import { buildHTML, buildTmplate } from "./render";
 
-const EXP_KEY = /\s+\.?key\s*=/;
 /**
  * 视图模板
  * @author holyhigh2

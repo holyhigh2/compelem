@@ -11,6 +11,7 @@ export class PageTest extends CompElem {
   @state colorG = Math.random() * 255 % 255 >> 0;
   @state colorB = Math.random() * 255 % 255 >> 0;
   @state rotation = 0
+  @state test = { a: 1 }
 
   //////////////////////////////////// computed
   @computed
@@ -62,11 +63,15 @@ export class PageTest extends CompElem {
       }`];
   }
   //动态样式
-  get css() {
-    return `h2,p,i,h3{
-      background-image:${this.color}
-      filter:hue-rotate(${this.rotation}deg)
-    }`
+  get styles() {
+    return [
+      () => `h2,p,i,h3{
+        background-image:${this.color};
+      }`,
+      () => `h2,p,i,h3{
+        filter:hue-rotate(${this.rotation}deg);
+      }`,
+    ]
   }
 
   @query('i[name="text"]')

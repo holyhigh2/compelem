@@ -4,7 +4,6 @@ import {
   camelCase,
   cloneDeep,
   closest,
-  concat,
   debounce,
   each,
   filter,
@@ -37,6 +36,7 @@ import {
   toArray,
   trim
 } from "myfx";
+import { ChangedMap } from "./constants";
 import { _DecoratorsKey, DecoratorWrapper } from "./decorator";
 import { _getObservedAttrs, PropOption } from "./decorators/prop";
 import { StateOption } from "./decorators/state";
@@ -111,7 +111,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
   get slotHooks() {
     return this.#slotHooks;
   }
-  get styles() {
+  get css() {
     return ComponentStyleMap.get(this.constructor)!
   }
   get isMounted() {
@@ -130,7 +130,6 @@ export class CompElem extends View(HTMLElement) implements IComponent {
   #slotHooks: Record<string, (...args: any[]) => Template> = {};
   #slotNodes: Record<string, Node[]> = {};
   #mounted: boolean = false
-  #instanceCss = new CSSStyleSheet()
   #nextTimerFn: any
 
   /**
@@ -149,8 +148,8 @@ export class CompElem extends View(HTMLElement) implements IComponent {
   static get globalStyles(): Array<string> {
     return [];
   }
-  get css() {
-    return ''
+  get styles(): Array<() => string> {
+    return []
   }
 
   #inited = false;
@@ -213,7 +212,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
       slotAssignment: get<boolean>(this.constructor, "autoSlot", true) ? "named" : "manual",
     });
 
-    this.#shadow.adoptedStyleSheets = concat(styleSheets, this.#instanceCss);
+    this.#shadow.adoptedStyleSheets = styleSheets;
 
     //check link
     let cssLink = this.attributes.getNamedItem(ATTR_CSS_LINK)?.value;
@@ -386,15 +385,24 @@ export class CompElem extends View(HTMLElement) implements IComponent {
 
     //instance dynamic style
     Collector.startCss(this)
-    Collector.setCssUpdater(() => {
-      let css = this.css;
-      this.#instanceCss.replaceSync(css)
+    let cssAry: CSSStyleSheet[] = []
+    this.styles.forEach(st => {
+      if (!isFunction(st)) return;
+      let cssss = new CSSStyleSheet()
+      cssAry.push(cssss)
+
+      Collector.setCssUpdater(() => {
+        let css = st() ?? ''
+        cssss.replaceSync(css)
+      })
+      let css = st()
+      if (isBlank(css)) return
+
+      cssss.replaceSync(css)
     })
-    let css = this.css;
-    if (trim(css)) {
-      this.#instanceCss.replaceSync(css)
-    }
     Collector.endCss()
+
+    this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, ...cssAry];
 
     setTimeout(() => {
       this.#mounted = true;
@@ -565,6 +573,9 @@ export class CompElem extends View(HTMLElement) implements IComponent {
       let v = get(this, varPath);
       let pathStr = _toUpdatePath(varPath);
       this.#updateSources[pathStr] = { value: v, chain: pathStr === "slots" ? ['slots'] : varPath, oldValue: ov, end: varPath.length === chain.length };
+      if (isObject(v) && pathStr[0] != PrivatePreffix) {
+        ChangedMap.set(v, pathStr)
+      }
     }
 
     //debounce
@@ -613,6 +624,11 @@ export class CompElem extends View(HTMLElement) implements IComponent {
 
     this.updated(changed);
 
+    each(changed, ({ value, chain, oldValue }, k: string) => {
+      if (isObject(value) && ChangedMap.has(value)) {
+        ChangedMap.delete(value)
+      }
+    })
   }
 
   /**
@@ -1078,14 +1094,5 @@ export class CompElem extends View(HTMLElement) implements IComponent {
       list = this.#renderContextList[upperPath] = new Set<CompElem | Directive>()
     }
     list.add(renderContext)
-    // for (let i = 0; i < restPath.length; i++) {
-    //   const vp = restPath[i];
-    //   lastPath = isEmpty(lastPath) ? vp : lastPath + '-' + vp
-    //   let list = this.#renderContextList[lastPath]
-    //   if (!list) {
-    //     list = this.#renderContextList[lastPath] = new Set<CompElem | Directive>()
-    //   }
-    //   list.add(renderContext)
-    // }
   }
 }

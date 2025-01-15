@@ -43,11 +43,15 @@ export class PageTest extends CompElem {
       }...`];
   }
   //动态样式
-  get css() {
-    return `h2,p,i,h3{
-      background-image:${this.color}
-      filter:hue-rotate(${this.rotation}deg)
-    }`
+  get styles() {
+    return [
+      () => `h2,p,i,h3{
+        background-image:${this.color};
+      }`,
+      () => `h2,p,i,h3{
+        filter:hue-rotate(${this.rotation}deg);
+      }`,
+    ]
   }
 
   @query('i[name="text"]')
@@ -140,10 +144,10 @@ export class PageTest extends CompElem {
   ```
   对于需要动态控制 host 元素样式可以使用组件实例 getter
   ```ts
-  get css():string{
-    return `:host{
+  get styles(){
+    return [()=>`:host{
       ${this.border?'border: 1px solid rgb(var(--l-color-border-secondary)); ':''}
-    }`
+    }`]
   }
   ```
 - ### 属性
@@ -250,7 +254,7 @@ export class PageTest extends CompElem {
   - `readonly` shadowRoot 阴影DOM
   - `readonly` slots 插槽元素映射
   - `readonly` slotHooks 动态插槽钩子映射
-  - `readonly` styles 组件样式对象列表
+  - `readonly` css 组件样式对象列表
   - `readonly` attrs 组件特性
   - `readonly` props 组件属性
   - slotComponent 所在插槽组件
