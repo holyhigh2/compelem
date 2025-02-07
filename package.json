@@ -1,0 +1,52 @@
+{
+  "name": "compelem",
+  "version": "0.3.0-b1",
+  "description": "A modern, reactive, fast, lightweight and flexible lib for building web components",
+  "main": "index.js",
+  "module": "index.js",
+  "types": "index.d.ts",
+  "author": "holyhigh2",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/holyhigh2/compelem"
+  },
+  "bugs": "https://github.com/holyhigh2/compelem/issues",
+  "keywords": [
+    "typescript",
+    "webcomponent",
+    "reactive"
+  ],
+  "scripts": {
+    "lint": "eslint src/**",
+    "prod": "rollup --config",
+    "dev": "rollup --config rollup.config.dev.js",
+    "test": "rollup --config rollup.config.test.js --watch"
+  },
+  "devDependencies": {
+    "@babel/preset-typescript": "^7.26.0",
+    "@rollup/plugin-commonjs": "^26.0.1",
+    "@rollup/plugin-json": "4.1.0",
+    "@rollup/plugin-node-resolve": "14.1.0",
+    "@rollup/plugin-terser": "0.4.1",
+    "@typescript-eslint/eslint-plugin": "8.23.0",
+    "@typescript-eslint/parser": "^8.23.0",
+    "autoprefixer": "^10.4.19",
+    "bootstrap-icons": "^1.11.3",
+    "eslint": "9.19.0",
+    "eslint-config-prettier": "^10.0.1",
+    "myfx": "^1.7.0",
+    "postcss": "^8.4.38",
+    "prettier": "^2.8.3",
+    "rollup-plugin-banner2": "1.2.2",
+    "rollup-plugin-clear": "2.0.7",
+    "rollup-plugin-copy": "3.4.0",
+    "rollup-plugin-livereload": "^2.0.5",
+    "rollup-plugin-scss": "^3.0.0",
+    "rollup-plugin-serve": "^2.0.1",
+    "rollup-plugin-typescript2": "0.33.0",
+    "sass": "^1.72.0",
+    "tslib": "^2.8.1",
+    "typescript": "^5.7.3"
+  }
+}
