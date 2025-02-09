@@ -112,8 +112,10 @@ export function reactive(obj: Record<string, any>, context: any) {
     get(target: any, prop: string, receiver: any): any {
       if (!prop) return undefined;
       const value = Reflect.get(target, prop, receiver);
+      if ((typeof prop !== 'string') && (typeof prop !== 'number')) return value
 
-      if ((Collector.__renderCollecting || Collector.__collecting) && target.hasOwnProperty(prop)) {
+      let hasProp = prop in target
+      if ((Collector.__renderCollecting || Collector.__collecting) && ((hasProp && target.hasOwnProperty(prop)) || !hasProp)) {
         let chain = OBJECT_VAR_PATH.get(receiver) ?? []
         let subChain = concat(chain, [prop])
         let subChainStr = subChain.join('-')
