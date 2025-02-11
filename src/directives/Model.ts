@@ -1,4 +1,4 @@
-import { get, isEqual, isObject, last, set, toPath, trim } from "myfx";
+import { get, isEqual, isObject, last, set, trim } from "myfx";
 import { CompElem } from "../CompElem";
 import { Directive } from "../directive/Directive";
 import { EnterPoint, EnterPointType, directive } from "../directive/index";
@@ -17,30 +17,31 @@ export const enum ModelTriggerType {
  * - 对于 checkbox/radio 监控 @change，并设置 checked 属性
  * - 对于 select  监控 @change，并设置 value 属性
  * @param modelValue 双向绑定的组件变量
+ * @param updateProp 绑定模型变更时的监控属性，默认 value
  */
 class Model extends Directive {
-  created(point: EnterPoint, modelValue: any, modelPath?: string): void {
-    if (!this.modelPath)
-      this.modelPath = last(this.renderParams)
-    if (modelPath) {
-      this.modelPath = toPath(modelPath)
-    }
+  created(point: EnterPoint, modelValue: any, updateProp: string = 'value'): void {
     const node = point.startNode
     if (get(node, '_model') === 'binded') return;
+
+    let path: string[] = last(this.renderParams)
+
+    this.updateProp = updateProp
+    this.modelPath = path
 
     if (!isObject(modelValue) && !trim(modelValue))
       modelValue = ''
     if (node instanceof CompElem) {
-      node._initProps({ value: modelValue })
-      node.addEventListener('update:value', (e: CustomEvent) => {
-        console.debug('Model =>', this.modelPath)
+      node._initProps({ [this.updateProp]: modelValue })
+      node.addEventListener('update:' + updateProp, (e: CustomEvent) => {
+        console.debug('Model =>', path)
         set(this.renderComponent, this.modelPath, e.detail.value)
       });
       set(node, '_model', 'binded')
     } else if (node instanceof HTMLTextAreaElement) {
-      node.setAttribute('value', modelValue + '');
+      node.setAttribute(this.updateProp, modelValue + '');
       node.addEventListener('input', (e: Event) => {
-        console.debug('Model =>', this.modelPath)
+        console.debug('Model =>', path)
         let t = e.target as any
         set(this.renderComponent, this.modelPath, t.value)
       });
@@ -69,7 +70,7 @@ class Model extends Directive {
           evName = 'input'
           break;
       }
-      node.setAttribute(propName, modelValue + '');
+      node.setAttribute(updateProp ?? propName, modelValue + '');
       node.addEventListener(evName, (e: Event) => {
         console.debug('Model =>', this.modelPath)
         let t = e.target as any
@@ -77,7 +78,7 @@ class Model extends Directive {
       });
       set(node, '_model', 'binded')
     } else if (node instanceof HTMLSelectElement) {
-      node.setAttribute('value', modelValue + '');
+      node.setAttribute(this.updateProp, modelValue + '');
       node.addEventListener('change', (e: Event) => {
         console.debug('Model =>', this.modelPath)
         let t = e.target as any
@@ -92,9 +93,9 @@ class Model extends Directive {
     if (!isEqual(newArgs, oldArgs)) {
       const node = point.startNode
       if (node instanceof CompElem) {
-        node._updateProps({ value: newArgs[0] })
+        node._updateProps({ [this.updateProp]: newArgs[0] })
       } else if (node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) {
-        node.setAttribute('value', newArgs[0] + '')
+        node.setAttribute(this.updateProp, newArgs[0] + '')
       } else if (node instanceof HTMLInputElement) {
         switch (node.type) {
           case 'checkbox':
@@ -113,11 +114,11 @@ class Model extends Directive {
           case 'search':
           case 'tel':
           case 'url':
-            node.setAttribute('value', newArgs[0] + '')
+            node.setAttribute(this.updateProp, newArgs[0] + '')
             break;
 
           default:
-            node.setAttribute('value', newArgs[0] + '')
+            node.setAttribute(this.updateProp, newArgs[0] + '')
             break;
         }
 
@@ -129,7 +130,7 @@ class Model extends Directive {
     return [EnterPointType.TAG]
   }
   modelPath: string[]
-  render(modelValue: any, modelPath?: string) {
+  render(modelValue: any, updateProp: string = 'value') {
 
   }
 }
