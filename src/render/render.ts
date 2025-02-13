@@ -250,8 +250,8 @@ export function buildTmplate(
         if (PLACEHOLDER_EXP.test(value)) {
           let val = vars[varIndex];
           let po = new UpdatePoint(varIndex, currentNode, name.replace(/\.|\?|@/, ''), value)
-          updatePoints.push(po)
           po.isComponent = !!slotComponent
+          let add2up = true;
           if (
             name[0] === ATTR_PREFIX_PROP ||
             name[0] === ATTR_PREFIX_BOOLEAN ||
@@ -298,7 +298,6 @@ export function buildTmplate(
               }
               po.attrName = refName
               currentNode.setAttribute(refName, val)
-
             } else {
               if (!(currentNode instanceof CompElem) && currentNode.tagName !== 'SLOT') {
                 showTagError(currentNode.tagName, `Prop '${name}' can only be set on a CompElem or a slot`)
@@ -311,9 +310,11 @@ export function buildTmplate(
                 po.value = val;
                 po.isProp = true;
                 props[propName] = val;
+                if (propName === 'nodeFilter') {
+                  add2up = false
+                }
               }
             }
-
             currentNode.removeAttribute(name)
             val = ''
           } else {
@@ -351,7 +352,8 @@ export function buildTmplate(
             }
 
           }
-
+          if (add2up)
+            updatePoints.push(po)
           varIndex++;
         }//endif
       }//endfor

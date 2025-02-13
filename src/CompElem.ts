@@ -15,6 +15,7 @@ import {
   has,
   isArray,
   isBlank,
+  isBoolean,
   isDefined,
   isEmpty,
   isFunction,
@@ -48,7 +49,7 @@ import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, htm
 import { IView, View } from "./render/RenderContext";
 import { Template } from "./render/Template";
 import { DefaultProps, Getter, SlotOptions, TmplFn } from "./types";
-import { _toUpdatePath, showTagError } from "./utils";
+import { _toUpdatePath, getBooleanValue, isBooleanProp, showTagError } from "./utils";
 const ATTR_CSS_LINK = "css-link";
 const PropTypeMap: Record<string, Function> = {
   boolean: Boolean,
@@ -740,7 +741,18 @@ export class CompElem extends View(HTMLElement) implements IComponent {
         })
       }
       if (propDef.attribute && isDefined(val) && !isObject(val)) {
-        this.setAttribute(kebabCase(key), trim(val))
+        let k = kebabCase(key)
+        let v = trim(val)
+        if (isBooleanProp(propDef.type)) {
+          v = getBooleanValue(val)
+          if (isBoolean(v)) {
+            this.toggleAttribute(k, v)
+          } else {
+            this.setAttribute(k, v)
+          }
+        } else {
+          this.setAttribute(k, v)
+        }
       }
       this.#data[key] = val;
       rs[key] = val;
@@ -769,11 +781,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
     for (let i = 0; i < expectTypeAry.length; i++) {
       const et = expectTypeAry[i];
       if (et.name === 'Boolean') {
-        if (isString(val) && /(?:^true$)|(?:^false$)/.test(val)) {
-          val = fval(val)
-        } else if (isUndefined(val) || isBlank(val)) {
-          val = true;
-        }
+        val = getBooleanValue(val)
       }
     }
 

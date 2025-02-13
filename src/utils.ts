@@ -1,4 +1,4 @@
-import { toPath } from "myfx";
+import { fval, isBlank, isString, isUndefined, some, toPath } from "myfx";
 import { CompElem } from "./CompElem";
 
 export function showError(msg: string): void {
@@ -23,4 +23,18 @@ export function _toUpdatePath(varPath: string[]) {
 //获取父类构造
 export function _getSuper(cls: CompElem) {
   return Object.getPrototypeOf(cls)
+}
+
+export function isBooleanProp(type: any) {
+  return type === Boolean || some(type, t => t === Boolean)
+}
+//返回boolean值或非boolean值
+export function getBooleanValue(v: any) {
+  let val = v
+  if (isString(v) && /(?:^true$)|(?:^false$)/.test(val)) {
+    val = fval(val)
+  } else if (isUndefined(val) || isBlank(val)) {
+    val = true;
+  }
+  return val
 }
