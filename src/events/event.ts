@@ -32,7 +32,7 @@ const MODI_PARAM_DIVIDER = ":";
  * 部分修饰符支持参数，使用冒号传参如：throttle:100 / debounce:100
  *************************************************************/
 
-export type EvHadler = (ev: Event, node: Element) => any
+export type EvHadler = (ev: Event) => any
 export function addEvent(fullName: string, cbk: EvHadler, node: Element, component: CompElem) {
   let parts = fullName.split('.');
   let evName = parts.shift()!;
@@ -74,7 +74,7 @@ export function addEvent(fullName: string, cbk: EvHadler, node: Element, compone
       let checkKeys = map(parts, k => MODI_EV_KEYBOARD_KEY_MAP[k] || k)
       if (!checkKeys.includes(e.key.toLowerCase())) return;
     }
-    c(e, node)
+    c(e)
   }
 
   node.addEventListener(evName, listener);

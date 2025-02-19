@@ -88,7 +88,7 @@ const mutationObserver = new MutationObserver(mutations => {
         cancelable: false,
         detail
       })
-      cbk(ev, mutation.target as Element)
+      cbk(ev)
     }
   }
 });
