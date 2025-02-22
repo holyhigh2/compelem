@@ -176,6 +176,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
   }
 
   #inited = false;
+  #initiating = false;
   constructor(...args: any[]) {
     super();
     //init props via constructor
@@ -286,6 +287,9 @@ export class CompElem extends View(HTMLElement) implements IComponent {
   //构造时上级传递的参数
   __init() {
     if (this.#inited) return;
+    //防止在钩子中出现重新挂载的情况
+    if (this.#initiating) return;
+    this.#initiating = true;
 
     /////////////////////////////////////////////////// slots
     this.#updateSlotsAry()
@@ -336,8 +340,8 @@ export class CompElem extends View(HTMLElement) implements IComponent {
         this.#shadow.appendChild(c);
       });
 
-      this.#renderRoots = children;
-      this.#renderRoot = children[0] as HTMLElement;
+      this.#renderRoots = filter<HTMLElement>(children, (n: Node) => n.nodeType === Node.ELEMENT_NODE);
+      this.#renderRoot = this.#renderRoots[0] as HTMLElement;
     }
 
     //filter slot before append to dom
@@ -531,63 +535,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
    */
   updated(changed: Record<string, any>) { }
 
-  /**
-   * 抛出自定义事件
-   * @param evName 事件名称
-   * @param args 自定义参数
-   */
-  emit(
-    evName: string,
-    arg: Record<string, any> = {},
-    options?: { event?: Event; bubbles?: boolean, composed?: boolean }
-  ) {
-    if (options && options.event) {
-      arg.event = options.event;
-    }
-    arg.target = this;
-    this.dispatchEvent(
-      new CustomEvent(evName, {
-        bubbles: get(options, "bubbles", false),
-        composed: get(options, "composed", false),
-        cancelable: true,
-        detail: arg,
-      })
-    );
-  }
-
   #rootEvs: Record<string, any[]> = {};
-  /**
-   * 在root上绑定事件
-   * @param evName
-   * @param hook
-   */
-  on(evName: string, hook: (e: Event) => void) {
-    if (!this.#rootEvs[evName]) {
-      this.#rootEvs[evName] = [];
-    }
-    let cbk = hook.bind(this);
-    this.#rootEvs[evName].push(cbk);
-    this.addEventListener(evName, cbk);
-  }
-  /**
-   * 下一帧执行
-   * @param cbk
-   */
-  nextTick(cbk: () => void) {
-    Queue.pushNext(cbk)
-  }
-  /**
-   * 强制更新一次视图
-   */
-  forceUpdate() {
-    each(this.#reactiveData, (v, k: string) => {
-      this.#updateSources[k] = {
-        value: undefined,
-        chain: undefined,
-      };
-    })
-    this.#update();
-  }
 
   /**
    * 由监控变量调用
@@ -1132,5 +1080,61 @@ export class CompElem extends View(HTMLElement) implements IComponent {
       list = this.#renderContextList[upperPath] = new Set<CompElem | Directive>()
     }
     list.add(renderContext)
+  }
+  ////////////////////----------------------------/////////////// APIs
+  /**
+   * 抛出自定义事件
+   * @param evName 事件名称
+   * @param args 自定义参数
+   */
+  emit(
+    evName: string,
+    arg: Record<string, any> = {},
+    options?: { event?: Event; bubbles?: boolean, composed?: boolean }
+  ) {
+    if (options && options.event) {
+      arg.event = options.event;
+    }
+    arg.target = this;
+    this.dispatchEvent(
+      new CustomEvent(evName, {
+        bubbles: get(options, "bubbles", false),
+        composed: get(options, "composed", false),
+        cancelable: true,
+        detail: arg,
+      })
+    );
+  }
+  /**
+   * 在root上绑定事件
+   * @param evName
+   * @param hook
+   */
+  on(evName: string, hook: (e: Event) => void) {
+    if (!this.#rootEvs[evName]) {
+      this.#rootEvs[evName] = [];
+    }
+    let cbk = hook.bind(this);
+    this.#rootEvs[evName].push(cbk);
+    this.addEventListener(evName, cbk);
+  }
+  /**
+   * 下一帧执行
+   * @param cbk
+   */
+  nextTick(cbk: () => void) {
+    Queue.pushNext(cbk)
+  }
+  /**
+   * 强制更新一次视图
+   */
+  forceUpdate() {
+    each(this.#reactiveData, (v, k: string) => {
+      this.#updateSources[k] = {
+        value: undefined,
+        chain: undefined,
+      };
+    })
+    this.#update();
   }
 }
