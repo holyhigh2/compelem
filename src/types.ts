@@ -12,7 +12,6 @@ export type Updater = (...args: any[]) => any;
  * 插槽配置对象
  */
 export type SlotOptions = {
-    filter: Record<string, any> | Function,
     props: Record<string, any>,
     hook: Function
 }

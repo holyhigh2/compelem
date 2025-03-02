@@ -251,7 +251,7 @@ export function buildTmplate(
           let val = vars[varIndex];
           let po = new UpdatePoint(varIndex, currentNode, name.replace(/\.|\?|@/, ''), value)
           po.isComponent = !!slotComponent
-          let add2up = true;
+          // let add2up = true;
           if (
             name[0] === ATTR_PREFIX_PROP ||
             name[0] === ATTR_PREFIX_BOOLEAN ||
@@ -310,9 +310,6 @@ export function buildTmplate(
                 po.value = val;
                 po.isProp = true;
                 props[propName] = val;
-                if (propName === 'nodeFilter') {
-                  add2up = false
-                }
               }
             }
             currentNode.removeAttribute(name)
@@ -352,8 +349,8 @@ export function buildTmplate(
             }
 
           }
-          if (add2up)
-            updatePoints.push(po)
+          // if (add2up)
+          updatePoints.push(po)
           varIndex++;
         }//endif
       }//endfor

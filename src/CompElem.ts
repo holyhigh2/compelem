@@ -27,12 +27,10 @@ import {
   kebabCase,
   last,
   merge,
-  omit,
   once,
   reject,
   set,
   size,
-  slice,
   some,
   test,
   toArray,
@@ -106,7 +104,6 @@ export class CompElem extends View(HTMLElement) implements IComponent {
   #reactiveData: Record<string, any> = {};
   #updateSources: Record<string, { value: any; chain?: string[], oldValue?: any, end?: boolean }> = {};
   #shadow: ShadowRoot;
-  #selfObserver: MutationObserver
   //保存所有渲染上下文 {CompElem/Directive}
   #renderContextList: Record<string, Set<CompElem | Directive>> = {};
   __events: Record<string, Array<Node | ((e: Event) => void)>[]> = {}
@@ -240,16 +237,6 @@ export class CompElem extends View(HTMLElement) implements IComponent {
       this.#shadow.appendChild(link);
     }
 
-    let filterSlotFn = debounce(this.#filterSlot, 20)
-    this.#selfObserver = new MutationObserver(mutations => {
-      for (let i = 0; i < mutations.length; i++) {
-        const mutation = mutations[i];
-        if (mutation.type === 'childList') {
-          filterSlotFn.call(this);
-        }
-      }
-    });
-
     //slots prop map
     this._slotsPropMap = { default: [] }
 
@@ -279,7 +266,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
   }
 
   disconnectedCallback() {
-    this.#selfObserver.disconnect()
+
   }
 
   //////////////////////////////////// lifecycles
@@ -344,12 +331,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
       this.#renderRoot = this.#renderRoots[0] as HTMLElement;
     }
 
-    //filter slot before append to dom
-    this.#filterSlot()
-
     this.beforeMount();
-
-    this.#selfObserver.observe(this, { childList: true })
 
     /////////////////////////////////////////////////// before mount
     const that = this
@@ -815,9 +797,6 @@ export class CompElem extends View(HTMLElement) implements IComponent {
       assign(this.#attrs, attrs)
 
       this.#propsReady(this.#props);
-    } else {
-      // this.#props = merge(this.#props || {}, props);
-      // this.#attrs = merge({}, attrs);
     }
   }
   //todo 这里需要直接修改prop
@@ -831,9 +810,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
       let ck = camelCase(k)
       let propDef = propDefs[ck]
       if (!propDef) return
-      let ov = this.#data[ck]
       v = this.#propTypeCheck(propDefs, ck, v)
-      if (propDef.hasChanged && !propDef.hasChanged.call(this, v, ov)) return;
 
       Collector.__skipCheck = true;
       set(this, ck, v)
@@ -870,11 +847,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
       if (!slotMap) {
         slotMap = this.#slotPropsMap[name] = {}
       }
-      if (props.nodeFilter) {
-        slotMap.filter = props.nodeFilter
-      }
-
-      slotMap.props = omit(props, 'nodeFilter')
+      slotMap.props = props
     }
 
   }
@@ -914,7 +887,6 @@ export class CompElem extends View(HTMLElement) implements IComponent {
     })
 
     let groups = groupBy<Node, Record<string, Node[]>>(cs, node => {
-      // if (node.nodeType === Node.COMMENT_NODE) return ''
       if (node.nodeType === Node.TEXT_NODE) return 'default'
       if (node instanceof Element) {
         return node.getAttribute('slot') || 'default'
@@ -997,50 +969,6 @@ export class CompElem extends View(HTMLElement) implements IComponent {
   _asyncDirectives = new WeakMap<TmplFn, IView>()
   renderAsync(cbk: TmplFn, ...args: any[]) {
 
-  }
-  //children变化时触发
-  #filterSlot() {
-    if (isEmpty(this.#slotPropsMap)) return;
-
-    each(this.slots, (slottedNodes, k: string) => {
-      if (isEmpty(slottedNodes)) return;
-      let slotMap = this.#slotPropsMap[k]
-      let filterNodes = slottedNodes
-      if (slotMap) {
-        let filterFn = slotMap.filter
-        if (isFunction(filterFn)) {
-          filterNodes = filterFn(slottedNodes)
-        } else if (isObject(filterFn)) {
-          let type = filterFn.type;
-          let maxCount = filterFn.maxCount;
-          if (type) {
-            let ts = isArray(type) ? type : [type]
-            filterNodes = filter(slottedNodes, n => some(ts, t => n instanceof t))
-          }
-          if (maxCount > 0) {
-            filterNodes = slice(slottedNodes, 0, maxCount)
-          }
-        }
-      }
-      if (this.#shadow.slotAssignment === 'named') {
-        let removeNodes: Node[] = []
-        for (let i = 0; i < slottedNodes.length; i++) {
-          const c = slottedNodes[i];
-          if (!filterNodes.includes(c)) {
-            removeNodes.push(c)
-          }
-        }
-        while (removeNodes.length > 0) {
-          let n = removeNodes.pop()!
-          n.parentNode?.removeChild(n)
-        }
-      } else {
-        this.#slotsEl[k].assign(...filterNodes as any);
-      }
-
-      if (this.#inited)
-        this.#onSlogChange(this.#slotsEl[k], k === 'default' ? '' : k)
-    })
   }
 
   #attrChanged(name: string, oldValue: string | null, newValue: string | null) {

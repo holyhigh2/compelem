@@ -311,17 +311,12 @@ CompElem 组件既可以在 CompElem 环境内调用，也可以直接在原生�
 
 #### 定义插槽
 
-使用原生 `<slot></slot>` 标签来嵌入插槽，可以通过`node-filter`属性过滤插槽内容
+使用原生 `<slot></slot>` 标签来嵌入插槽
 
 ```html
-<slot
-  .node-filter="${{
-  type: [HTMLElement, CompElem],
-  maxCount:1
-}}"
-></slot>
-<!-- 或使用函数精细控制 -->
-<slot .node-filter="${(nodes:Node[])=>Node[]}"></slot>
+<slot></slot>
+<!-- 命名插槽 -->
+<slot name="content"></slot>
 ```
 
 #### 插入节点(静态)

@@ -1,7 +1,5 @@
-import { camelCase, get, isBlank, isEqual, isObject, isPlainObject, join, replace, set, split } from "myfx";
+import { get, isBlank, isEqual, isObject, isPlainObject, join, replace, set, split } from "myfx";
 import { CompElem } from "../CompElem";
-import { DecoratorKey } from "../constants";
-import { PropOption } from "../decorators/prop";
 import { UpdatePoint } from "../types";
 import { DomUtil, PLACEHOLDER_EXP, buildHTML, buildTmplate } from "./render";
 import { Template } from "./Template";
@@ -85,18 +83,6 @@ export function View<T extends new (...args: any[]) => any>(spuerClass: T) {
         } else if (up.isProp) {
           //子组件属性
           if (!isObject(newValue) && newValue === oldValue) continue;
-          let ck = camelCase(up.attrName)
-          let propDefs: Record<string, PropOption> = get(
-            up.node.constructor,
-            DecoratorKey.PROPS
-          );
-          if (propDefs) {
-            let propDef = propDefs[ck]
-            if (propDef && propDef.hasChanged && !propDef.hasChanged.call(this, newValue, oldValue)) continue;
-          }
-
-          // if (isPlainObject(newValue) && isEqual(newValue, oldValue)) continue;
-          // if (isArray(newValue) && isArray(oldValue) && isEqual(newValue, oldValue)) continue;
           //如果node是slot则触发组件的slot更新
           if (node instanceof CompElem) {
             node._updateProps({ [up.attrName]: newValue });
