@@ -1,4 +1,4 @@
-import { includes } from "myfx";
+import { get, includes } from "myfx";
 import { EvHadler } from "./event";
 /*************************************************************
  * 扩展事件
@@ -13,6 +13,8 @@ const ExtEvNames = ['resize', 'outside', 'mutate']
 ///////////////////////////////////////////////// resize
 const AllResizeEls = new WeakMap;
 const AllOutsideDownEls: Array<Element | EvHadler>[] = [];
+const AllOutsideClickEls: Array<Element | EvHadler>[] = [];
+const AllOutsideDblClickEls: Array<Element | EvHadler>[] = [];
 const resizeObserver = new ResizeObserver((entries) => {
   for (const entry of entries) {
     const contentBoxSize = Array.isArray(entry.contentBoxSize)
@@ -124,9 +126,43 @@ function addMutation(node: Element, cbk: EvHadler, parts: string[]) {
 
 ///////////////////////////////////////////////// outside
 document.addEventListener('mousedown', e => {
-  let t = e.target as Node
+  let t = get<Node>(e.composedPath(), 0, e.target)
 
   AllOutsideDownEls.forEach(([node, cbk]: [Node, any]) => {
+    if (!node.contains(t)) {
+      let ev = new CustomEvent('outside', {
+        bubbles: false,
+        cancelable: false,
+        detail: {
+          currentTarget: node,
+          event: e
+        },
+      })
+      cbk(ev, node)
+    }
+  })
+}, false)
+document.addEventListener('click', e => {
+  let t = get<Node>(e.composedPath(), 0, e.target)
+
+  AllOutsideClickEls.forEach(([node, cbk]: [Node, any]) => {
+    if (!node.contains(t)) {
+      let ev = new CustomEvent('outside', {
+        bubbles: false,
+        cancelable: false,
+        detail: {
+          currentTarget: node,
+          event: e
+        },
+      })
+      cbk(ev, node)
+    }
+  })
+}, false)
+document.addEventListener('dblclick', e => {
+  let t = get<Node>(e.composedPath(), 0, e.target)
+
+  AllOutsideDblClickEls.forEach(([node, cbk]: [Node, any]) => {
     if (!node.contains(t)) {
       let ev = new CustomEvent('outside', {
         bubbles: false,
@@ -143,6 +179,12 @@ document.addEventListener('mousedown', e => {
 function addOutsideMouseDown(node: Element, cbk: EvHadler) {
   AllOutsideDownEls.push([node, cbk])
 }
+function addOutsideClick(node: Element, cbk: EvHadler) {
+  AllOutsideClickEls.push([node, cbk])
+}
+function addOutsideDblClick(node: Element, cbk: EvHadler) {
+  AllOutsideDblClickEls.push([node, cbk])
+}
 
 export function isExtEvent(evName: string) {
   return ExtEvNames.includes(evName)
@@ -156,8 +198,12 @@ export function addExtEvent(evName: string, node: Element, cbk: EvHadler, parts:
       case 'mousedown':
         addOutsideMouseDown(node, cbk)
         break;
-
+      case 'dblclick':
+        addOutsideDblClick(node, cbk)
+        break;
+      case 'click':
       default:
+        addOutsideClick(node, cbk)
         break;
     }
   } else if (evName === 'mutate') {
