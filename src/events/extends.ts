@@ -1,11 +1,11 @@
-import { get, includes } from "myfx";
+import { closest, get, includes } from "myfx";
 import { EvHadler } from "./event";
 /*************************************************************
  * 扩展事件
  * @author holyhigh2
  * 
  * resize
- * outside[.mousedown/up/click/dblclick] 默认click
+ * outside[.mousedown/mouseup/click/dblclick] 默认click
  * mutate[.attr/child/char/tree]
  * 
  *************************************************************/
@@ -129,7 +129,7 @@ document.addEventListener('mousedown', e => {
   let t = get<Node>(e.composedPath(), 0, e.target)
 
   AllOutsideDownEls.forEach(([node, cbk]: [Node, any]) => {
-    if (!node.contains(t)) {
+    if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
       let ev = new CustomEvent('outside', {
         bubbles: false,
         cancelable: false,
@@ -146,7 +146,7 @@ document.addEventListener('click', e => {
   let t = get<Node>(e.composedPath(), 0, e.target)
 
   AllOutsideClickEls.forEach(([node, cbk]: [Node, any]) => {
-    if (!node.contains(t)) {
+    if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
       let ev = new CustomEvent('outside', {
         bubbles: false,
         cancelable: false,
@@ -163,7 +163,7 @@ document.addEventListener('dblclick', e => {
   let t = get<Node>(e.composedPath(), 0, e.target)
 
   AllOutsideDblClickEls.forEach(([node, cbk]: [Node, any]) => {
-    if (!node.contains(t)) {
+    if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
       let ev = new CustomEvent('outside', {
         bubbles: false,
         cancelable: false,
