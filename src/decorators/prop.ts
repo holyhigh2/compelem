@@ -1,6 +1,7 @@
 import { cloneDeep, defaults, each, has, kebabCase, merge, toArray } from "myfx"
 import { CompElem } from "../CompElem"
 import { DecoratorKey } from "../constants"
+import { Constructor } from "../types"
 import { _getSuper, showError } from "../utils"
 
 /**
@@ -10,7 +11,11 @@ export type PropOption = {
   /**
    * 参数类型
    */
-  type: any,
+  type: Constructor<any> | Function | Array<Constructor<any> | Function>,
+  /**
+   * 是否浅层监控，默认false
+   */
+  shallow?: boolean,
   /**
    * 是否必填，默认false
    */
@@ -123,7 +128,7 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
     target.constructor.observedAttributes = []
   }
   target.constructor.observedAttributes = toArray(attrSet)
-
+  options.shallow = options.shallow || false;
   target.constructor[DecoratorKey.PROPS][propertyKey] = options
 }
 

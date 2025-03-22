@@ -231,14 +231,12 @@ export function reactive(obj: Record<string, any>, context: any) {
                 watchList?.forEach((wk) => {
                   let updater = wk()
                   updater.ov = ov
-                  // wk()(ov)
                   Queue.pushWatch(updater)
                 })
               } else {
                 watchList?.forEach((wk) => {
                   let updater = wk()
                   if (get(updater, 'deep')) {
-                    // updater(ov)
                     updater.ov = ov
                     Queue.pushWatch(updater)
                   }
@@ -250,7 +248,6 @@ export function reactive(obj: Record<string, any>, context: any) {
               if (!isEmpty(computedList)) {
                 for (let l = 0; l < computedList.length; l++) {
                   const updater = computedList[l];
-                  // updater()
                   Queue.pushComputed(updater)
                 }
               }
@@ -260,7 +257,6 @@ export function reactive(obj: Record<string, any>, context: any) {
               if (!isEmpty(computedCssList)) {
                 for (let l = 0; l < computedCssList.length; l++) {
                   const updater = computedCssList[l];
-                  // updater()
                   Queue.pushCss(updater)
                 }
               }
@@ -317,9 +313,13 @@ export function reactive(obj: Record<string, any>, context: any) {
     }
   }
 
+  let propDefs = get<Record<string, PropOption>>(context.constructor, DecoratorKey.PROPS)
+  let stateDefs = get<Record<string, StateOption>>(context.constructor, DecoratorKey.STATES)
   for (let k in obj) {
     const v = obj[k];
-    if (isObject(v) && !(v as any).__proxy && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v)
+
+    let shallow = get<boolean>(propDefs, [k, 'shallow']) || get<boolean>(stateDefs, [k, 'shallow'])
+    if (isObject(v) && !(v as any).__proxy && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v) && !shallow
     ) {
       OBJECT_VAR_PATH.set(v, concat(chain, [k]))
       obj[k] = reactive(v, context);

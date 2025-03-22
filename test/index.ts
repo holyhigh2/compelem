@@ -2,6 +2,10 @@ import { CompElem, Template, computed, html, prop, query, state, tag, watch } fr
 
 const Slogan = ['complete', 'componentize', 'compact', 'companion']
 
+class A {
+
+}
+
 @tag("page-test")
 export class PageTest extends CompElem {
   //////////////////////////////////// props
@@ -11,7 +15,7 @@ export class PageTest extends CompElem {
   @state colorG = Math.random() * 255 % 255 >> 0;
   @state colorB = Math.random() * 255 % 255 >> 0;
   @state rotation = 0
-  @state test = { a: 1 }
+  @state({ shallow: true }) test = { a: 1 }
 
   //////////////////////////////////// computed
   @computed
@@ -109,6 +113,12 @@ export class PageTest extends CompElem {
     }, 20);
 
     setInterval(() => {
+      this.test.a++
+    }, 1000);
+
+    (window as any).xx = this
+
+    setInterval(() => {
       this.text.classList.add('hide')
       setTimeout(() => {
         this.text.innerHTML = Slogan[this.sloganIndex % 4]
@@ -120,6 +130,7 @@ export class PageTest extends CompElem {
   render(): Template {
     console.log('render......')
     return html`<div>
+    ${JSON.stringify(this.test)}
             <i>Welcome to</i>
             <br>
             <h2>CompElem</h2>

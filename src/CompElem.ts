@@ -46,10 +46,10 @@ import { Collector, Queue, reactive } from "./reactive";
 import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, html } from "./render/render";
 import { IView, View } from "./render/RenderContext";
 import { Template } from "./render/Template";
-import { DefaultProps, Getter, SlotOptions, TmplFn } from "./types";
+import { Constructor, DefaultProps, Getter, SlotOptions, TmplFn } from "./types";
 import { _toUpdatePath, getBooleanValue, isBooleanProp, showTagError } from "./utils";
 const ATTR_CSS_LINK = "css-link";
-const PropTypeMap: Record<string, Function> = {
+const PropTypeMap: Record<string, Constructor<any> | Function> = {
   boolean: Boolean,
   string: String,
   number: Number,
@@ -696,7 +696,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
 
     let validator = propDef.isValid
     let expectType = propDef.type
-    let expectTypeAry = isArray(expectType) ? expectType : [expectType];
+    let expectTypeAry = isArray<Function | Constructor<any>>(expectType) ? expectType : [expectType];
     let typeConverter = propDef.converter;
     let val: any = newValue
     if (!some(expectTypeAry, (et) => et === String) && isString(val) && !isNull(val)) {

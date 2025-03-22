@@ -1,4 +1,4 @@
-/* compelem 0.3.0-beta @holyhigh2 https://github.com/holyhigh2/compelem */
+/* compelem 0.5.0-b1 @holyhigh2 https://github.com/holyhigh2/compelem */
 (function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
@@ -6966,6 +6966,20 @@
     function _getSuper(cls) {
         return Object.getPrototypeOf(cls);
     }
+    function isBooleanProp(type) {
+        return type === Boolean || some(type, t => t === Boolean);
+    }
+    //返回boolean值或非boolean值
+    function getBooleanValue(v) {
+        let val = v;
+        if (isString(v) && /(?:^true$)|(?:^false$)/.test(val)) {
+            val = fval(val);
+        }
+        else if (isUndefined(val) || isBlank(val)) {
+            val = true;
+        }
+        return val;
+    }
 
     //装饰器类型
     var DecoratorType;
@@ -7154,6 +7168,7 @@
             target.constructor.observedAttributes = [];
         }
         target.constructor.observedAttributes = toArray(attrSet);
+        options.shallow = options.shallow || false;
         target.constructor[DecoratorKey.PROPS][propertyKey] = options;
     }
     //内部接口
@@ -7256,7 +7271,10 @@
                 if (!prop)
                     return undefined;
                 const value = Reflect.get(target, prop, receiver);
-                if ((Collector.__renderCollecting || Collector.__collecting) && target.hasOwnProperty(prop)) {
+                if ((typeof prop !== 'string') && (typeof prop !== 'number'))
+                    return value;
+                let hasProp = prop in target;
+                if ((Collector.__renderCollecting || Collector.__collecting) && ((hasProp && target.hasOwnProperty(prop)) || !hasProp)) {
                     let chain = OBJECT_VAR_PATH.get(receiver) ?? [];
                     let subChain = concat(chain, [prop]);
                     let subChainStr = subChain.join('-');
@@ -7366,7 +7384,6 @@
                                     watchList?.forEach((wk) => {
                                         let updater = wk();
                                         updater.ov = ov;
-                                        // wk()(ov)
                                         Queue.pushWatch(updater);
                                     });
                                 }
@@ -7374,7 +7391,6 @@
                                     watchList?.forEach((wk) => {
                                         let updater = wk();
                                         if (get(updater, 'deep')) {
-                                            // updater(ov)
                                             updater.ov = ov;
                                             Queue.pushWatch(updater);
                                         }
@@ -7386,7 +7402,6 @@
                                 if (!isEmpty(computedList)) {
                                     for (let l = 0; l < computedList.length; l++) {
                                         const updater = computedList[l];
-                                        // updater()
                                         Queue.pushComputed(updater);
                                     }
                                 }
@@ -7396,7 +7411,6 @@
                                 if (!isEmpty(computedCssList)) {
                                     for (let l = 0; l < computedCssList.length; l++) {
                                         const updater = computedCssList[l];
-                                        // updater()
                                         Queue.pushCss(updater);
                                     }
                                 }
@@ -7449,9 +7463,12 @@
                 pathMap.set(context, subChain);
             }
         }
+        let propDefs = get(context.constructor, DecoratorKey.PROPS);
+        let stateDefs = get(context.constructor, DecoratorKey.STATES);
         for (let k in obj) {
             const v = obj[k];
-            if (isObject(v) && !v.__proxy && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v)) {
+            let shallow = get(propDefs, [k, 'shallow']) || get(stateDefs, [k, 'shallow']);
+            if (isObject(v) && !v.__proxy && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v) && !shallow) {
                 OBJECT_VAR_PATH.set(v, concat(chain, [k]));
                 obj[k] = reactive(v, context);
                 OBJECT_VAR_PATH.set(obj[k], concat(chain, [k]));
@@ -7574,15 +7591,6 @@
                         //子组件属性
                         if (!isObject(newValue) && newValue === oldValue)
                             continue;
-                        let ck = camelCase(up.attrName);
-                        let propDefs = get(up.node.constructor, DecoratorKey.PROPS);
-                        if (propDefs) {
-                            let propDef = propDefs[ck];
-                            if (propDef && propDef.hasChanged && !propDef.hasChanged.call(this, newValue, oldValue))
-                                continue;
-                        }
-                        // if (isPlainObject(newValue) && isEqual(newValue, oldValue)) continue;
-                        // if (isArray(newValue) && isArray(oldValue) && isEqual(newValue, oldValue)) continue;
                         //如果node是slot则触发组件的slot更新
                         if (node instanceof CompElem) {
                             node._updateProps({ [up.attrName]: newValue });
@@ -7694,7 +7702,6 @@
         #reactiveData = {};
         #updateSources = {};
         #shadow;
-        #selfObserver;
         //保存所有渲染上下文 {CompElem/Directive}
         #renderContextList = {};
         __events = {};
@@ -7761,6 +7768,7 @@
             return [];
         }
         #inited = false;
+        #initiating = false;
         constructor(...args) {
             super();
             //init props via constructor
@@ -7819,15 +7827,6 @@
                 link.textContent = `@import "${cssLink}"`;
                 this.#shadow.appendChild(link);
             }
-            let filterSlotFn = debounce(this.#filterSlot, 20);
-            this.#selfObserver = new MutationObserver(mutations => {
-                for (let i = 0; i < mutations.length; i++) {
-                    const mutation = mutations[i];
-                    if (mutation.type === 'childList') {
-                        filterSlotFn.call(this);
-                    }
-                }
-            });
             //slots prop map
             this._slotsPropMap = { default: [] };
             /////////////////////////////////////////////////// decorators create
@@ -7847,7 +7846,6 @@
             this.__init();
         }
         disconnectedCallback() {
-            this.#selfObserver.disconnect();
         }
         //////////////////////////////////// lifecycles
         //********************************** 首次渲染
@@ -7855,6 +7853,10 @@
         __init() {
             if (this.#inited)
                 return;
+            //防止在钩子中出现重新挂载的情况
+            if (this.#initiating)
+                return;
+            this.#initiating = true;
             /////////////////////////////////////////////////// slots
             this.#updateSlotsAry();
             //check props
@@ -7896,13 +7898,10 @@
                 children.forEach((c) => {
                     this.#shadow.appendChild(c);
                 });
-                this.#renderRoots = children;
-                this.#renderRoot = children[0];
+                this.#renderRoots = filter(children, (n) => n.nodeType === Node.ELEMENT_NODE);
+                this.#renderRoot = this.#renderRoots[0];
             }
-            //filter slot before append to dom
-            this.#filterSlot();
             this.beforeMount();
-            this.#selfObserver.observe(this, { childList: true });
             /////////////////////////////////////////////////// before mount
             const that = this;
             let ary = get(this.constructor, _DecoratorsKey);
@@ -8070,56 +8069,7 @@
          * @param changed
          */
         updated(changed) { }
-        /**
-         * 抛出自定义事件
-         * @param evName 事件名称
-         * @param args 自定义参数
-         */
-        emit(evName, arg = {}, options) {
-            if (options && options.event) {
-                arg.event = options.event;
-            }
-            arg.target = this;
-            this.dispatchEvent(new CustomEvent(evName, {
-                bubbles: get(options, "bubbles", false),
-                composed: get(options, "composed", false),
-                cancelable: true,
-                detail: arg,
-            }));
-        }
         #rootEvs = {};
-        /**
-         * 在root上绑定事件
-         * @param evName
-         * @param hook
-         */
-        on(evName, hook) {
-            if (!this.#rootEvs[evName]) {
-                this.#rootEvs[evName] = [];
-            }
-            let cbk = hook.bind(this);
-            this.#rootEvs[evName].push(cbk);
-            this.addEventListener(evName, cbk);
-        }
-        /**
-         * 下一帧执行
-         * @param cbk
-         */
-        nextTick(cbk) {
-            Queue.pushNext(cbk);
-        }
-        /**
-         * 强制更新一次视图
-         */
-        forceUpdate() {
-            each(this.#reactiveData, (v, k) => {
-                this.#updateSources[k] = {
-                    value: undefined,
-                    chain: undefined,
-                };
-            });
-            this.#update();
-        }
         /**
          * 由监控变量调用
          * @param stateKey
@@ -8263,7 +8213,20 @@
                     });
                 }
                 if (propDef.attribute && isDefined(val) && !isObject(val)) {
-                    this.setAttribute(kebabCase(key), trim(val));
+                    let k = kebabCase(key);
+                    let v = trim(val);
+                    if (isBooleanProp(propDef.type)) {
+                        v = getBooleanValue(val);
+                        if (isBoolean(v)) {
+                            this.toggleAttribute(k, v);
+                        }
+                        else {
+                            this.setAttribute(k, v);
+                        }
+                    }
+                    else {
+                        this.setAttribute(k, v);
+                    }
                 }
                 this.#data[key] = val;
                 rs[key] = val;
@@ -8292,12 +8255,7 @@
             for (let i = 0; i < expectTypeAry.length; i++) {
                 const et = expectTypeAry[i];
                 if (et.name === 'Boolean') {
-                    if (isString(val) && /(?:^true$)|(?:^false$)/.test(val)) {
-                        val = fval(val);
-                    }
-                    else if (isUndefined(val) || isBlank(val)) {
-                        val = true;
-                    }
+                    val = getBooleanValue(val);
                 }
             }
             let realType = typeof val;
@@ -8374,10 +8332,7 @@
                 let propDef = propDefs[ck];
                 if (!propDef)
                     return;
-                let ov = this.#data[ck];
                 v = this.#propTypeCheck(propDefs, ck, v);
-                if (propDef.hasChanged && !propDef.hasChanged.call(this, v, ov))
-                    return;
                 Collector.__skipCheck = true;
                 set(this, ck, v);
                 Collector.__skipCheck = false;
@@ -8410,10 +8365,7 @@
                 if (!slotMap) {
                     slotMap = this.#slotPropsMap[name] = {};
                 }
-                if (props.nodeFilter) {
-                    slotMap.filter = props.nodeFilter;
-                }
-                slotMap.props = omit(props, 'nodeFilter');
+                slotMap.props = props;
             }
         }
         _bindSlotHook(name, hook) {
@@ -8454,7 +8406,6 @@
                 return node;
             });
             let groups = groupBy(cs, node => {
-                // if (node.nodeType === Node.COMMENT_NODE) return ''
                 if (node.nodeType === Node.TEXT_NODE)
                     return 'default';
                 if (node instanceof Element) {
@@ -8529,52 +8480,6 @@
         _asyncDirectives = new WeakMap();
         renderAsync(cbk, ...args) {
         }
-        //children变化时触发
-        #filterSlot() {
-            if (isEmpty(this.#slotPropsMap))
-                return;
-            each(this.slots, (slottedNodes, k) => {
-                if (isEmpty(slottedNodes))
-                    return;
-                let slotMap = this.#slotPropsMap[k];
-                let filterNodes = slottedNodes;
-                if (slotMap) {
-                    let filterFn = slotMap.filter;
-                    if (isFunction(filterFn)) {
-                        filterNodes = filterFn(slottedNodes);
-                    }
-                    else if (isObject(filterFn)) {
-                        let type = filterFn.type;
-                        let maxCount = filterFn.maxCount;
-                        if (type) {
-                            let ts = isArray(type) ? type : [type];
-                            filterNodes = filter(slottedNodes, n => some(ts, t => n instanceof t));
-                        }
-                        if (maxCount > 0) {
-                            filterNodes = slice(slottedNodes, 0, maxCount);
-                        }
-                    }
-                }
-                if (this.#shadow.slotAssignment === 'named') {
-                    let removeNodes = [];
-                    for (let i = 0; i < slottedNodes.length; i++) {
-                        const c = slottedNodes[i];
-                        if (!filterNodes.includes(c)) {
-                            removeNodes.push(c);
-                        }
-                    }
-                    while (removeNodes.length > 0) {
-                        let n = removeNodes.pop();
-                        n.parentNode?.removeChild(n);
-                    }
-                }
-                else {
-                    this.#slotsEl[k].assign(...filterNodes);
-                }
-                if (this.#inited)
-                    this.#onSlogChange(this.#slotsEl[k], k === 'default' ? '' : k);
-            });
-        }
         #attrChanged(name, oldValue, newValue) {
             if (!this.isMounted)
                 return;
@@ -8609,6 +8514,56 @@
                 list = this.#renderContextList[upperPath] = new Set();
             }
             list.add(renderContext);
+        }
+        ////////////////////----------------------------/////////////// APIs
+        /**
+         * 抛出自定义事件
+         * @param evName 事件名称
+         * @param args 自定义参数
+         */
+        emit(evName, arg = {}, options) {
+            if (options && options.event) {
+                arg.event = options.event;
+            }
+            arg.target = this;
+            this.dispatchEvent(new CustomEvent(evName, {
+                bubbles: get(options, "bubbles", false),
+                composed: get(options, "composed", false),
+                cancelable: true,
+                detail: arg,
+            }));
+        }
+        /**
+         * 在root上绑定事件
+         * @param evName
+         * @param hook
+         */
+        on(evName, hook) {
+            if (!this.#rootEvs[evName]) {
+                this.#rootEvs[evName] = [];
+            }
+            let cbk = hook.bind(this);
+            this.#rootEvs[evName].push(cbk);
+            this.addEventListener(evName, cbk);
+        }
+        /**
+         * 下一帧执行
+         * @param cbk
+         */
+        nextTick(cbk) {
+            Queue.pushNext(cbk);
+        }
+        /**
+         * 强制更新一次视图
+         */
+        forceUpdate() {
+            each(this.#reactiveData, (v, k) => {
+                this.#updateSources[k] = {
+                    value: undefined,
+                    chain: undefined,
+                };
+            });
+            this.#update();
         }
     }
 
@@ -8985,7 +8940,7 @@
      * @author holyhigh2
      *
      * resize
-     * outside[.mousedown/up/click/dblclick] 默认click
+     * outside[.mousedown/mouseup/click/dblclick] 默认click
      * mutate[.attr/child/char/tree]
      *
      *************************************************************/
@@ -8993,6 +8948,8 @@
     ///////////////////////////////////////////////// resize
     const AllResizeEls = new WeakMap;
     const AllOutsideDownEls = [];
+    const AllOutsideClickEls = [];
+    const AllOutsideDblClickEls = [];
     const resizeObserver = new ResizeObserver((entries) => {
         for (const entry of entries) {
             const contentBoxSize = Array.isArray(entry.contentBoxSize)
@@ -9069,7 +9026,7 @@
                     cancelable: false,
                     detail
                 });
-                cbk(ev, mutation.target);
+                cbk(ev);
             }
         }
     });
@@ -9104,9 +9061,41 @@
     }
     ///////////////////////////////////////////////// outside
     document.addEventListener('mousedown', e => {
-        let t = e.target;
+        let t = get(e.composedPath(), 0, e.target);
         AllOutsideDownEls.forEach(([node, cbk]) => {
-            if (!node.contains(t)) {
+            if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
+                let ev = new CustomEvent('outside', {
+                    bubbles: false,
+                    cancelable: false,
+                    detail: {
+                        currentTarget: node,
+                        event: e
+                    },
+                });
+                cbk(ev, node);
+            }
+        });
+    }, false);
+    document.addEventListener('click', e => {
+        let t = get(e.composedPath(), 0, e.target);
+        AllOutsideClickEls.forEach(([node, cbk]) => {
+            if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
+                let ev = new CustomEvent('outside', {
+                    bubbles: false,
+                    cancelable: false,
+                    detail: {
+                        currentTarget: node,
+                        event: e
+                    },
+                });
+                cbk(ev, node);
+            }
+        });
+    }, false);
+    document.addEventListener('dblclick', e => {
+        let t = get(e.composedPath(), 0, e.target);
+        AllOutsideDblClickEls.forEach(([node, cbk]) => {
+            if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
                 let ev = new CustomEvent('outside', {
                     bubbles: false,
                     cancelable: false,
@@ -9122,6 +9111,12 @@
     function addOutsideMouseDown(node, cbk) {
         AllOutsideDownEls.push([node, cbk]);
     }
+    function addOutsideClick(node, cbk) {
+        AllOutsideClickEls.push([node, cbk]);
+    }
+    function addOutsideDblClick(node, cbk) {
+        AllOutsideDblClickEls.push([node, cbk]);
+    }
     function isExtEvent(evName) {
         return ExtEvNames.includes(evName);
     }
@@ -9133,6 +9128,13 @@
             switch (parts[0]) {
                 case 'mousedown':
                     addOutsideMouseDown(node, cbk);
+                    break;
+                case 'dblclick':
+                    addOutsideDblClick(node, cbk);
+                    break;
+                case 'click':
+                default:
+                    addOutsideClick(node, cbk);
                     break;
             }
         }
@@ -9207,7 +9209,7 @@
                 if (!checkKeys.includes(e.key.toLowerCase()))
                     return;
             }
-            c(e, node);
+            c(e);
         };
         node.addEventListener(evName, listener);
         //record
@@ -9404,8 +9406,8 @@
                     if (PLACEHOLDER_EXP.test(value)) {
                         let val = vars[varIndex];
                         let po = new UpdatePoint(varIndex, currentNode, name.replace(/\.|\?|@/, ''), value);
-                        updatePoints.push(po);
                         po.isComponent = !!slotComponent;
+                        // let add2up = true;
                         if (name[0] === ATTR_PREFIX_PROP ||
                             name[0] === ATTR_PREFIX_BOOLEAN ||
                             name[0] === ATTR_PREFIX_REF) {
@@ -9490,6 +9492,8 @@
                                 dw.di.created(dw.point, ...dw.args);
                             }
                         }
+                        // if (add2up)
+                        updatePoints.push(po);
                         varIndex++;
                     } //endif
                 } //endfor
@@ -9856,6 +9860,7 @@
                 value: mixinStates
             });
         }
+        options.shallow = options.shallow || false;
         target.constructor[DecoratorKey.STATES][stateKey] = options;
     }
 
@@ -10013,6 +10018,10 @@
                 this.rotation++;
             }, 20);
             setInterval(() => {
+                this.test.a++;
+            }, 1000);
+            window.xx = this;
+            setInterval(() => {
                 this.text.classList.add('hide');
                 setTimeout(() => {
                     this.text.innerHTML = Slogan[this.sloganIndex % 4];
@@ -10024,6 +10033,7 @@
         render() {
             console.log('render......');
             return html `<div>
+    ${JSON.stringify(this.test)}
             <i>Welcome to</i>
             <br>
             <h2>CompElem</h2>
@@ -10055,7 +10065,7 @@
         state
     ], exports.PageTest.prototype, "rotation", void 0);
     __decorate([
-        state
+        state({ shallow: true })
     ], exports.PageTest.prototype, "test", void 0);
     __decorate([
         computed
