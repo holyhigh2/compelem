@@ -9,7 +9,7 @@ export type EventOption = {
   /**
    * 事件绑定目标，默认document
    */
-  target?: Object | ((comp?: CompElem) => HTMLElement),
+  target?: Object | ((comp?: CompElem) => (HTMLElement | Promise<HTMLElement>)),
   /**
    * 是否深度监控
    */

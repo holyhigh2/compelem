@@ -281,7 +281,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
     /////////////////////////////////////////////////// slots
     this.#updateSlotsAry()
 
-    //check props
+    //1. Props & States
     const props = this.#initProps();
 
     this.propsReady(props)
@@ -292,7 +292,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
 
     this.#initStates();
 
-    //define reactive
+    //2. Data
     each(this.#data, (v, k: string) => {
       let descr = Reflect.getOwnPropertyDescriptor(this.#data, k);
       Reflect.defineProperty(this, k, {
@@ -313,37 +313,30 @@ export class CompElem extends View(HTMLElement) implements IComponent {
       enumerable: false,
       value: true
     })
-
     this.#reactiveData = reactive(this.#data, this);
 
-    //render
-    let tmpl = this.render()
-    let nodes = this.buildView(tmpl)
-
-    if (nodes) {
-      let children = toArray<HTMLElement>(nodes);
-
-      children.forEach((c) => {
-        this.#shadow.appendChild(c);
+    //3. Computed
+    let computedMap: Record<string, Getter> =
+      get(this.constructor, DecoratorKey.COMPUTED);
+    each(computedMap, (getter, propKey) => {
+      Collector.startCollect(this, CollectorType.COMPUTED);
+      Collector.setUpdater(() => {
+        this.#reactiveData[propKey] = getter.call(this)
       });
+      this.#data[propKey] = getter.call(this)
+      Collector.endCollect();
 
-      this.#renderRoots = filter<HTMLElement>(children, (n: Node) => n.nodeType === Node.ELEMENT_NODE);
-      this.#renderRoot = this.#renderRoots[0] as HTMLElement;
-    }
-
-    this.beforeMount();
-
-    /////////////////////////////////////////////////// before mount
-    const that = this
-    let ary: DecoratorWrapper[] = get(this.constructor, _DecoratorsKey)
-    ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
-      dw.beforeMount(this, (key, value) => {
-        that.#reactiveData[key] = value
-        return that.#reactiveData[key]
-      })
+      Reflect.defineProperty(this, propKey, {
+        get() {
+          return Reflect.get(this.#reactiveData, propKey);
+        },
+        set(v) {
+          showTagError(this.tagName, "Cannot set a computed property '" + propKey + "'");
+        },
+      });
     })
 
-    //watch
+    //4. Watch
     let watchMap = get<Record<string, any>[]>(this.constructor, DecoratorKey.WATCH)
     each(watchMap, (watchList: Record<string, any>[], k: string) => {
       watchList.forEach(v => {
@@ -369,47 +362,54 @@ export class CompElem extends View(HTMLElement) implements IComponent {
       })
     })
 
-    //computed
-    let computedMap: Record<string, Getter> =
-      get(this.constructor, DecoratorKey.COMPUTED);
-    each(computedMap, (getter, propKey) => {
-      Collector.startCollect(this, CollectorType.COMPUTED);
-      Collector.setUpdater(() => {
-        this.#reactiveData[propKey] = getter.call(this)
-      });
-      this.#data[propKey] = getter.call(this)
-      Collector.endCollect();
+    //5. Render
+    let tmpl = this.render()
+    let nodes = this.buildView(tmpl)
 
-      Reflect.defineProperty(this, propKey, {
-        get() {
-          return Reflect.get(this.#reactiveData, propKey);
-        },
-        set(v) {
-          showTagError(this.tagName, "Cannot set a computed property '" + propKey + "'");
-        },
+    if (nodes) {
+      let children = toArray<HTMLElement>(nodes);
+
+      children.forEach((c) => {
+        this.#shadow.appendChild(c);
       });
+
+      this.#renderRoots = filter<HTMLElement>(children, (n: Node) => n.nodeType === Node.ELEMENT_NODE);
+      this.#renderRoot = this.#renderRoots[0] as HTMLElement;
+    }
+
+    /////////////////////////////////////////////////// before mount
+
+    //slot hook
+    each(this.#slotHooks, (v, k: string) => {
+      this.#updateSlot(k)
     })
+
+    const that = this
+    let ary: DecoratorWrapper[] = get(this.constructor, _DecoratorsKey)
+    ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
+      dw.beforeMount(this, (key, value) => {
+        that.#reactiveData[key] = value
+        return that.#reactiveData[key]
+      })
+    })
+
+    this.beforeMount();
 
     //events
     let eventList = get<Record<string, any>[]>(this.constructor, DecoratorKey.EVENTS)
-    eventList && eventList.forEach((ev) => {
+    eventList && eventList.forEach(async (ev) => {
       let name = ev.name;
       let options = assign({ target: document, once: false, passive: false, capture: false }, ev.options);
       let listener = bind(ev.fn, this)
       let target = options.target;
       if (isFunction(target)) {
-        target = target.call(this, this)
+        target = await target.call(this, this)
       }
       if (!target) {
         showTagError(this.tagName, "The target of @event('" + name + "',...) is invalid");
         return
       }
       target.addEventListener(name, listener, options)
-    })
-
-    //slot hook
-    each(this.#slotHooks, (v, k: string) => {
-      this.#updateSlot(k)
     })
 
     //instance dynamic style
@@ -434,6 +434,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
     this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, ...cssAry];
 
     setTimeout(() => {
+
       this.#mounted = true;
       this.mounted();
 

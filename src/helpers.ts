@@ -10,7 +10,10 @@ export class CssHelper {
    */
   static getCssText(styles: Record<string, string> | string) {
     if (isString(styles)) return styles
-    return join(map(styles, (v, k: string) => kebabCase(k) + ":" + v), ';')
+    return join(map(styles, (v, k: string) => {
+      if (k.startsWith('--')) return k + ":" + v
+      return kebabCase(k) + ":" + v
+    }), ';')
   }
 
   /**
