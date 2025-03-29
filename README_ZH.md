@@ -273,20 +273,19 @@ CompElem 组件既可以在 CompElem 环境内调用，也可以直接在原生�
 | ------------------------------------------------------------ | --- | ----------- |
 | 1. 创建组件实例，完成类属性默认值设置（prop/state/...)       |     |             |
 | 2. 初始化类全局样式（仅一次）及 实例样式(产生 styles 数组)   |     |             |
-| 3. 注入 link 外部样式表                                      |     |             |
-| 4. 创建 shadowRoot 并挂载组件样式                            |     |  |
-| 5. 执行装饰器 create 回调                                      |     |    constructor         |
-| 6. 绑定 parentComponent                                               |     |    |
-| 7. 验证及初始化 props |     |  propsReady |
-| 8. 初始化 states |     |   |
-| 9. @computed                       |     |             |
-| 10. @watch(immediate)                       |     |             |
-| 11. 渲染 render 及依赖绑定                                    |     | render      |
-| 12. 绑定 renderRoot 及 renderRoots                                            |     |             |
-| 13. 初始化插槽 slots                                            |     |     |
-| 14. 执行装饰器 beforeMount 回调 ，如 @query                                     |     |    beforeMount      |
-| 13. 初始化动态 css                                                   |     |     mounted        |
-| 14. 执行装饰器 mounted 回调                                |     |             |
+| 3. 创建 shadowRoot 并挂载组件样式                            |     |  |
+| 4. 执行装饰器 create 回调                                      |     |    constructor         |
+| 5. 绑定 parentComponent                                               |     |    |
+| 6. 验证及初始化 props |     |  propsReady |
+| 7. 初始化 states |     |   |
+| 8. @computed                       |     |             |
+| 9. @watch(immediate)                       |     |             |
+| 10. 渲染 render 及依赖绑定                                    |     | render      |
+| 11. 绑定 renderRoot 及 renderRoots                                            |     |             |
+| 12. 初始化插槽 slots                                            |     |     |
+| 13. 执行装饰器 beforeMount 回调 ，如 @query                                     |     |    beforeMount      |
+| 14. 初始化动态 css                                                   |     |     mounted        |
+| 15. 执行装饰器 mounted 回调                                |     |             |
 
 > 更新流程【普通】
 

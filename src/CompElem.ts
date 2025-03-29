@@ -48,7 +48,6 @@ import { IView, View } from "./render/RenderContext";
 import { Template } from "./render/Template";
 import { Constructor, DefaultProps, Getter, SlotOptions, TmplFn } from "./types";
 import { _toUpdatePath, getBooleanValue, isBooleanProp, showTagError } from "./utils";
-const ATTR_CSS_LINK = "css-link";
 const PropTypeMap: Record<string, Constructor<any> | Function> = {
   boolean: Boolean,
   string: String,
@@ -228,14 +227,6 @@ export class CompElem extends View(HTMLElement) implements IComponent {
     });
 
     this.#shadow.adoptedStyleSheets = [...DefaultCss, ...styleSheets];
-
-    //check link
-    let cssLink = this.attributes.getNamedItem(ATTR_CSS_LINK)?.value;
-    if (cssLink) {
-      const link = document.createElement("style");
-      link.textContent = `@import "${cssLink}"`;
-      this.#shadow.appendChild(link);
-    }
 
     //slots prop map
     this._slotsPropMap = { default: [] }
