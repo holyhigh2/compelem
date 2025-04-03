@@ -1,7 +1,6 @@
 import { camelCase, compact, each, filter, get, initial, isEmpty, isFunction, last, remove, test, toArray } from "myfx";
 import { CompElem } from "../CompElem";
 import { Collector } from "../reactive";
-import { DomUtil } from "../render/render";
 import { Template } from "../render/Template";
 import { DirectiveUpdateTag } from "../types";
 import { showError } from "../utils";
@@ -95,25 +94,12 @@ export class DirectiveWrapper extends Function {
 
   render(component: CompElem) {
     let di = this.di;
-    let args = this.args
     if (!di.renderComponent) {
       di.renderComponent = component;
-      // for (let i = 0; i < args.length; i++) {
-      //   const arg = args[i];
-      //   if (isFunction(arg)) {
-      //     args[i] = arg.bind(component)
-      //   }
-      // }
     }
 
     this.di = di;
     di._renderArgs = this.args
-    // let [nodes, expPos, expPosMap] = di.renderContext(...this.args)
-    // if (expPosMap) {
-    //   di.__expPosMap = expPosMap
-    // } else if (expPos) {
-    //   di.__expPos = expPos
-    // }
     return this.di.render(...this.args);
   }
 
@@ -211,9 +197,9 @@ export class DirectiveWrapper extends Function {
       //计算del
       each(keyQ, (v, k) => {
         if (!updateQ[k]) {
-          dels.push(k);
+          dels.push(k)
           delete keyQ[k]
-          remove(oldSeq, k)
+          remove(oldSeq, x => x === k)
         }
       })
 
@@ -292,9 +278,6 @@ export class DirectiveWrapper extends Function {
       })
 
       dels.forEach(k => {
-        let vi = oldSeq.findIndex(s => s == k)
-        this.#removeNode(vi)
-        // remove(adjustedQ, ak => ak === k)
         let treeNode = oldNodeMap[k]
         if (treeNode && treeNode.parentNode) {
           parentNode!.removeChild(treeNode)
@@ -346,15 +329,6 @@ export class DirectiveWrapper extends Function {
     nodes.forEach((n: HTMLElement) => {
       if (n instanceof HTMLElement)
         this.newNodeMap[n.getAttribute('key')!] = n
-    })
-  }
-  //对于foreach指令，key就是序号
-  #removeNode(key: number) {
-    remove(this.di.__updatePoints, (v, k) => {
-      if (v.varIndex == key) {
-        DomUtil.remove(v.node, v.textNode)
-        return true
-      }
     })
   }
 }

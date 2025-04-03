@@ -25,7 +25,7 @@ export function tag(name: string) {
       }
       //disconnectedCallback
       if (target.prototype.hasOwnProperty('disconnectedCallback')) {
-        let cbk = target.prototype.connectedCallback
+        let cbk = target.prototype.disconnectedCallback
         target.prototype.disconnectedCallback = function () {
           CompElem.prototype.disconnectedCallback.call(this)
           cbk.call(this)

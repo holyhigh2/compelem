@@ -97,6 +97,8 @@ const COMPUTED_MAP = new WeakMap<CompElem, Record<string, Getter[] | null>>()
 const CSS_MAP = new WeakMap<CompElem, Record<string, Getter[] | null>>()
 const WATCH_MAP = new WeakMap<CompElem, Record<string, Getter[] | null>>()
 
+const PROXY_SET = new WeakSet<Record<string, any>>()
+
 /**
  * 1. 初始化时obj都是普通对象
  * 2. OBJECT_VAR_PATH 首次是普通对象
@@ -108,7 +110,7 @@ const WATCH_MAP = new WeakMap<CompElem, Record<string, Getter[] | null>>()
 export function reactive(obj: Record<string, any>, context: any) {
   if (!isObject(obj)) return obj;
 
-  const proxyObject = obj.__proxy ? obj : new Proxy(obj, {
+  const proxyObject = PROXY_SET.has(obj) ? obj : new Proxy(obj, {
     get(target: any, prop: string, receiver: any): any {
       if (!prop) return undefined;
       const value = Reflect.get(target, prop, receiver);
@@ -192,6 +194,7 @@ export function reactive(obj: Record<string, any>, context: any) {
           subChain = concat(pathAry, [prop])
           OBJECT_VAR_PATH.set(nv, subChain)
           nv = reactive(nv, dep)
+          PROXY_SET.add(nv)
           OBJECT_VAR_PATH.set(nv, subChain)
         })
       }
@@ -273,13 +276,8 @@ export function reactive(obj: Record<string, any>, context: any) {
       return rs;
     }
   });
-  if (!obj.__proxy) {
-    Reflect.defineProperty(obj, "__proxy", {
-      enumerable: false,
-      writable: false,
-      configurable: false,
-      value: true,
-    });
+  if (!PROXY_SET.has(proxyObject)) {
+    PROXY_SET.add(proxyObject)
   }
 
   let chain = OBJECT_VAR_PATH.get(obj) ?? []
@@ -319,10 +317,11 @@ export function reactive(obj: Record<string, any>, context: any) {
     const v = obj[k];
 
     let shallow = get<boolean>(propDefs, [k, 'shallow']) || get<boolean>(stateDefs, [k, 'shallow'])
-    if (isObject(v) && !(v as any).__proxy && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v) && !shallow
+    if (isObject(v) && !PROXY_SET.has(v) && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v) && !shallow
     ) {
       OBJECT_VAR_PATH.set(v, concat(chain, [k]))
       obj[k] = reactive(v, context);
+      PROXY_SET.add(obj[k])
       OBJECT_VAR_PATH.set(obj[k], concat(chain, [k]))
     }
   }

@@ -47,6 +47,7 @@ export function View<T extends new (...args: any[]) => any>(spuerClass: T) {
       for (let i = 0; i < this.__updatePoints.length; i++) {
         const up = this.__updatePoints[i];
         let varIndex = up.varIndex;
+        if (varIndex < 0) continue;
         let oldValue = up.value;
         let newValue: any = vars;
         let node = up.node;
