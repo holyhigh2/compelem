@@ -11,7 +11,7 @@ export type PropOption = {
   /**
    * 参数类型
    */
-  type: Constructor<any> | Function | Array<Constructor<any> | Function>,
+  type: Constructor<any> | Array<Constructor<any>>,
   /**
    * 是否浅层监控，默认false
    */

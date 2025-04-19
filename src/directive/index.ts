@@ -64,7 +64,7 @@ enum MovePosition {
 /**
  * Delay the actual time of execution of directive
  */
-export class DirectiveWrapper extends Function {
+export class DirectiveWrapper {
   diClass: any;
   args: any[];
   di: Directive;
@@ -74,14 +74,12 @@ export class DirectiveWrapper extends Function {
   varChain: any[];
 
   constructor(diClass: typeof Directive, ...args: any[]) {
-    super();
     this.diClass = diClass;
     this.args = args;
     this.varChain = Collector.popDirectiveQ();
 
     this.di = new this.diClass();
     this.di.renderParams = this.varChain;
-
   }
   //校验scope
   checkScope(scopeType: string) {

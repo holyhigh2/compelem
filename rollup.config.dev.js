@@ -53,6 +53,11 @@ export default [
         file: 'dist/index.js',
         format: 'esm'
       },
+      {
+        file: 'dist/compelem.umd.js',
+        format: 'umd',
+        name: 'compelem'
+      }
     ],
   }
 ]

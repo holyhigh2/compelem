@@ -9,7 +9,6 @@ import {
   filter,
   first,
   flatMap,
-  fval,
   get,
   groupBy,
   has,
@@ -43,20 +42,18 @@ import { StateOption } from "./decorators/state";
 import { Directive } from "./directive/Directive";
 import { IComponent } from "./IComponent";
 import { Collector, Queue, reactive } from "./reactive";
-import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, html } from "./render/render";
+import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF } from "./render/render";
 import { IView, View } from "./render/RenderContext";
 import { Template } from "./render/Template";
 import { Constructor, DefaultProps, Getter, SlotOptions, TmplFn } from "./types";
 import { _toUpdatePath, getBooleanValue, isBooleanProp, showTagError } from "./utils";
-const PropTypeMap: Record<string, Constructor<any> | Function> = {
+const PropTypeMap: Record<string, Constructor<any>> = {
   boolean: Boolean,
   string: String,
   number: Number,
   object: Object,
   array: Array,
   function: Function,
-  bigint: BigInt,
-  symbol: Symbol,
   undefined: Object
 }
 const PrivatePreffix = '#'
@@ -681,6 +678,31 @@ export class CompElem extends View(HTMLElement) implements IComponent {
     });
     return Object.seal(rs)
   }
+  #convertValue(v: string, types: Array<Constructor<any>>) {
+    let val: any = v
+    try {
+      for (let i = 0; i < types.length; i++) {
+        const t = types[i];
+        if (t === Boolean) {
+          val = getBooleanValue(v)
+        } else if (t === Number) {
+          val = Number(v)
+        } else if (t === String) {
+          val = String(v)
+        } else if (t === Object || t === Array) {
+          v = v.replace(/([{,])\s*([a-zA-Z0-9_$]+)\s*:/mg, '$1"$2":')
+          val = JSON.parse(v)
+        } else if (t === Date) {
+          val = new Date(v)
+        } else {
+          val = new t(v)
+        }
+      }
+    } catch (error) {
+      showTagError(this.tagName, `Convert attribute error with ` + v);
+    }
+    return val
+  }
   //属性值检测
   #propTypeCheck(propDefs: Record<string, PropOption>, propKey: string, newValue: string | null) {
     let propDef = propDefs[propKey]
@@ -688,12 +710,12 @@ export class CompElem extends View(HTMLElement) implements IComponent {
 
     let validator = propDef.isValid
     let expectType = propDef.type
-    let expectTypeAry = isArray<Function | Constructor<any>>(expectType) ? expectType : [expectType];
+    let expectTypeAry = isArray<Constructor<any>>(expectType) ? expectType : [expectType];
     let typeConverter = propDef.converter;
     let val: any = newValue
     if (!some(expectTypeAry, (et) => et === String) && isString(val) && !isNull(val)) {
       try {
-        val = typeConverter ? typeConverter(val) : fval(val, { html });
+        val = typeConverter ? typeConverter(val) : this.#convertValue(val, expectTypeAry);
       } catch (error) {
         showTagError(this.tagName, `Convert attribute '${propKey}' error with ` + val);
       }

@@ -1,4 +1,4 @@
-import { fval, isBlank, isString, isUndefined, some, toPath } from "myfx";
+import { isBlank, isString, isUndefined, some, toPath } from "myfx";
 import { CompElem } from "./CompElem";
 
 export function showError(msg: string): void {
@@ -32,7 +32,7 @@ export function isBooleanProp(type: any) {
 export function getBooleanValue(v: any) {
   let val = v
   if (isString(v) && /(?:^true$)|(?:^false$)/.test(val)) {
-    val = fval(val)
+    val = val === 'true' ? true : false
   } else if (isUndefined(val) || isBlank(val)) {
     val = true;
   }
