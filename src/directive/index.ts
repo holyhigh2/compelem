@@ -234,7 +234,7 @@ export class DirectiveWrapper {
           // idWeightMap[lastGroup.length] = { group: lastGroup, targetId: '' }
         }
 
-        let keys = idWeightMap.keys().toArray();
+        let keys = toArray<number>(idWeightMap.keys());
         let keyNums = keys.sort((a, b) => a - b)
 
         if (keys.length > 0) {

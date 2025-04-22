@@ -337,13 +337,6 @@ export class Queue {
   static nextPending = false;
   static next: () => void;
 
-  static {
-    const p = Promise.resolve();
-    const nextFn = Queue.flush
-    Queue.next = () => {
-      p.then(nextFn)
-    }
-  }
   static flush() {
     Queue.nextPending = false
     let wq = Array.from(Queue.watchSet)
@@ -378,3 +371,10 @@ export class Queue {
     }
   }
 }
+(() => {
+  const p = Promise.resolve();
+  const nextFn = Queue.flush
+  Queue.next = () => {
+    p.then(nextFn)
+  }
+})()

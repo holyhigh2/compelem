@@ -27,6 +27,7 @@ import {
   last,
   merge,
   once,
+  parseJSON,
   reject,
   set,
   size,
@@ -71,9 +72,6 @@ let DefaultComponentProps: Record<string, any> = {}
  */
 export class CompElem extends View(HTMLElement) implements IComponent {
   static __l_globalRule = document.createElement("style");
-  static {
-    document.head.appendChild(CompElem.__l_globalRule);
-  }
   //设置全局/组件默认属性
   static defaults(options: DefaultProps) {
     DefaultCss = flatMap<string | CSSStyleSheet, CSSStyleSheet>(options.css!, c => {
@@ -148,12 +146,6 @@ export class CompElem extends View(HTMLElement) implements IComponent {
   #slotNodes: Record<string, Node[]> = {};
   #mounted: boolean = false
 
-  /**
-   * 是否自动插入插槽，如果需要控制插槽类型时，可以设置为false
-   */
-  static get autoSlot() {
-    return true;
-  }
   //////////////////////////////////// styles
   /**
    * 组件样式，CSSStyleSheet可动态变更
@@ -219,8 +211,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
 
     /////////////////////////////////////////////////// shadow
     this.#shadow = this.attachShadow({
-      mode: "open",
-      slotAssignment: get<boolean>(this.constructor, "autoSlot", true) ? "named" : "manual",
+      mode: "open"
     });
 
     this.#shadow.adoptedStyleSheets = [...DefaultCss, ...styleSheets];
@@ -690,8 +681,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
         } else if (t === String) {
           val = String(v)
         } else if (t === Object || t === Array) {
-          v = v.replace(/([{,])\s*([a-zA-Z0-9_$]+)\s*:/mg, '$1"$2":')
-          val = JSON.parse(v)
+          val = parseJSON(v)
         } else if (t === Date) {
           val = new Date(v)
         } else {
@@ -1080,3 +1070,4 @@ export class CompElem extends View(HTMLElement) implements IComponent {
     this.#update();
   }
 }
+document.head.appendChild(CompElem.__l_globalRule);
