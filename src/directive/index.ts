@@ -318,11 +318,19 @@ export class DirectiveWrapper {
 
     let originalUps = this.di.__updatePoints
     let nodes = this.di.buildView(tmpl)
+    let kMap = new Map<string, boolean>()
     this.di.__updatePoints.forEach((up, i) => {
       const k = up.value.tmpl.getKey()
       up.key = k
+      kMap.set(k, true)
     })
-    this.di.__updatePoints.push(...originalUps)
+    originalUps.forEach((up, i) => {
+      const k = up.key ?? up.value.tmpl.getKey()
+      if (!kMap.get(k)) {
+        this.di.__updatePoints.push(up)
+      }
+    })
+    // this.di.__updatePoints.push(...originalUps)
 
     nodes.forEach((n: HTMLElement) => {
       if (n instanceof HTMLElement)
