@@ -8,11 +8,11 @@ export class CssHelper {
    * @param styles 样式对象
    * @returns 
    */
-  static getCssText(styles: Record<string, string> | string) {
+  static getCssText(styles: Record<string, string> | string, important: boolean = false): string {
     if (isString(styles)) return styles
     return join(map(styles, (v, k: string) => {
-      if (k.startsWith('--')) return k + ":" + v
-      return kebabCase(k) + ":" + v
+      if (k.startsWith('--')) return k + ":" + v + (important ? ' !important' : '')
+      return kebabCase(k) + ":" + v + (important ? ' !important' : '')
     }), ';')
   }
 
