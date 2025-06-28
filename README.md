@@ -401,6 +401,7 @@ static get autoSlot() {
 - @event 定义全局事件
 - @watch 监控 state/prop 变更
 - @computed 计算属性，仅在响应变量变更时更新缓存值
+- @debounced 定义函数防抖
 
 > 装饰器还可通过函数方式进行调用，如
 > ```ts
