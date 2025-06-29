@@ -17,6 +17,8 @@ export interface IComponent {
   get renderRoots(): HTMLElement[];
   //父组件
   get parentComponent(): HTMLElement | null;
+  //包装组件
+  get wrapperComponent(): HTMLElement | null;
   //每个插槽中保存的节点数组，无名插槽名称为 'default'
   get slots(): Record<string, Array<Node>>;
   //动态slot中的render函数，可传递给子元素的动态插槽

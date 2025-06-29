@@ -1,4 +1,4 @@
-/* compelem 0.5.0-b1 @holyhigh2 https://github.com/holyhigh2/compelem */
+/* compelem 0.6.0-b1 @holyhigh2 https://github.com/holyhigh2/compelem */
 (function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
@@ -34,7 +34,7 @@
     };
 
     /**
-       * myfx v1.7.0
+       * myfx v1.10.0
        * A modular utility library with more utils, higher performance and simpler declarations ...
        * https://github.com/holyhigh2/myfx
        * (c) 2021-2025 @holyhigh2 may be freely distributed under the MIT license
@@ -156,6 +156,25 @@
     }
 
     /**
+     * 判断值是不是迭代器对象
+     *
+     * @example
+     * //true
+     * console.log(_.isIterator(new Map()))
+     * //true
+     * console.log(_.isIterator(new Map().values()))
+     * //false
+     * console.log(_.isIterator({a:1}))
+     *
+     * @param v
+     * @returns
+     * @since 1.10.0
+     */
+    function isIterator(v) {
+        return typeof v === 'object' && v !== null && Symbol.iterator in v;
+    }
+
+    /**
      * 判断值是不是一个Map对象
      *
      * @example
@@ -243,6 +262,8 @@
      * console.log(_.toArray({x:1,y:2,z:'b'}))
      * //[[1, 'a'], [3, 'b'], ['a', 5]]
      * console.log(_.toArray(new Map([[1,'a'],[3,'b'],['a',5]])))
+     * //[1, 3, 'a']
+     * console.log(_.toArray(new Map([[1,'a'],[3,'b'],['a',5]])).keys())
      *
      * @param collection 如果是Map/Object对象会转换为值列表
      *
@@ -264,6 +285,9 @@
         }
         else if (isMap(collection)) {
             return Array.from(collection.values());
+        }
+        else if (isIterator(collection)) {
+            return Array.from(collection);
         }
         else if (isObject(collection)) {
             return values(collection);
@@ -3457,6 +3481,32 @@
     }
 
     /**
+     * 判断参数是否为数字或数字字符串。不能判断BigInt
+     *
+     * @example
+     * //true
+     * console.log(_.isNumeric(1))
+     * //true
+     * console.log(_.isNumeric('-1.1'))
+     * //false
+     * console.log(_.isNumber('-1.1a'))
+     *
+     * @param v
+     * @returns
+     */
+    function isNumeric(v) {
+        if ((v + '').length < 1)
+            return false;
+        if (isNil(v))
+            return false;
+        if (Number.isNaN(v))
+            return false;
+        if (isNumber(v))
+            return true;
+        return /^-?[0-9]*\.?[0-9]+$/.test(v + '');
+    }
+
+    /**
      * 判断值是不是一个朴素对象，即通过Object创建的对象
      *
      * @example
@@ -3591,6 +3641,7 @@
       isFinite: isFinite,
       isFunction: isFunction,
       isInteger: isInteger,
+      isIterator: isIterator,
       isMap: isMap,
       isMatch: isMatch,
       isMatchWith: isMatchWith,
@@ -3600,6 +3651,7 @@
       isNode: isNode,
       isNull: isNull,
       isNumber: isNumber,
+      isNumeric: isNumeric,
       isObject: isObject,
       isPlainObject: isPlainObject,
       isPrimitive: isPrimitive,
@@ -4674,6 +4726,34 @@
     }
 
     /**
+     * 解析标准/非标准JSON字符串，返回对象
+     * @example
+     * //{a:1,b:2,c:'3'}
+     * console.log(_.parseJSON("{a:1,b:2,c:'3'}"))
+     * //{a:1,b:2,c:'3"'}
+     * console.log(_.parseJSON(`[{"a":1,"b":2,"c":"3\\""}]`))
+     * //true
+     * console.log(_.parseJSON('true')
+     * //12
+     * console.log(_.parseJSON('12')
+     *
+     * @param str JSON字符串
+     * @returns 解析后的对象或空对象
+     * @since 1.9.0
+     */
+    function parseJSON(str) {
+        let s = (str + '').replace(/:\s*(['`])(.*)\1(?=\s*[},])/mg, ':"$2"').replace(/([{,])\s*([a-zA-Z0-9_$]+)\s*:/mg, '$1"$2":');
+        let rs;
+        try {
+            rs = JSON.parse(s);
+        }
+        catch (e) {
+            rs = {};
+        }
+        return rs;
+    }
+
+    /**
      * 同<code>pick</code>，但支持断言函数进行选取
      * @example
      * //{a: 1, b: 2}
@@ -4866,6 +4946,7 @@
       mergeWith: mergeWith,
       omit: omit,
       omitBy: omitBy,
+      parseJSON: parseJSON,
       pick: pick,
       pickBy: pickBy,
       prop: prop$1,
@@ -6539,6 +6620,7 @@
         isFinite() { return get(FuncChain.prototype, '_isFinite').call(this, ...arguments); }
         isFunction() { return get(FuncChain.prototype, '_isFunction').call(this, ...arguments); }
         isInteger() { return get(FuncChain.prototype, '_isInteger').call(this, ...arguments); }
+        isIterator() { return get(FuncChain.prototype, '_isIterator').call(this, ...arguments); }
         isMap() { return get(FuncChain.prototype, '_isMap').call(this, ...arguments); }
         isMatch(props) { return get(FuncChain.prototype, '_isMatch').call(this, ...arguments); }
         isMatchWith(props, comparator = eq$1) { return get(FuncChain.prototype, '_isMatchWith').call(this, ...arguments); }
@@ -6548,6 +6630,7 @@
         isNode() { return get(FuncChain.prototype, '_isNode').call(this, ...arguments); }
         isNull() { return get(FuncChain.prototype, '_isNull').call(this, ...arguments); }
         isNumber() { return get(FuncChain.prototype, '_isNumber').call(this, ...arguments); }
+        isNumeric() { return get(FuncChain.prototype, '_isNumeric').call(this, ...arguments); }
         isObject() { return get(FuncChain.prototype, '_isObject').call(this, ...arguments); }
         isPlainObject() { return get(FuncChain.prototype, '_isPlainObject').call(this, ...arguments); }
         isPrimitive() { return get(FuncChain.prototype, '_isPrimitive').call(this, ...arguments); }
@@ -6598,6 +6681,7 @@
         mergeWith(...sources) { return get(FuncChain.prototype, '_mergeWith').call(this, ...arguments); }
         omit(...props) { return get(FuncChain.prototype, '_omit').call(this, ...arguments); }
         omitBy(predicate) { return get(FuncChain.prototype, '_omitBy').call(this, ...arguments); }
+        parseJSON() { return get(FuncChain.prototype, '_parseJSON').call(this, ...arguments); }
         pick(...props) { return get(FuncChain.prototype, '_pick').call(this, ...arguments); }
         pickBy(predicate) { return get(FuncChain.prototype, '_pickBy').call(this, ...arguments); }
         prop() { return get(FuncChain.prototype, '_prop').call(this, ...arguments); }
@@ -6832,7 +6916,7 @@
     /* eslint-disable require-jsdoc */
     /* eslint-disable no-invalid-this */
     /* eslint-disable max-len */
-    const VERSION = "1.7.0"; //#ver
+    const VERSION = "1.10.0"; //#ver
     /**
     * 显式开启myfx的函数链，返回一个包裹了参数v的myfx链式对象。函数链可以链接Myfx提供的所有函数，如
      <p>
@@ -6973,7 +7057,7 @@
     function getBooleanValue(v) {
         let val = v;
         if (isString(v) && /(?:^true$)|(?:^false$)/.test(val)) {
-            val = fval(val);
+            val = val === 'true' ? true : false;
         }
         else if (isUndefined(val) || isBlank(val)) {
             val = true;
@@ -7255,6 +7339,7 @@
     const COMPUTED_MAP = new WeakMap();
     const CSS_MAP = new WeakMap();
     const WATCH_MAP = new WeakMap();
+    const PROXY_SET = new WeakSet();
     /**
      * 1. 初始化时obj都是普通对象
      * 2. OBJECT_VAR_PATH 首次是普通对象
@@ -7266,7 +7351,7 @@
     function reactive(obj, context) {
         if (!isObject(obj))
             return obj;
-        const proxyObject = obj.__proxy ? obj : new Proxy(obj, {
+        const proxyObject = PROXY_SET.has(obj) ? obj : new Proxy(obj, {
             get(target, prop, receiver) {
                 if (!prop)
                     return undefined;
@@ -7349,6 +7434,7 @@
                         subChain = concat(pathAry, [prop]);
                         OBJECT_VAR_PATH.set(nv, subChain);
                         nv = reactive(nv, dep);
+                        PROXY_SET.add(nv);
                         OBJECT_VAR_PATH.set(nv, subChain);
                     });
                 }
@@ -7424,13 +7510,8 @@
                 return rs;
             }
         });
-        if (!obj.__proxy) {
-            Reflect.defineProperty(obj, "__proxy", {
-                enumerable: false,
-                writable: false,
-                configurable: false,
-                value: true,
-            });
+        if (!PROXY_SET.has(proxyObject)) {
+            PROXY_SET.add(proxyObject);
         }
         let chain = OBJECT_VAR_PATH.get(obj) ?? [];
         if (Object.isExtensible(obj) && !OBJECT_META_DATA.get(proxyObject)) {
@@ -7468,9 +7549,10 @@
         for (let k in obj) {
             const v = obj[k];
             let shallow = get(propDefs, [k, 'shallow']) || get(stateDefs, [k, 'shallow']);
-            if (isObject(v) && !v.__proxy && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v) && !shallow) {
+            if (isObject(v) && !PROXY_SET.has(v) && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v) && !shallow) {
                 OBJECT_VAR_PATH.set(v, concat(chain, [k]));
                 obj[k] = reactive(v, context);
+                PROXY_SET.add(obj[k]);
                 OBJECT_VAR_PATH.set(obj[k], concat(chain, [k]));
             }
         }
@@ -7483,13 +7565,6 @@
         static nextSet = new Set();
         static nextPending = false;
         static next;
-        static {
-            const p = Promise.resolve();
-            const nextFn = Queue.flush;
-            Queue.next = () => {
-                p.then(nextFn);
-            };
-        }
         static flush() {
             Queue.nextPending = false;
             let wq = Array.from(Queue.watchSet);
@@ -7522,6 +7597,13 @@
             }
         }
     }
+    (() => {
+        const p = Promise.resolve();
+        const nextFn = Queue.flush;
+        Queue.next = () => {
+            p.then(nextFn);
+        };
+    })();
 
     /**
      * 视图基类 为组件视图及指令子视图提供统一服务
@@ -7554,6 +7636,8 @@
                 for (let i = 0; i < this.__updatePoints.length; i++) {
                     const up = this.__updatePoints[i];
                     let varIndex = up.varIndex;
+                    if (varIndex < 0)
+                        continue;
                     let oldValue = up.value;
                     let newValue = vars;
                     let node = up.node;
@@ -7651,7 +7735,6 @@
         }
     }
 
-    const ATTR_CSS_LINK = "css-link";
     const PropTypeMap = {
         boolean: Boolean,
         string: String,
@@ -7659,8 +7742,6 @@
         object: Object,
         array: Array,
         function: Function,
-        bigint: BigInt,
-        symbol: Symbol,
         undefined: Object
     };
     const PrivatePreffix = '#';
@@ -7675,9 +7756,6 @@
      */
     class CompElem extends View(HTMLElement) {
         static __l_globalRule = document.createElement("style");
-        static {
-            document.head.appendChild(CompElem.__l_globalRule);
-        }
         //设置全局/组件默认属性
         static defaults(options) {
             DefaultCss = flatMap(options.css, c => {
@@ -7726,6 +7804,9 @@
         get parentComponent() {
             return this.#parentComponent;
         }
+        get wrapperComponent() {
+            return this.#wrapperComponent;
+        }
         get slotHooks() {
             return this.#slotHooks;
         }
@@ -7744,16 +7825,11 @@
         #renderRoot;
         #renderRoots;
         #parentComponent;
+        #wrapperComponent;
         #slotsEl = {};
         #slotHooks = {};
         #slotNodes = {};
         #mounted = false;
-        /**
-         * 是否自动插入插槽，如果需要控制插槽类型时，可以设置为false
-         */
-        static get autoSlot() {
-            return true;
-        }
         //////////////////////////////////// styles
         /**
          * 组件样式，CSSStyleSheet可动态变更
@@ -7816,17 +7892,9 @@
             }
             /////////////////////////////////////////////////// shadow
             this.#shadow = this.attachShadow({
-                mode: "open",
-                slotAssignment: get(this.constructor, "autoSlot", true) ? "named" : "manual",
+                mode: "open"
             });
             this.#shadow.adoptedStyleSheets = [...DefaultCss, ...styleSheets];
-            //check link
-            let cssLink = this.attributes.getNamedItem(ATTR_CSS_LINK)?.value;
-            if (cssLink) {
-                const link = document.createElement("style");
-                link.textContent = `@import "${cssLink}"`;
-                this.#shadow.appendChild(link);
-            }
             //slots prop map
             this._slotsPropMap = { default: [] };
             /////////////////////////////////////////////////// decorators create
@@ -7859,7 +7927,7 @@
             this.#initiating = true;
             /////////////////////////////////////////////////// slots
             this.#updateSlotsAry();
-            //check props
+            //1. Props & States
             const props = this.#initProps();
             this.propsReady(props);
             for (const key in props) {
@@ -7867,7 +7935,7 @@
                 this.#data[key] = v;
             }
             this.#initStates();
-            //define reactive
+            //2. Data
             each(this.#data, (v, k) => {
                 let descr = Reflect.getOwnPropertyDescriptor(this.#data, k);
                 Reflect.defineProperty(this, k, {
@@ -7890,28 +7958,25 @@
                 value: true
             });
             this.#reactiveData = reactive(this.#data, this);
-            //render
-            let tmpl = this.render();
-            let nodes = this.buildView(tmpl);
-            if (nodes) {
-                let children = toArray(nodes);
-                children.forEach((c) => {
-                    this.#shadow.appendChild(c);
+            //3. Computed
+            let computedMap = get(this.constructor, DecoratorKey.COMPUTED);
+            each(computedMap, (getter, propKey) => {
+                Collector.startCollect(this, CollectorType.COMPUTED);
+                Collector.setUpdater(() => {
+                    this.#reactiveData[propKey] = getter.call(this);
                 });
-                this.#renderRoots = filter(children, (n) => n.nodeType === Node.ELEMENT_NODE);
-                this.#renderRoot = this.#renderRoots[0];
-            }
-            this.beforeMount();
-            /////////////////////////////////////////////////// before mount
-            const that = this;
-            let ary = get(this.constructor, _DecoratorsKey);
-            ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
-                dw.beforeMount(this, (key, value) => {
-                    that.#reactiveData[key] = value;
-                    return that.#reactiveData[key];
+                this.#data[propKey] = getter.call(this);
+                Collector.endCollect();
+                Reflect.defineProperty(this, propKey, {
+                    get() {
+                        return Reflect.get(this.#reactiveData, propKey);
+                    },
+                    set(v) {
+                        showTagError(this.tagName, "Cannot set a computed property '" + propKey + "'");
+                    },
                 });
             });
-            //watch
+            //4. Watch
             let watchMap = get(this.constructor, DecoratorKey.WATCH);
             each(watchMap, (watchList, k) => {
                 watchList.forEach(v => {
@@ -7935,43 +8000,46 @@
                     fn(nv, nv, source);
                 });
             });
-            //computed
-            let computedMap = get(this.constructor, DecoratorKey.COMPUTED);
-            each(computedMap, (getter, propKey) => {
-                Collector.startCollect(this, CollectorType.COMPUTED);
-                Collector.setUpdater(() => {
-                    this.#reactiveData[propKey] = getter.call(this);
+            //5. Render
+            let tmpl = this.render();
+            let nodes = this.buildView(tmpl);
+            if (nodes) {
+                let children = toArray(nodes);
+                children.forEach((c) => {
+                    this.#shadow.appendChild(c);
                 });
-                this.#data[propKey] = getter.call(this);
-                Collector.endCollect();
-                Reflect.defineProperty(this, propKey, {
-                    get() {
-                        return Reflect.get(this.#reactiveData, propKey);
-                    },
-                    set(v) {
-                        showTagError(this.tagName, "Cannot set a computed property '" + propKey + "'");
-                    },
+                this.#renderRoots = filter(children, (n) => n.nodeType === Node.ELEMENT_NODE);
+                this.#renderRoot = this.#renderRoots[0];
+            }
+            /////////////////////////////////////////////////// before mount
+            //slot hook
+            each(this.#slotHooks, (v, k) => {
+                this.#updateSlot(k);
+            });
+            const that = this;
+            let ary = get(this.constructor, _DecoratorsKey);
+            ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
+                dw.beforeMount(this, (key, value) => {
+                    that.#reactiveData[key] = value;
+                    return that.#reactiveData[key];
                 });
             });
+            this.beforeMount();
             //events
             let eventList = get(this.constructor, DecoratorKey.EVENTS);
-            eventList && eventList.forEach((ev) => {
+            eventList && eventList.forEach(async (ev) => {
                 let name = ev.name;
                 let options = assign({ target: document, once: false, passive: false, capture: false }, ev.options);
                 let listener = bind(ev.fn, this);
                 let target = options.target;
                 if (isFunction(target)) {
-                    target = target.call(this, this);
+                    target = await target.call(this, this);
                 }
                 if (!target) {
                     showTagError(this.tagName, "The target of @event('" + name + "',...) is invalid");
                     return;
                 }
                 target.addEventListener(name, listener, options);
-            });
-            //slot hook
-            each(this.#slotHooks, (v, k) => {
-                this.#updateSlot(k);
             });
             //instance dynamic style
             Collector.startCollect(this, CollectorType.CSS);
@@ -8233,6 +8301,36 @@
             });
             return Object.seal(rs);
         }
+        #convertValue(v, types) {
+            let val = v;
+            try {
+                for (let i = 0; i < types.length; i++) {
+                    const t = types[i];
+                    if (t === Boolean) {
+                        val = getBooleanValue(v);
+                    }
+                    else if (t === Number) {
+                        val = Number(v);
+                    }
+                    else if (t === String) {
+                        val = String(v);
+                    }
+                    else if (t === Object || t === Array) {
+                        val = parseJSON(v);
+                    }
+                    else if (t === Date) {
+                        val = new Date(v);
+                    }
+                    else {
+                        val = new t(v);
+                    }
+                }
+            }
+            catch (error) {
+                showTagError(this.tagName, `Convert attribute error with ` + v);
+            }
+            return val;
+        }
         //属性值检测
         #propTypeCheck(propDefs, propKey, newValue) {
             let propDef = propDefs[propKey];
@@ -8245,7 +8343,7 @@
             let val = newValue;
             if (!some(expectTypeAry, (et) => et === String) && isString(val) && !isNull(val)) {
                 try {
-                    val = typeConverter ? typeConverter(val) : fval(val, { html });
+                    val = typeConverter ? typeConverter(val) : this.#convertValue(val, expectTypeAry);
                 }
                 catch (error) {
                     showTagError(this.tagName, `Convert attribute '${propKey}' error with ` + val);
@@ -8566,6 +8664,7 @@
             this.#update();
         }
     }
+    document.head.appendChild(CompElem.__l_globalRule);
 
     /**
      * @author holyhigh2
@@ -8669,7 +8768,7 @@
     /**
      * Delay the actual time of execution of directive
      */
-    class DirectiveWrapper extends Function {
+    class DirectiveWrapper {
         diClass;
         args;
         di;
@@ -8678,7 +8777,6 @@
         slotComponent;
         varChain;
         constructor(diClass, ...args) {
-            super();
             this.diClass = diClass;
             this.args = args;
             this.varChain = Collector.popDirectiveQ();
@@ -8695,24 +8793,11 @@
         }
         render(component) {
             let di = this.di;
-            this.args;
             if (!di.renderComponent) {
                 di.renderComponent = component;
-                // for (let i = 0; i < args.length; i++) {
-                //   const arg = args[i];
-                //   if (isFunction(arg)) {
-                //     args[i] = arg.bind(component)
-                //   }
-                // }
             }
             this.di = di;
             di._renderArgs = this.args;
-            // let [nodes, expPos, expPosMap] = di.renderContext(...this.args)
-            // if (expPosMap) {
-            //   di.__expPosMap = expPosMap
-            // } else if (expPos) {
-            //   di.__expPos = expPos
-            // }
             return this.di.render(...this.args);
         }
         update(point, newArgs, oldArgs) {
@@ -8799,7 +8884,7 @@
                     if (!updateQ[k]) {
                         dels.push(k);
                         delete keyQ[k];
-                        remove(oldSeq, k);
+                        remove(oldSeq, x => x === k);
                     }
                 });
                 //计算move
@@ -8835,7 +8920,7 @@
                         idWeightMap.set(lastGroup.length, { group: lastGroup, targetId: '' });
                         // idWeightMap[lastGroup.length] = { group: lastGroup, targetId: '' }
                     }
-                    let keys = idWeightMap.keys().toArray();
+                    let keys = toArray(idWeightMap.keys());
                     let keyNums = keys.sort((a, b) => a - b);
                     if (keys.length > 0) {
                         if (keys.length < 2) {
@@ -8879,9 +8964,6 @@
                     }
                 });
                 dels.forEach(k => {
-                    let vi = oldSeq.findIndex(s => s == k);
-                    this.#removeNode(vi);
-                    // remove(adjustedQ, ak => ak === k)
                     let treeNode = oldNodeMap[k];
                     if (treeNode && treeNode.parentNode) {
                         parentNode.removeChild(treeNode);
@@ -8914,23 +8996,22 @@
             let tmpl = new Template(combStrings, combVars);
             let originalUps = this.di.__updatePoints;
             let nodes = this.di.buildView(tmpl);
+            let kMap = new Map();
             this.di.__updatePoints.forEach((up, i) => {
                 const k = up.value.tmpl.getKey();
                 up.key = k;
+                kMap.set(k, true);
             });
-            this.di.__updatePoints.push(...originalUps);
+            originalUps.forEach((up, i) => {
+                const k = up.key ?? up.value.tmpl.getKey();
+                if (!kMap.get(k)) {
+                    this.di.__updatePoints.push(up);
+                }
+            });
+            // this.di.__updatePoints.push(...originalUps)
             nodes.forEach((n) => {
                 if (n instanceof HTMLElement)
                     this.newNodeMap[n.getAttribute('key')] = n;
-            });
-        }
-        //对于foreach指令，key就是序号
-        #removeNode(key) {
-            remove(this.di.__updatePoints, (v, k) => {
-                if (v.varIndex == key) {
-                    DomUtil.remove(v.node, v.textNode);
-                    return true;
-                }
             });
         }
     }
@@ -9889,7 +9970,7 @@
                 }
                 //disconnectedCallback
                 if (target.prototype.hasOwnProperty('disconnectedCallback')) {
-                    let cbk = target.prototype.connectedCallback;
+                    let cbk = target.prototype.disconnectedCallback;
                     target.prototype.disconnectedCallback = function () {
                         CompElem.prototype.disconnectedCallback.call(this);
                         cbk.call(this);

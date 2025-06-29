@@ -250,6 +250,7 @@ export class PageTest extends CompElem {
   ```
 - ### 内置属性及函数
   - `readonly` parentComponent 父组件引用，可能为空
+  - `readonly` wrapperComponent 包装(组件所在视图归属)组件引用，可能为空
   - `readonly` renderRoot/renderRoots 渲染根元素/渲染根元素列表
   - `readonly` shadowRoot 阴影DOM
   - `readonly` slots 插槽元素映射

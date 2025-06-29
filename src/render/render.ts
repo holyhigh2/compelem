@@ -71,7 +71,6 @@ export function buildHTML(
       if (rs instanceof Template) {
         let [h, v] = buildHTML(component, rs)
         Reflect.defineProperty(val, '_renderVars', { value: v })
-        // set(val, '_renderVars', v)
         val = PLACEHOLDER_DI_START + h + PLACEHOLDER_DI_END
       } else {
         val = rs ?? PLACEHOLDER
@@ -80,10 +79,7 @@ export function buildHTML(
     else if (val instanceof Template) {
       let [h, v] = buildHTML(component, val)
       Reflect.defineProperty(val, '_renderVars', { value: v })
-      // set(val, '_renderVars', v)
       val = PLACEHOLDER_TMPL_START + h + PLACEHOLDER_TMPL_END
-      // vars.splice(i + offset, 1, ...v)
-      // offset += v.length
     }
     else {
       val = i > vl ? "" : PLACEHOLDER;
@@ -356,6 +352,7 @@ export function buildTmplate(
       }//endfor
       if (currentNode instanceof CompElem) {
         currentNode._initProps(props)
+        currentNode._regWrapper(component)
       } else if (currentNode instanceof HTMLSlotElement) {
         component._bindSlot(currentNode, currentNode.name || 'default', props)
       }

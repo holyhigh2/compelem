@@ -123,6 +123,9 @@ export class CompElem extends View(HTMLElement) implements IComponent {
   get parentComponent(): CompElem | null {
     return this.#parentComponent;
   }
+  get wrapperComponent(): CompElem | null {
+    return this.#wrapperComponent;
+  }
   get slotHooks() {
     return this.#slotHooks;
   }
@@ -141,6 +144,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
   #renderRoot: HTMLElement
   #renderRoots: HTMLElement[]
   #parentComponent: CompElem | null
+  #wrapperComponent: CompElem | null
   #slotsEl: Record<string, HTMLSlotElement> = {};
   #slotHooks: Record<string, (...args: any[]) => Template> = {};
   #slotNodes: Record<string, Node[]> = {};
@@ -1012,6 +1016,9 @@ export class CompElem extends View(HTMLElement) implements IComponent {
       list = this.#renderContextList[upperPath] = new Set<CompElem | Directive>()
     }
     list.add(renderContext)
+  }
+  _regWrapper(wrapperComponent: CompElem) {
+    this.#wrapperComponent = wrapperComponent
   }
   ////////////////////----------------------------/////////////// APIs
   /**
