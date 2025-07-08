@@ -1,6 +1,6 @@
 {
   "name": "compelem",
-  "version": "0.6.1-b1",
+  "version": "0.6.2-b1",
   "description": "A modern, reactive, fast, lightweight and flexible lib for building web components",
   "main": "index.js",
   "module": "index.js",
@@ -35,7 +35,7 @@
     "bootstrap-icons": "^1.11.3",
     "eslint": "9.19.0",
     "eslint-config-prettier": "^10.0.1",
-    "myfx": "^1.10.0",
+    "myfx": "^1.11.3",
     "postcss": "^8.4.38",
     "prettier": "^2.8.3",
     "rollup-plugin-banner2": "1.2.2",

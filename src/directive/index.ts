@@ -61,6 +61,8 @@ enum MovePosition {
   AFTER_BEGIN = 'afterbegin'
 }
 
+type MoveNode = { targetId: string, nodeId: string }
+
 /**
  * Delay the actual time of execution of directive
  */
@@ -205,43 +207,51 @@ export class DirectiveWrapper {
       if (!isEmpty(newSeq)) {
         let lastMoveNodeId = '';
         let lastMoveIndex = -1
-        let lastGroup: { targetId: string, nodeId: string }[] = []
-        let idWeightMap: Map<number, { group: { targetId: string, nodeId: string }[], targetId: string | undefined }> = new Map()
-        for (let i = 0; i < newSeq.length; i++) {
+        let lastGroup: MoveNode[] = []
+        let moveQueue: { moveGroup: MoveNode[], moveIndex: number }[] = []
+        let edgeOffset = 0
+        let i = 0
+        for (; i < newSeq.length; i++) {
           const nodeId = newSeq[i];
           let oldI = oldSeq.findIndex(c => c === nodeId)
-          if (oldI > -1 && oldI !== i) {
-            if (lastMoveIndex < 0 || lastMoveIndex - oldI == 1) {
+          if (oldI < 0) {
+            let prevKey = newSeq[i - 1]
+            let prev = prevKey ? oldNodeMap[prevKey] || prevKey : point.startNode
+            //add
+            adds.push({ prevNode: prev, newkey: nodeId });
+            edgeOffset++
+            continue
+          }
+          if (oldI > -1 && oldI !== (i - edgeOffset)) {
+            if (lastMoveIndex < 0 || Math.abs(lastMoveIndex - oldI) === 1) {
               let lastEl = last(lastGroup)
               lastGroup.push({ nodeId, targetId: i === 0 ? MovePosition.AFTER_BEGIN : (lastEl ? lastEl.nodeId : newSeq[i - 1]) })
             } else {
-              idWeightMap.set(lastGroup.length, { group: lastGroup, targetId: '' })
-              // idWeightMap[lastGroup.length] = { group: lastGroup, targetId: '' }
+              moveQueue.push({ moveGroup: lastGroup, moveIndex: i + lastGroup.length })
+
               lastGroup = []
-              lastGroup.push({ nodeId, targetId: oldSeq[oldI] })
+              lastGroup.push({ nodeId, targetId: newSeq[i - 1] })
             }
             lastMoveIndex = oldI
-          } else if (oldI < 0) {
-            let prev = lastMoveNodeId ? oldNodeMap[lastMoveNodeId] || point.endNode : point.startNode
-            //add
-            adds.push({ prevNode: prev, newkey: nodeId });
           }
           lastMoveNodeId = nodeId
         }
 
-        if (isEmpty(idWeightMap) && lastGroup.length > 0) {
-          idWeightMap.set(lastGroup.length, { group: lastGroup, targetId: '' })
-          // idWeightMap[lastGroup.length] = { group: lastGroup, targetId: '' }
+        if (lastGroup.length > 0) {
+          moveQueue.push({ moveGroup: lastGroup, moveIndex: i + lastGroup.length })
         }
 
-        let keys = toArray<number>(idWeightMap.keys());
-        let keyNums = keys.sort((a, b) => a - b)
-
-        if (keys.length > 0) {
-          if (keys.length < 2) {
-            //如果仅有一组，留最后一个节点
-            let { group } = idWeightMap.get(keyNums[0])! //idWeightMap[keyNums[0]]
-            initial(group).forEach(({ targetId, nodeId }) => {
+        if (moveQueue.length > 0) {
+          let vals = moveQueue.sort((a, b) => a.moveGroup.length - b.moveGroup.length)
+          if (vals.length < 2) {
+            let { moveGroup } = vals[0]
+            if (moveGroup.length > 1) {
+              let lastTId = last(moveGroup).targetId
+              if (moveGroup[moveGroup.length - 2].nodeId === lastTId) {
+                moveGroup = initial(moveGroup)
+              }
+            }
+            moveGroup.forEach(({ targetId, nodeId }) => {
               let srcEl = oldNodeMap[nodeId]
               let target
               if (targetId === MovePosition.AFTER_BEGIN) {
@@ -253,11 +263,25 @@ export class DirectiveWrapper {
               }
             })
           } else {
-            //如果多组，留最后一组
-            console.debug('todo....')
+            let lastGroupIndex = last(vals).moveIndex
+            if (Math.abs(vals[vals.length - 2].moveIndex - lastGroupIndex) === 1) {
+              vals = initial(vals)
+            }
+            vals.forEach(({ moveGroup }) => {
+              moveGroup.forEach(({ targetId, nodeId }) => {
+                let srcEl = oldNodeMap[nodeId]
+                let target
+                if (targetId === MovePosition.AFTER_BEGIN) {
+                  target = point.startNode as Element
+                  target.after(srcEl)
+                } else {
+                  target = oldNodeMap[targetId]
+                  target.after(srcEl)
+                }
+              })
+            })
           }
         }//endif
-        console.debug('test....')
       }
       if (adds.length > 0) {
         this.#addNodes(adds, newTmpls, newSeq)
@@ -270,6 +294,8 @@ export class DirectiveWrapper {
           prevNode.before(treeNode)
         } else if (prevNode === point.startNode) {
           prevNode.after(treeNode)
+        } else if (typeof prevNode === 'string') {
+          this.newNodeMap[prevNode].after(treeNode)
         } else {
           prevNode.after(treeNode)
         }
@@ -330,7 +356,6 @@ export class DirectiveWrapper {
         this.di.__updatePoints.push(up)
       }
     })
-    // this.di.__updatePoints.push(...originalUps)
 
     nodes.forEach((n: HTMLElement) => {
       if (n instanceof HTMLElement)

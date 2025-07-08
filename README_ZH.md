@@ -174,22 +174,6 @@ export class PageTest extends CompElem {
   属性可以在组件内修改但默认不会同步父组件，除非显式指定`sync`或自行 emit update 事件
   全部注解参数见 `PropOption`
 
-  > 在某些无法使用装饰器的场景中（如MixinClass），可以使用函数`makeProp(...)`定义prop
-  ```ts
-  export function Loadable<T extends Constructor<any>>(spuerClass: T) {
-    return class Loadable extends spuerClass {
-        //declare a prop
-        name: string
-
-        constructor(...args: any[]) {
-            super()
-            //make the prop reactive
-            Decorator.call(this, prop, 'name', { type: String })
-        }
-    }
-  }
-  ```
-
 - ### 状态
   状态是仅由组件内部初始化的响应变量，可通过`@state`注解定义
   ```ts
@@ -403,13 +387,6 @@ static get autoSlot() {
 - @watch 监控 state/prop 变更
 - @computed 计算属性，仅在响应变量变更时更新缓存值
 - @debounced 定义函数防抖
-
-> 装饰器还可通过函数方式进行调用，如
-> ```ts
-> //Decorator.call(class, decorator, fieldName, ...args)
-> Decorator.call(this, prop, 'name', { type: String })
-> ```
-> **注意**，调用入口必须放在类的构造函数中
 
 ## 事件
 

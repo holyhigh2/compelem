@@ -29,7 +29,7 @@ export abstract class Decorator {
   // constructor(...args: any[]) { }
 
   /**
-   * 返回用于识别唯一实例的key，比如@watch(a.b.c)中的变量路径就会作为唯一key
+   * 返回用于识别唯一实例的key，比如@watch(a.b.c)中的变量路径就会作为唯一key。key相同的装饰器仅会保存一份，如果无需唯一校验可不实现该函数
    * @param args 
    */
   // static getKey(...args: any[]): string

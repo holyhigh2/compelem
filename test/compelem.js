@@ -1,4 +1,4 @@
-/* compelem 0.6.0-b1 @holyhigh2 https://github.com/holyhigh2/compelem */
+/* compelem 0.6.1-b1 @holyhigh2 https://github.com/holyhigh2/compelem */
 (function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
@@ -8613,6 +8613,9 @@
             }
             list.add(renderContext);
         }
+        _regWrapper(wrapperComponent) {
+            this.#wrapperComponent = wrapperComponent;
+        }
         ////////////////////----------------------------/////////////// APIs
         /**
          * 抛出自定义事件
@@ -8949,6 +8952,7 @@
                 if (adds.length > 0) {
                     this.#addNodes(adds, newTmpls, newSeq);
                 }
+                //todo 这里可以调整为如果prevNode是字符串，则从newNodeMap中获取
                 adds.forEach(v => {
                     let k = v.newkey;
                     let treeNode = this.newNodeMap[k];
@@ -9340,7 +9344,6 @@
                 if (rs instanceof Template) {
                     let [h, v] = buildHTML(component, rs);
                     Reflect.defineProperty(val, '_renderVars', { value: v });
-                    // set(val, '_renderVars', v)
                     val = PLACEHOLDER_DI_START + h + PLACEHOLDER_DI_END;
                 }
                 else {
@@ -9350,10 +9353,7 @@
             else if (val instanceof Template) {
                 let [h, v] = buildHTML(component, val);
                 Reflect.defineProperty(val, '_renderVars', { value: v });
-                // set(val, '_renderVars', v)
                 val = PLACEHOLDER_TMPL_START + h + PLACEHOLDER_TMPL_END;
-                // vars.splice(i + offset, 1, ...v)
-                // offset += v.length
             }
             else {
                 val = i > vl ? "" : PLACEHOLDER;
@@ -9580,6 +9580,7 @@
                 } //endfor
                 if (currentNode instanceof CompElem) {
                     currentNode._initProps(props);
+                    currentNode._regWrapper(component);
                 }
                 else if (currentNode instanceof HTMLSlotElement) {
                     component._bindSlot(currentNode, currentNode.name || 'default', props);
