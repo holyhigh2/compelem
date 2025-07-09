@@ -105,12 +105,14 @@ export function View<T extends new (...args: any[]) => any>(spuerClass: T) {
                 (node as HTMLElement).setAttribute(up.attrName, replace(up.attrTmpl, PLACEHOLDER_EXP, newValue + ''))
             }
           }
-        } else if (up.isTmpl) {
+        } else if (up.isTmpl && newValue && oldValue) {
           //这里一定是子视图更新，子视图仅更新内部__expose
-          if (newValue.strings.join() !== oldValue.tmpl.strings.join()) {
-            up.value.updateView(newValue)
-          } else if (newValue.vars.some((v: any) => isObject(v) && !isPlainObject(v)) || oldValue.tmpl.vars.some((v: any) => isObject(v) && !isPlainObject(v)) || !isEqual(newValue.vars, oldValue.tmpl.vars)) {
-            up.value.updateView(newValue)
+          if (oldValue.tmpl) {
+            if (newValue.strings.join() !== oldValue.tmpl.strings.join()) {
+              up.value.updateView(newValue)
+            } else if (newValue.vars.some((v: any) => isObject(v) && !isPlainObject(v)) || oldValue.tmpl.vars.some((v: any) => isObject(v) && !isPlainObject(v)) || !isEqual(newValue.vars, oldValue.tmpl.vars)) {
+              up.value.updateView(newValue)
+            }
           }
 
           oldValue.tmpl = newValue
