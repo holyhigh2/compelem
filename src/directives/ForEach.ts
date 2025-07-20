@@ -51,7 +51,7 @@ class ForEach extends Directive {
   }
   lastAry: any[] | Record<string, any[]>
   lastRenderTmpl: Template
-  render(value: any[] | Record<string, any[]>, cbk: TmplFn) {
+  render(value: any[] | Record<string, any>, cbk: TmplFn) {
 
     //1. 产生模板
     let tmpls = map<any, any, Template>(value, (v, k) => {
