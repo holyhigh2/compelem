@@ -88,12 +88,14 @@ export function buildHTML(
     html += str + val;
   }
 
-  //attr check
-  let rs = html.match(EXP_ATTR_CHECK)
-  if (rs) {
-    let errorMsg = replaceAll(rs[0], PLACEHOLDER, '${...}')
-    showError(`Parse error: attribute value can be set only one interpolation —— \n ${errorMsg}`)
-    return ['', vars];
+  if (!process.env.PROD) {
+    //attr check
+    let rs = html.match(EXP_ATTR_CHECK)
+    if (rs) {
+      let errorMsg = replaceAll(rs[0], PLACEHOLDER, '${...}')
+      showError(`Parse error: attribute value can be set only one interpolation —— \n ${errorMsg}`)
+      return ['', vars];
+    }
   }
 
   let i = 0;

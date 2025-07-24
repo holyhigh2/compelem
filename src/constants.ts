@@ -14,3 +14,8 @@ export enum DecoratorKey {
     WATCH = '__deco_watch',
     EVENTS = '__deco_events',
 }
+
+export enum Mode {
+    Prod = 'prod',
+    Dev = 'dev'
+}

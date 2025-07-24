@@ -226,6 +226,7 @@ export class PageTest extends CompElem {
   //ref
   refNode: HTMLElement
   ```
+  ref可用于内部DOM被移出但仍需访问的场景，比如tooltip、toast、overlay等
   ```ts
   divRef = createRef<HTMLDivElement>();
   //视图片段
@@ -387,6 +388,9 @@ static get autoSlot() {
 - @watch 监控 state/prop 变更
 - @computed 计算属性，仅在响应变量变更时更新缓存值
 - @debounced 定义函数防抖
+
+#### 继承
+  部分指令可由子类继承不会覆盖，包括@state/@prop/@watch/@computed
 
 ## 事件
 

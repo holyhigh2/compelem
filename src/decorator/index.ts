@@ -82,11 +82,11 @@ export function decorator<T extends Array<any>>(decoClass: Constructor<Decorator
     return (...metadata: any[]): any => {
       let ctor = metadata[0].constructor
 
-      let ary: DecoratorWrapper[] | undefined = get(ctor, _DecoratorsKey)
+      let ary: DecoratorWrapper[] | undefined = ctor[_DecoratorsKey]
       if (!has(ctor, _DecoratorsKey)) {
         //继承父类
-        let parentAry = get(Object.getPrototypeOf(ctor), _DecoratorsKey)
-        ary = parentAry ? concat(parentAry) : []
+        let proto = Object.getPrototypeOf(ctor)
+        ary = proto ? concat(proto[_DecoratorsKey] ?? []) : []
 
         Reflect.defineProperty(ctor, _DecoratorsKey, {
           configurable: false,
@@ -96,7 +96,7 @@ export function decorator<T extends Array<any>>(decoClass: Constructor<Decorator
       }
       let kMap: Record<string, DecoratorWrapper> = {}
       let k
-      let getKey = get<Function>(decoClass, GetKeyFnName)
+      let getKey = (decoClass as any)[GetKeyFnName] as Function
       if (getKey) {
         let compMap = DecoKeyMap.get(decoClass)
         if (!compMap) {

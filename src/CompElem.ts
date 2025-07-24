@@ -233,7 +233,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
 
   connectedCallback() {
     //parent
-    let node = closest(
+    let node = closest<Node | ShadowRoot>(
       this.parentNode!,
       (node) =>
         node instanceof CompElem || node.host instanceof CompElem,
@@ -242,7 +242,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
     this.#parentComponent = node
       ? node instanceof CompElem
         ? node
-        : node!.host
+        : (node as ShadowRoot)!.host as CompElem
       : null;
 
     this.__init();
@@ -414,7 +414,9 @@ export class CompElem extends View(HTMLElement) implements IComponent {
     })
     Collector.endCollect()
 
-    this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, ...cssAry];
+    if (cssAry.length > 0) {
+      this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, ...cssAry];
+    }
 
     setTimeout(() => {
 
@@ -603,7 +605,12 @@ export class CompElem extends View(HTMLElement) implements IComponent {
     })
     this.#attrs = this.#attrs ? assign(this.#attrs, filterAttrs) : filterAttrs;
     let rs: Record<string, any> = {}
-    each<PropOption, string>(propDefs, (def, key) => {
+    if (!propDefs) return Object.seal(rs);
+
+    let keys = Object.keys(propDefs)
+    let size = keys.length
+    for (let i = 0; i < size; i++) {
+      const key = keys[i]
       let propDef = propDefs[key];
       let isInited = has(parentProps, key);
       let defaultVal = get(this, key);
@@ -639,7 +646,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
       let isRequired = propDef.required;
       if (isRequired && !isInited) {
         showTagError(tagName, "Prop '" + key + "' is required");
-        return false;
+        break
       }
 
       val = this.#propTypeCheck(propDefs, key, val)
@@ -670,7 +677,8 @@ export class CompElem extends View(HTMLElement) implements IComponent {
       }
       this.#data[key] = val;
       rs[key] = val;
-    });
+    }
+
     return Object.seal(rs)
   }
   #convertValue(v: string, types: Array<Constructor<any>>) {

@@ -1,5 +1,6 @@
 /* eslint-disable max-len */
 import json from '@rollup/plugin-json'
+import replace from '@rollup/plugin-replace'
 import banner2 from 'rollup-plugin-banner2'
 import clear from 'rollup-plugin-clear'
 import copy from 'rollup-plugin-copy'
@@ -14,6 +15,10 @@ export default [
     plugins: [
       clear({
         targets: ['dist'],
+      }),
+      replace({
+        preventAssignment: true,
+        'process.env.PROD': false
       }),
       typescript(
         {
