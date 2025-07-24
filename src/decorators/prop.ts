@@ -1,4 +1,4 @@
-import { cloneDeep, defaults, each, has, isUpperCaseChar, kebabCase, merge, toArray } from "myfx"
+import { cloneDeep, defaults, each, has, isLowerCaseChar, kebabCase, merge, toArray } from "myfx"
 import { CompElem } from "../CompElem"
 import { DecoratorKey } from "../constants"
 import { Constructor } from "../types"
@@ -87,7 +87,7 @@ export function prop(options: any) {
 }
 
 function defineProp(target: any, propertyKey: string, options: PropOption, descriptor?: PropertyDescriptor) {
-  if (!isUpperCaseChar(propertyKey[0])) {
+  if (!isLowerCaseChar(propertyKey[0])) {
     showError(`Prop '${propertyKey}' must be in CamelCase`)
   }
 
