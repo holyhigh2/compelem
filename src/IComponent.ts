@@ -6,7 +6,8 @@ import { Template } from "./render/Template";
  * @author holyhigh2
  */
 export interface IComponent {
-
+  //组件实例唯一序号
+  get cid(): number;
   //外部传入的特性
   get attrs(): Record<string, string>;
   //外部传入的属性
@@ -25,6 +26,8 @@ export interface IComponent {
   get slotHooks(): Record<string, (...args: any[]) => Template>;
   //通过静态getter创建的所有样式表对象，所有实例共享
   get css(): CSSStyleSheet[];
+  //通过静态getter创建的全局样式表对象，所有实例共享
+  get globalStyleSheet(): CSSStyleSheet;
   //是否已挂载
   get isMounted(): boolean;
   //响应式样式数组

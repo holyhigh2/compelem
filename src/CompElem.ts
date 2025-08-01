@@ -63,7 +63,8 @@ const ComponentStyleMap = new WeakMap<WeakKey, CSSStyleSheet[]>()
 let DefaultCss: CSSStyleSheet[] = []
 let DefaultGlobalProps = {}
 let DefaultComponentProps: Record<string, any> = {}
-
+let CompElemSn = 0
+const GlobalStyleMap = new Map<Function, HTMLStyleElement>()
 /**
  * CompElem基类，意为组件元素。提供了基本内置属性及生命周期等必备接口
  * 每个组件都需要继承自该类
@@ -93,6 +94,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
     })
   }
 
+  #cid: number
   #slotPropsMap: Record<string, Partial<SlotOptions>> = {}
   #data: Record<string, any> = { '#slots': {} };
   #reactiveData: Record<string, any> = {};
@@ -104,6 +106,9 @@ export class CompElem extends View(HTMLElement) implements IComponent {
 
   get [Symbol.toStringTag]() {
     return this.constructor.name;
+  }
+  get cid() {
+    return this.#cid
   }
   get reactiveData() {
     return this.#reactiveData
@@ -131,6 +136,9 @@ export class CompElem extends View(HTMLElement) implements IComponent {
   }
   get css() {
     return ComponentStyleMap.get(this.constructor)!
+  }
+  get globalStyleSheet() {
+    return GlobalStyleMap.get(this.constructor)?.sheet!
   }
   get isMounted() {
     return this.#mounted
@@ -168,6 +176,8 @@ export class CompElem extends View(HTMLElement) implements IComponent {
   #initiating = false;
   constructor(...args: any[]) {
     super();
+    this.#cid = CompElemSn++
+
     //init props via constructor
     if (size(args) === 1) {
       this.#props = {}
@@ -186,16 +196,20 @@ export class CompElem extends View(HTMLElement) implements IComponent {
     /////////////////////////////////////////////////// styles
     //global styles
     let globalStyles = get<[]>(this.constructor, "globalStyles")
-    let beAttached = get(this.constructor, '_global_style_attached')
-    if (!isEmpty(globalStyles) && beAttached !== '1') {
+    // let beAttached = get(this.constructor, '_global_style_attached')
+    let beAttached = GlobalStyleMap.has(this.constructor)
+    if (!isEmpty(globalStyles) && !beAttached) {
       let globalTextContent = "";
       globalStyles.forEach((st) => {
         if (isString(st)) {
           globalTextContent += st + "\n";
         }
       });
-      CompElem.__l_globalRule.textContent += globalTextContent;
-      set(this.constructor, '_global_style_attached', '1')
+      let style = document.createElement('style')
+      style.textContent += globalTextContent;
+      GlobalStyleMap.set(this.constructor, style)
+      document.head.appendChild(style);
+      // set(this.constructor, '_global_style_attached', '1')
     }
     //component styles
     let beAttached2 = ComponentStyleMap.get(this.constructor)
@@ -1069,8 +1083,8 @@ export class CompElem extends View(HTMLElement) implements IComponent {
    * 下一帧执行
    * @param cbk
    */
-  nextTick(cbk: () => void) {
-    Queue.pushNext(cbk)
+  nextTick(cbk: () => void, key?: string) {
+    Queue.pushNext(cbk, key)
   }
   /**
    * 强制更新一次视图
@@ -1085,4 +1099,3 @@ export class CompElem extends View(HTMLElement) implements IComponent {
     this.#update();
   }
 }
-document.head.appendChild(CompElem.__l_globalRule);

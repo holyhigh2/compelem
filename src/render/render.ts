@@ -34,6 +34,7 @@ export const ATTR_PREFIX_REF = "*";
 export const ATTR_PROP_DELIMITER = ":";
 export const ATTR_REF = "ref";
 
+const TMPL_MAP = new Map()
 const EXP_ATTR_CHECK = /[.?-a-z]+\s*=\s*(['"])\s*([^='"]*<\!--c_ui-pl_df-->){2,}.*?\1/ims;
 const EXP_PLACEHOLDER = /<\s*[a-z0-9-]+([^>]*<\!--c_ui-pl_df-->)*[^>]*?(?<!-)>/imgs;
 const SLOT_KEY_PROPS = 'slot-props'
@@ -88,7 +89,7 @@ export function buildHTML(
     html += str + val;
   }
 
-  if (!process.env.PROD) {
+  if (process.env.DEV) {
     //attr check
     let rs = html.match(EXP_ATTR_CHECK)
     if (rs) {
@@ -157,6 +158,7 @@ export function buildTmplate(
       for (let i = 0; i < attrs.length; i++) {
         const attr = attrs[i];
         let { name, value } = attr;
+        //todo 这里需要修改为 data-slot-xx
         if (name === SLOT_KEY_PROPS) {
           let slotName = currentNode.getAttribute('name') || 'default'
           if (slotComponent) {
@@ -202,7 +204,7 @@ export function buildTmplate(
 
           if (PLACEHOLDER_EXP.test(value)) {
             let val = vars[varIndex];
-            if (!isFunction(val)) {
+            if (process.env.DEV && !isFunction(val)) {
               showTagError(currentNode.tagName,
                 `Event '${name}' must be a function`
               );
@@ -210,11 +212,11 @@ export function buildTmplate(
             }
             cbk = val.bind(component)
 
-            let po = new UpdatePoint(varIndex, currentNode, name.replace(/\.|\?|@/, ''), value)
-            po.isComponent = !!slotComponent
-            po.isEvent = true
+            // let po = new UpdatePoint(varIndex, currentNode, name.replace(/\.|\?|@/, ''), value)
+            // po.isComponent = !!slotComponent
+            // po.isEvent = true
 
-            updatePoints.push(po)
+            // updatePoints.push(po)
 
             varIndex++;
           }
@@ -225,7 +227,7 @@ export function buildTmplate(
         if (name === ATTR_REF) {
           if (PLACEHOLDER_EXP.test(value)) {
             let val = vars[varIndex];
-            if (!has(val, 'current')) {
+            if (process.env.DEV && !has(val, 'current')) {
               showTagError(currentNode.tagName,
                 `Ref must be a RefObject`
               );
@@ -238,7 +240,7 @@ export function buildTmplate(
           continue;
         }//endif
         //校验变量必须是表达式
-        if (name[0] === ATTR_PREFIX_PROP && !PLACEHOLDER_EXP.test(value)) {
+        if (process.env.DEV && name[0] === ATTR_PREFIX_PROP && !PLACEHOLDER_EXP.test(value)) {
           showTagError(currentNode.tagName,
             `Prop '${name}' must be an interpolation`
           );
@@ -297,11 +299,11 @@ export function buildTmplate(
               po.attrName = refName
               currentNode.setAttribute(refName, val)
             } else {
-              if (!(currentNode instanceof CompElem) && currentNode.tagName !== 'SLOT') {
+              if (process.env.DEV && !(currentNode instanceof CompElem) && currentNode.tagName !== 'SLOT') {
                 showTagError(currentNode.tagName, `Prop '${name}' can only be set on a CompElem or a slot`)
               } else {
                 let propName = camelCase(name.substring(1));
-                if (!(propName in currentNode) && currentNode.tagName !== 'SLOT') {
+                if (process.env.DEV && !(propName in currentNode) && currentNode.tagName !== 'SLOT') {
                   showTagError(currentNode.tagName, `Prop '${name}' is not defined in ${currentNode.tagName}`)
                 }
 

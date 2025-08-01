@@ -316,13 +316,13 @@ CompElem 组件既可以在 CompElem 环境内调用，也可以直接在原生�
 ```
 
 #### 插入节点(动态)
-
-动态内容插入仅可在 CompElem 组件中编码，可以通过组件注入参数动态生成插槽内容
+1. 通过`slot`指令
+仅可在 CompElem 组件中编码，可使用所有CompElem指令并可通过`args`接收插槽参数
 
 ```ts
 //仅可用于CompElem组件中
 return html` <l-tooltip>
-  //动态内容通过slot指令定义 ${slot(
+  ${slot(
     (args: Record<string, any>) => html`
       <div>我是动态内容-${args.data.id}</div>
     `,
@@ -330,20 +330,29 @@ return html` <l-tooltip>
   )}
 </l-tooltip>`;
 ```
+2. 通过元素注入
+可在非CompElem环境中使用，比如将组件嵌入到React/Vue环境中使用
+```html
+<!-- 在 .vue 中 -->
+...
+<l-column>
+  <!-- CompElem 会赋值组件的data属性为 data -->
+  <VueComp slot="cell" data-slot-data/>
+</l-column>
+...
+<!-- 对于驼峰变量可通过短横线分隔，下例会向组件注入 dataList 变量 -->
+...
+<!-- CompElem 会赋值组件的dataList属性为 data -->
+<VueComp slot="cell" data-slot-data-list="data"/>
+...
+```
 
-在`slot`标签上注入参数
+动态插槽的参数可在组件内的 `slot` 标签上通过 *视图模板-参数表达式*  `.xx` 注入参数
 
 ```html
 <slot .data="${this.row}"></slot>
 ```
 
-**_注意_**，动态插槽必须关闭自动插槽，否则无效
-
-```ts
-static get autoSlot() {
-  return false;
-}
-```
 
 ## 指令 Directive
 

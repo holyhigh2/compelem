@@ -2,7 +2,7 @@ import { compact, concat, each, flatMap, isArray, isObject, isString } from "myf
 import { Directive } from "../directive/Directive";
 import { EnterPoint, EnterPointType, directive } from "../directive/index";
 import { DirectiveUpdateTag } from "../types";
-
+let ClassSn = 0
 /**
  * 根据变量内容自动插入class，仅能用于class属性
  * @param styles 对象/数组/字符串
@@ -19,18 +19,24 @@ class Classes extends Directive {
     }
     let el = point.startNode as HTMLElement
 
-    each(this.lastCls, cls => {
-      el.classList.remove(cls)
-    })
-    each(rs, cls => {
-      el.classList.add(cls)
-    })
+    this.renderComponent.nextTick(() => {
+      each(this.lastCls, cls => {
+        el.classList.remove(cls)
+      })
+      each(rs, cls => {
+        el.classList.add(cls)
+      })
 
-    this.lastCls = concat(rs);
+      this.lastCls = concat(rs);
+    }, this.classId)
   }
   update(point: EnterPoint, newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
     this.created(point, newArgs[0])
     return DirectiveUpdateTag.NONE
+  }
+  constructor(point: EnterPoint) {
+    super();
+    this.classId = 'class_d' + ClassSn++
   }
 
   static get scopes(): EnterPointType[] {

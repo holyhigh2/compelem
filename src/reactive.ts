@@ -270,7 +270,7 @@ export function reactive(obj: Record<string, any>, context: any) {
         }
 
         let updater = dep._notify(ov, subChain);
-        Queue.pushNext(updater)
+        Queue.pushNext(updater, dep.cid)
       });
 
       return rs;
@@ -328,7 +328,7 @@ export function reactive(obj: Record<string, any>, context: any) {
 
   return proxyObject
 }
-
+const QMap = new Map()
 export class Queue {
   static watchSet = new Set<Updater>()
   static computedSet = new Set<Updater>()
@@ -352,6 +352,8 @@ export class Queue {
     cq.forEach(u => u())
     sq.forEach(u => u())
     nq.forEach(u => u())
+
+    QMap.clear()
   }
 
   static pushWatch(updater: Getter) {
@@ -363,7 +365,15 @@ export class Queue {
   static pushCss(updater: Getter) {
     Queue.cssSet.add(updater)
   }
-  static pushNext(updater: () => void) {
+  static pushNext(updater: () => void, key?: string | number) {
+    if (key) {
+      if (QMap.has(key)) {
+        // console.log(updater, 'nextting......')
+        return
+      }
+      QMap.set(key, updater)
+    }
+
     Queue.nextSet.add(updater)
     if (!Queue.nextPending) {
       Queue.nextPending = true
