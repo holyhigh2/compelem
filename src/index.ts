@@ -13,7 +13,6 @@ export * from "./decorators/state";
 export * from "./decorators/tag";
 export * from "./decorators/watch";
 //directives
-export * from "./directive/Directive";
 export * from "./directive/index";
 export * from "./directives/Bind";
 export * from "./directives/Classes";

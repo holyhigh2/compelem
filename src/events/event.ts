@@ -77,7 +77,7 @@ export function addEvent(fullName: string, cbk: EvHadler, node: Element, compone
     c(e)
   }
 
-  node.addEventListener(evName, listener);
+  node.addEventListener(evName, listener)
 
   //record
   let evAry = component.__events[evName]

@@ -1,51 +1,28 @@
-import { isUndefined } from "myfx";
-import { Directive } from "../directive/Directive";
-import { EnterPoint, EnterPointType, directive } from "../directive/index";
-import { DirectiveUpdateTag } from "../types";
+import { EnterPoint, directive } from "../directive/index";
+import { EnterPointType } from "../types";
 type Cbk = (node: Element, isVisible: boolean) => void
-let ShowSn = 0
+
+const DisplayMap = new Map()
 /**
  * display的快捷指令
  * 如果
  * @param isvisible 是否显示
  * @param cbk 显示状态变更后调用的回调函数
  */
-class Show extends Directive {
-  created(point: EnterPoint, isVisible: boolean, cbk?: Cbk): void {
+export const show = directive(function Show(isVisible: boolean, cbk?: Cbk) {
+  return (point: EnterPoint, [condi]: any[], oldArgs: any[] | undefined) => {
+    if (oldArgs && condi === oldArgs[0]) return
+
     let el = point.startNode as HTMLElement;
-    if (isUndefined(this.display)) {
-      this.display = el.style.display;
+    if (!DisplayMap.has(el)) {
+      let dis = el.style.display
+      DisplayMap.set(el, dis == 'none' ? 'unset' : dis)
     }
-    this.point = point
-    this.cbk = cbk
-    this.visible = isVisible
 
-    this.renderComponent.nextTick(this.doChange, this.showId)
-  }
-  visible: boolean
-  cbk?: Cbk
-  doChange() {
-    let el = this.point.startNode as HTMLElement;
-    el.style.display = this.visible ? this.display! : 'none';
-    if (this.cbk) this.cbk(el, this.visible)
-  }
-  update(point: EnterPoint, newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
-    this.created(point, newArgs[0], newArgs[1])
-    return DirectiveUpdateTag.NONE
-  }
-  display: string | undefined = undefined;
+    el.style.display = condi ? DisplayMap.get(el) : 'none';
 
-  static get scopes(): EnterPointType[] {
-    return [EnterPointType.TAG]
-  }
-  constructor(point: EnterPoint) {
-    super();
-    this.point = point
-    this.doChange = this.doChange.bind(this)
-    this.showId = 'show_d' + ShowSn++
-  }
-  render(isVisible: boolean, cbk?: Cbk) {
-
-  }
-}
-export const show = directive<Parameters<typeof Show.prototype.render>>(Show);
+    if (cbk) {
+      cbk(el, condi)
+    }
+  };
+}, [EnterPointType.TAG])

@@ -1,23 +1,10 @@
-import { camelCase, compact, each, filter, get, initial, isEmpty, isFunction, last, remove, test, toArray } from "myfx";
+import { camelCase, compact, each, filter, groupBy, initial, isEmpty, last, map, remove, test, toArray } from "myfx";
 import { CompElem } from "../CompElem";
 import { Collector } from "../reactive";
+import { buildDirectiveView, DirectiveUpdatePointsMap, updateDirectiveView } from "../render/render";
 import { Template } from "../render/Template";
-import { DirectiveUpdateTag } from "../types";
+import { DirectiveExecutor, DirectiveInstance, DirectiveUpdateTag, EnterPointType, UpdatePoint } from "../types";
 import { showError } from "../utils";
-import { Directive } from "./Directive";
-
-/**
- * 属性定义
- */
-export enum EnterPointType {
-  ATTR = "attr", //属性，文本内容，可以内嵌多插值
-  PROP = "prop", //参数，智能内嵌一个插值
-  TEXT = "text",
-  CLASS = "class",
-  STYLE = "style",
-  SLOT = "slot",
-  TAG = 'tag' //在标签内但不是属性内
-}
 
 /**
  * 交互点信息
@@ -63,194 +50,244 @@ enum MovePosition {
 
 type MoveNode = { targetId: string, nodeId: string }
 
-/**
- * Delay the actual time of execution of directive
- */
-export class DirectiveWrapper {
-  diClass: any;
-  args: any[];
-  di: Directive;
-  varPath: string;
-  point: EnterPoint;
-  slotComponent: CompElem;
-  varChain: any[];
-
-  constructor(diClass: typeof Directive, ...args: any[]) {
-    this.diClass = diClass;
-    this.args = args;
-    this.varChain = Collector.popDirectiveQ();
-
-    this.di = new this.diClass();
-    this.di.renderParams = this.varChain;
-  }
-  //校验scope
-  checkScope(scopeType: string) {
-    let scopes = get<string[]>(this.diClass, 'scopes')
-    if (!isEmpty(scopes) && !test(scopes.join(','), scopeType)) {
-      showError(`Directive '${this.diClass.name}' is out of scopes, expect '${scopes.join(',')}' bug got '${scopeType}'`);
-      return;
-    }
-  }
-
-  render(component: CompElem) {
-    let di = this.di;
-    if (!di.renderComponent) {
-      di.renderComponent = component;
-    }
-
-    this.di = di;
-    di._renderArgs = this.args
-    return this.di.render(...this.args);
-  }
-
-  update(point: EnterPoint, newArgs: any[], oldArgs: any[]) {
-    let tag = this.di.update(point, newArgs, oldArgs)
-
-    if (tag === DirectiveUpdateTag.NONE) return
-
-    let nodes = point.getNodes()
-
-    if (tag === DirectiveUpdateTag.REMOVE) {
-      for (let i = 0; i < nodes.length; i++) {
-        const n = nodes[i];
-        n.parentNode?.removeChild(n)
-      }
-    } else if (tag === DirectiveUpdateTag.REPLACE) {
-      let newNodes: Node[] = [];
-      for (let i = 0; i < nodes.length; i++) {
-        const n = nodes[i];
-        n.parentNode?.removeChild(n)
-      }
-
-      let rs = this.di.render(...newArgs)!
-      let nnodes = this.di.buildView(rs)
-
-      newNodes = toArray(nnodes)
-
-      let fragment = document.createDocumentFragment();
-      fragment.append(...newNodes);
-      point.endNode.parentNode!.insertBefore(fragment, point.endNode);
-    } else if (tag === DirectiveUpdateTag.UPDATE) {
-      let newKeys: Record<string, boolean> = {}
-      let nodesToUpdate
-      //原节点顺序
-      let oldSeq: string[] = []
-      let newSeq: string[] = []
-
-      let updateRs = this.di.render(...newArgs)
-      if (!updateRs) {
-        updateRs = new Template([], [])
-      }
-
-      if (isEmpty(nodes)) {
-        let nodes = this.di.buildView(updateRs);
-        ; (point.startNode as CharacterData).after(...nodes)
-        return
-      }
-
-      let newTmpls: Record<string, Template> = {}
-      if (updateRs instanceof Template) {
-        updateRs.vars.forEach(v => {
-          if (v instanceof Template) {
-            const k = v.getKey()
-            newTmpls[k] = v
-            newKeys[k] = true
-            newSeq.push(k)
-          }
-        })
-      }
-
-      //UPDATE仅处理元素节点
-      nodes = filter(compact(nodes), n => n.nodeType === Node.ELEMENT_NODE);
-
-      nodesToUpdate = filter(compact(toArray<Node>(nodesToUpdate!)), n => n.nodeType === Node.ELEMENT_NODE);
-      let oldNodeMap: Record<string, HTMLElement> = {}
-      let dupKey = ''
-      let keyQ: Record<string, boolean> = {}
-      for (let i = 0; i < nodes.length; i++) {
-        const node = nodes[i];
-        let treeNode = <HTMLElement>node;
-        let k = treeNode.getAttribute("key")
-        if (!k) continue;
-
-        if (oldNodeMap[k]) {
-          dupKey = k
-          break
+const newNodeMap: Record<string, HTMLElement> = {}
+function addNodes(adds: Record<string, any>[], newTmpls: Record<string, Template>, newSeq: string[], component: CompElem, updatePoints: UpdatePoint[], pointNode: Node) {
+  const combStrings: string[] = []
+  const combVars: Template[] = []
+  const ks: string[] = []
+  let addGroup: Record<string, any>[] = []
+  let lastKey: string
+  adds.forEach(add => {
+    let lastAdd = last(addGroup)
+    if (lastAdd) {
+      if (lastKey === add.prevNode) {
+        if (!lastAdd.group) {
+          lastAdd.group = [lastKey]
         }
-        oldNodeMap[k] = treeNode
-        oldSeq.push(k)
-        keyQ[k] = true
+        lastAdd.group.push(add.newkey)
+      } else {
+        addGroup.push(add)
       }
+    } else {
+      addGroup.push(add)
+    }
 
-      if (dupKey) {
-        showError(`${camelCase(this.diClass.name)} - duplicate key '${dupKey}'`)
-        return
-      }
+    lastKey = add.newkey
 
-      let updateQ = newKeys
+    let k = add.newkey
+    ks.push(k)
+    combStrings.push('')
+    combVars.push(newTmpls[k])
+  })
 
-      const parentNode = point.startNode.parentNode
-      //compare
-      let adds: Record<string, any>[] = [];
-      let dels: string[] = [];
+  combStrings.push('')
+  let tmpl = new Template(
+    combStrings,
+    combVars
+  )
 
-      //计算del
-      each(keyQ, (v, k) => {
-        if (!updateQ[k]) {
-          dels.push(k)
-          delete keyQ[k]
-          remove(oldSeq, x => x === k)
+  let originalUps = [...updatePoints]
+  let nodes = buildDirectiveView(pointNode, tmpl, component)!//this.di.buildView(tmpl)
+  let ups = DirectiveUpdatePointsMap.get(pointNode)!
+  updatePoints.length = 0
+  updatePoints.push(...ups)
+
+  let kMap = new Map<string, boolean>()
+  nodes.forEach((n: HTMLElement) => {
+    const k = n.getAttribute('key')!
+    if (ks.includes(k)) {
+      kMap.set(k, true)
+      newNodeMap[k] = n
+    }
+  })
+
+  originalUps.forEach((up, i) => {
+    const k = up.key + ''
+    if (!kMap.get(k) && newSeq.includes(k)) {
+      updatePoints.push(up)
+    }
+  })
+
+  return addGroup
+}
+
+export function updateDirective(point: EnterPoint, newArgs: any[], oldArgs: any[], updater: DirectiveExecutor, renderComponent: CompElem, slotComponent: CompElem, varChain: any[][], isTextOrSlot = false) {
+
+  let rs
+  if (isTextOrSlot) {
+    Collector.startRender(point.endNode)
+    rs = updater(point, newArgs, oldArgs, { renderComponent, slotComponent, varChain })
+    Collector.endRender(renderComponent)
+  } else {
+    rs = updater(point, newArgs, oldArgs, { renderComponent, slotComponent, varChain })
+  }
+
+  if (!rs) return
+
+  let [tag, tmpl] = rs
+
+  if (tag === DirectiveUpdateTag.NONE) return
+
+  let nodes = point.getNodes()
+
+  if (tag === DirectiveUpdateTag.REMOVE) {
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      n.parentNode?.removeChild(n)
+    }
+  } else if (tag === DirectiveUpdateTag.REPLACE) {
+    let newNodes: Node[] = [];
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      n.parentNode?.removeChild(n)
+    }
+
+    let nnodes = buildDirectiveView(point.endNode, tmpl!, renderComponent)
+
+    newNodes = toArray(nnodes)
+
+    let fragment = document.createDocumentFragment();
+    fragment.append(...newNodes);
+    point.endNode.parentNode!.insertBefore(fragment, point.endNode);
+  } else if (tag === DirectiveUpdateTag.UPDATE) {
+    let newKeys: Record<string, boolean> = {}
+    let nodesToUpdate
+    //原节点顺序
+    let oldSeq: string[] = []
+    let newSeq: string[] = []
+
+    let updatePoints = DirectiveUpdatePointsMap.get(point.endNode)!
+
+    if (!tmpl) {
+      tmpl = new Template([], [])
+    }
+
+    if (isEmpty(nodes)) {
+      let nodes = buildDirectiveView(point.endNode, tmpl!, renderComponent)
+        ; (point.startNode as CharacterData).after(...nodes)
+      return
+    }
+
+    let newTmpls: Record<string, Template> = {}
+    if (tmpl instanceof Template) {
+      tmpl.vars.forEach(v => {
+        if (v instanceof Template) {
+          const k = v.getKey()
+          newTmpls[k] = v
+          newKeys[k] = true
+          newSeq.push(k)
         }
       })
+    }
 
-      //计算move
-      if (!isEmpty(newSeq)) {
-        let lastMoveNodeId = '';
-        let lastMoveIndex = -1
-        let lastGroup: MoveNode[] = []
-        let moveQueue: { moveGroup: MoveNode[], moveIndex: number }[] = []
-        let edgeOffset = 0
-        let i = 0
-        for (; i < newSeq.length; i++) {
-          const nodeId = newSeq[i];
-          let oldI = oldSeq.findIndex(c => c === nodeId)
-          if (oldI < 0) {
-            let prevKey = newSeq[i - 1]
-            let prev = prevKey ? oldNodeMap[prevKey] || prevKey : point.startNode
-            //add
-            adds.push({ prevNode: prev, newkey: nodeId });
-            edgeOffset++
-            continue
+    //UPDATE仅处理元素节点
+    nodes = filter(compact(nodes), n => n.nodeType === Node.ELEMENT_NODE);
+
+    nodesToUpdate = filter(compact(toArray<Node>(nodesToUpdate!)), n => n.nodeType === Node.ELEMENT_NODE);
+    let oldNodeMap: Record<string, HTMLElement> = {}
+    let dupKey = ''
+    let keyQ: Record<string, boolean> = {}
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i];
+      let treeNode = <HTMLElement>node;
+      let k = treeNode.getAttribute("key")
+      if (!k) continue;
+
+      if (oldNodeMap[k]) {
+        dupKey = k
+        break
+      }
+      oldNodeMap[k] = treeNode
+      oldSeq.push(k)
+      keyQ[k] = true
+    }
+
+    if (dupKey) {
+      showError(`${camelCase((point.endNode as any)._diName)} - duplicate key '${dupKey}'`)
+      return
+    }
+
+    let updateQ = newKeys
+
+    const parentNode = point.startNode.parentNode
+    //compare
+    let adds: Record<string, any>[] = [];
+    let dels: string[] = [];
+
+    //计算del
+    each(keyQ, (v, k) => {
+      if (!updateQ[k]) {
+        dels.push(k)
+        delete keyQ[k]
+        remove(oldSeq, x => x === k)
+      }
+    })
+
+    //计算move
+    let moved = false
+    if (!isEmpty(newSeq)) {
+      let lastMoveIndex = -1
+      let lastGroup: MoveNode[] = []
+      let moveQueue: { moveGroup: MoveNode[], moveIndex: number }[] = []
+      let edgeOffset = 0
+      let i = 0
+      for (; i < newSeq.length; i++) {
+        const nodeId = newSeq[i];
+        let oldI = oldSeq.findIndex(c => c === nodeId)
+        if (oldI < 0) {
+          let prevKey = newSeq[i - 1]
+          let prev = prevKey ? oldNodeMap[prevKey] || prevKey : point.startNode
+          //add
+          adds.push({ prevNode: prev, newkey: nodeId });
+          edgeOffset++
+          continue
+        }
+        if (oldI > -1 && oldI !== (i - edgeOffset)) {
+          if (lastMoveIndex < 0 || Math.abs(lastMoveIndex - oldI) === 1) {
+            let lastEl = last(lastGroup)
+            lastGroup.push({ nodeId, targetId: i === 0 ? MovePosition.AFTER_BEGIN : (lastEl ? lastEl.nodeId : newSeq[i - 1]) })
+          } else {
+            moveQueue.push({ moveGroup: lastGroup, moveIndex: i + lastGroup.length })
+
+            lastGroup = []
+            lastGroup.push({ nodeId, targetId: newSeq[i - 1] })
           }
-          if (oldI > -1 && oldI !== (i - edgeOffset)) {
-            if (lastMoveIndex < 0 || Math.abs(lastMoveIndex - oldI) === 1) {
-              let lastEl = last(lastGroup)
-              lastGroup.push({ nodeId, targetId: i === 0 ? MovePosition.AFTER_BEGIN : (lastEl ? lastEl.nodeId : newSeq[i - 1]) })
+          lastMoveIndex = oldI
+        }
+      }
+
+      if (lastGroup.length > 0) {
+        moveQueue.push({ moveGroup: lastGroup, moveIndex: i + lastGroup.length })
+      }
+
+      if (moveQueue.length > 0) {
+        moved = true
+        let vals = moveQueue.sort((a, b) => a.moveGroup.length - b.moveGroup.length)
+        if (vals.length < 2) {
+          let { moveGroup } = vals[0]
+          if (moveGroup.length > 1) {
+            let lastTId = last(moveGroup).targetId
+            if (moveGroup[moveGroup.length - 2].nodeId === lastTId) {
+              moveGroup = initial(moveGroup)
+            }
+          }
+          moveGroup.forEach(({ targetId, nodeId }) => {
+            let srcEl = oldNodeMap[nodeId]
+            let target
+            if (targetId === MovePosition.AFTER_BEGIN) {
+              target = point.startNode as Element
+              target.after(srcEl)
             } else {
-              moveQueue.push({ moveGroup: lastGroup, moveIndex: i + lastGroup.length })
-
-              lastGroup = []
-              lastGroup.push({ nodeId, targetId: newSeq[i - 1] })
+              target = oldNodeMap[targetId]
+              target.after(srcEl)
             }
-            lastMoveIndex = oldI
+          })
+        } else {
+          let lastGroupIndex = last(vals).moveIndex
+          if (Math.abs(vals[vals.length - 2].moveIndex - lastGroupIndex) === 1) {
+            vals = initial(vals)
           }
-          lastMoveNodeId = nodeId
-        }
-
-        if (lastGroup.length > 0) {
-          moveQueue.push({ moveGroup: lastGroup, moveIndex: i + lastGroup.length })
-        }
-
-        if (moveQueue.length > 0) {
-          let vals = moveQueue.sort((a, b) => a.moveGroup.length - b.moveGroup.length)
-          if (vals.length < 2) {
-            let { moveGroup } = vals[0]
-            if (moveGroup.length > 1) {
-              let lastTId = last(moveGroup).targetId
-              if (moveGroup[moveGroup.length - 2].nodeId === lastTId) {
-                moveGroup = initial(moveGroup)
-              }
-            }
+          vals.forEach(({ moveGroup }) => {
             moveGroup.forEach(({ targetId, nodeId }) => {
               let srcEl = oldNodeMap[nodeId]
               let target
@@ -262,130 +299,97 @@ export class DirectiveWrapper {
                 target.after(srcEl)
               }
             })
-          } else {
-            let lastGroupIndex = last(vals).moveIndex
-            if (Math.abs(vals[vals.length - 2].moveIndex - lastGroupIndex) === 1) {
-              vals = initial(vals)
-            }
-            vals.forEach(({ moveGroup }) => {
-              moveGroup.forEach(({ targetId, nodeId }) => {
-                let srcEl = oldNodeMap[nodeId]
-                let target
-                if (targetId === MovePosition.AFTER_BEGIN) {
-                  target = point.startNode as Element
-                  target.after(srcEl)
-                } else {
-                  target = oldNodeMap[targetId]
-                  target.after(srcEl)
-                }
-              })
-            })
-          }
-        }//endif
-      }
-      if (adds.length > 0) {
-        this.#addNodes(adds, newTmpls, newSeq)
-      }
-      adds.forEach(v => {
+          })
+        }
+      }//endif
+    }
+    let addGroup
+    if (adds.length > 0) {
+      addGroup = addNodes(adds, newTmpls, newSeq, renderComponent, updatePoints, point.endNode)
+
+      addGroup.forEach((v, i) => {
         let k = v.newkey
-        let treeNode = this.newNodeMap[k]
+        let treeNode = newNodeMap[k]
         let prevNode = v.prevNode
+
+        if (v.group) {
+          let fragment = document.createDocumentFragment()
+          fragment.append(...map(v.group, (nk: string) => newNodeMap[nk]))
+          treeNode = fragment as any
+        }
+
         if (prevNode === point.endNode) {
           prevNode.before(treeNode)
         } else if (prevNode === point.startNode) {
           prevNode.after(treeNode)
         } else if (typeof prevNode === 'string') {
-          this.newNodeMap[prevNode].after(treeNode)
+          newNodeMap[prevNode].after(treeNode)
         } else {
           prevNode.after(treeNode)
         }
       })
-
-      dels.forEach(k => {
-        let treeNode = oldNodeMap[k]
-        if (treeNode && treeNode.parentNode) {
-          parentNode!.removeChild(treeNode)
-        }
-      })
-      //reset varIndex
-      this.di.__updatePoints.forEach(up => {
-        if (!up.key) {
-          up.key = up.value.tmpl.getKey()
-        }
-        const i = newSeq.findIndex(s => s == up.key)
-        up.varIndex = i
-      })
-
-
-      this.di.updateView(updateRs)
     }
-  }
 
-  getDirective() {
-    return this.di
-  }
-  newNodeMap: Record<string, HTMLElement> = {}
-  #addNodes(adds: Record<string, any>[], newTmpls: Record<string, Template>, newSeq: string[]) {
-    const combStrings: string[] = []
-    const combVars: Template[] = []
-    const ks: number[] = []
-    adds.forEach(add => {
-      let k = add.newkey
-      ks.push(k)
-      combStrings.push('')
-      combVars.push(newTmpls[k])
-    })
-
-    combStrings.push('')
-    let tmpl = new Template(
-      combStrings,
-      combVars
-    )
-
-    let originalUps = this.di.__updatePoints
-    let nodes = this.di.buildView(tmpl)
-    let kMap = new Map<string, boolean>()
-    this.di.__updatePoints.forEach((up, i) => {
-      const k = up.value.tmpl.getKey()
-      up.key = k
-      kMap.set(k, true)
-    })
-    originalUps.forEach((up, i) => {
-      const k = up.key ?? up.value.tmpl.getKey()
-      if (!kMap.get(k)) {
-        this.di.__updatePoints.push(up)
+    dels.forEach(k => {
+      let treeNode = oldNodeMap[k]
+      if (treeNode && treeNode.parentNode) {
+        parentNode!.removeChild(treeNode)
       }
     })
 
-    nodes.forEach((n: HTMLElement) => {
-      if (n instanceof HTMLElement)
-        this.newNodeMap[n.getAttribute('key')!] = n
-    })
+    //合并
+    if (tmpl.vars[0] instanceof Template) {
+      let tStrAry = []
+      let tVarAry: any[] = []
+      each(tmpl.vars, v => {
+        tVarAry.push(...v.vars)
+        tStrAry.push(...map(v.vars, v => '1'))
+      })
+      tStrAry.push('1')
+      tmpl = new Template(tStrAry, tVarAry)
+    }
+
+    //移动顺序
+    if (moved || dels.length > 0 || addGroup) {
+      const upGroup = groupBy<UpdatePoint>(updatePoints, up => up.key)
+      let movedUpAry: UpdatePoint[] = []
+      let i = 0
+      newSeq.forEach(nk => {
+        upGroup[nk].forEach((up) => {
+          up.varIndex = i++
+          movedUpAry.push(up)
+        })
+      })
+
+      updatePoints = movedUpAry
+    }
+
+    updateDirectiveView(point.endNode, renderComponent, tmpl, updatePoints)
   }
 }
 
+let DiSn = 0
 /**
  * 返回指令调用函数
  * @param di
  * @returns
  */
-export function directive<T extends Array<any>>(diClass: typeof Directive) {
+export function directive<T extends Array<any>>(
+  fn: (...args: T) => DirectiveExecutor,
+  scopes: EnterPointType[]
+): (...args: T) => DirectiveInstance {
+  let name = fn.name || ('Di-' + DiSn++)
+  let sym = Symbol.for(name)
+
   return (...args: T) => {
-    let wrapper: DirectiveWrapper | null = null
-    //todo 可能存在非返回模板函数开启了依赖监控
-    args.forEach((v, i) => {
-      if (isFunction(v)) {
-        let cbk = v
-        args[i] = function (...ps: T) {
-          let di = wrapper!.di
-          Collector.startRender(di);
-          let rs = cbk.call(di.renderComponent, ...ps)
-          Collector.endRender(di.renderComponent);
-          return rs;
-        }
+    let executor = fn(...args)
+    return [sym, args, executor as any, (scopeType: string) => {
+      //校验scope
+      if (!process.env.DEV) return
+      if (!isEmpty(scopes) && !test(scopes.join(','), scopeType)) {
+        showError(`Directive '${Symbol.keyFor(sym)}' is out of scopes, expect '${scopes.join(',')}' bug got '${scopeType}'`);
+        return;
       }
-    })
-    wrapper = new DirectiveWrapper(diClass, ...args);
-    return wrapper
-  };
+    }, Collector.popDirectiveQ()]
+  }
 }

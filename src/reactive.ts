@@ -8,7 +8,6 @@ import { CompElem } from "./CompElem";
 import { ChangedMap, CollectorType, DecoratorKey } from "./constants";
 import { PropOption } from "./decorators/prop";
 import { StateOption } from "./decorators/state";
-import { IView } from "./render/RenderContext";
 import { Getter, Updater } from "./types";
 import { _toUpdatePath, showWarn } from "./utils";
 
@@ -54,7 +53,7 @@ export const Collector = {
     this.__directiveQ = [];
     return rs;
   },
-  startRender(context: IView) {
+  startRender(context: Node) {
     this.__renderCollecting = true;
     this.__renderContext = context;
   },

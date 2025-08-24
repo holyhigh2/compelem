@@ -1,21 +1,20 @@
-import { call, each, findIndex, isEqual, isFunction } from "myfx";
-import { Directive } from "../directive/Directive";
-import { directive, EnterPoint, EnterPointType } from "../directive/index";
+import { call, each, findIndex, isFunction } from "myfx";
+import { directive, EnterPoint } from "../directive/index";
 import { html } from "../render/render";
 import { Template } from "../render/Template";
-import { DirectiveUpdateTag, TmplFn } from "../types";
+import { DirectiveUpdateTag, EnterPointType, TmplFn } from "../types";
 
 /**
- * 分支指令，具有switch / if else 两种模式
+ * 分支指令，具有switch / else if 两种模式
  * @example
  *  switch 模式
  * ${when(var, {
     closed: () => html``, //case 1
     connecting: () => html``, //case 2
-    default: () => html``// default
+    default: () => html``// default是switch模式下的关键字key
    })}
 
-   if else 模式
+   else if 模式
  * ${when(this.editingTitle, [
     [(v: any) => v.substring(2) > 0, () => html`<div style="${PageHome.tunnelLight}"></div>`],
     [(v: any) => v == 'closed', () => html`<div style="${PageHome.tunnelLight}"></div>`],
@@ -25,22 +24,8 @@ import { DirectiveUpdateTag, TmplFn } from "../types";
  * @param condition 条件 
  * @param tmpl 模板
  */
-class When extends Directive {
-  created(point: EnterPoint, ...args: any): void {
-  }
-  static get scopes(): EnterPointType[] {
-    return [EnterPointType.TEXT, EnterPointType.SLOT]
-  }
-
-  update(point: EnterPoint, newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
-    if (isEqual(newArgs, oldArgs)) {
-      return DirectiveUpdateTag.NONE;
-    }
-
-    //todo 缓存
-    return DirectiveUpdateTag.REPLACE
-  }
-  render(value: any, cases: Array<TmplFn>[] | Record<string | number, TmplFn>) {
+export const when = directive(function When(value: string | number, cases: Array<[(v: any) => boolean, TmplFn]> | Record<string | number, TmplFn>) {
+  return (point: EnterPoint, [value, cases]: [string | number, Array<[(v: any) => boolean, TmplFn]> | Record<string | number, TmplFn>], oldArgs: any[] | undefined) => {
     let defaultFn: TmplFn = () => html``;
     let conditionList: any[] = []
     let tmplList: TmplFn[] = []
@@ -65,7 +50,8 @@ class When extends Directive {
         return c == value;
       }
     })
-    return call(tmplList[i] ?? defaultFn) as Template
-  }
-}
-export const when = directive<Parameters<typeof When.prototype.render>>(When);
+    if (oldArgs) return [DirectiveUpdateTag.REPLACE, call(tmplList[i] ?? defaultFn) as Template]
+
+    return [DirectiveUpdateTag.APPEND, call(tmplList[i] ?? defaultFn) as Template]
+  };
+}, [EnterPointType.TEXT, EnterPointType.SLOT])

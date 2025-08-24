@@ -1,5 +1,6 @@
 import json from '@rollup/plugin-json';
 import { nodeResolve } from '@rollup/plugin-node-resolve';
+import replace from '@rollup/plugin-replace';
 import livereload from 'rollup-plugin-livereload';
 import scss from 'rollup-plugin-scss';
 import serve from 'rollup-plugin-serve';
@@ -16,6 +17,10 @@ export default [{
   },
   plugins: [
     nodeResolve(),
+    replace({
+      preventAssignment: true,
+      'process.env.DEV': true
+    }),
     typescript({
       clean: true,
       useTsconfigDeclarationDir: true,
@@ -24,14 +29,17 @@ export default [{
     serve({
       open: true,
       port: 8818,
-      openPage: '/test/index.html',
-      host: 'localhost',
+      openPage: '/index.html',
+      contentBase: 'test',
       headers: {
         'Access-Control-Allow-Origin': '*',
       },
     }),
-    livereload('test'),
+    livereload({ watch: 'test' }),
     json(),
   ],
+  watch: {
+    include: 'test/**', // 监视 src 目录下的所有文件
+  }
 }
 ];

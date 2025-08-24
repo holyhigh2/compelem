@@ -1,35 +1,28 @@
-import { Directive } from "../directive/Directive";
-import { EnterPoint, EnterPointType, directive } from "../directive/index";
+import { CompElem } from "../CompElem";
+import { EnterPoint, directive } from "../directive/index";
 import { CssHelper } from "../helpers";
-import { DirectiveUpdateTag } from "../types";
+import { EnterPointType } from "../types";
+
+const StyleMap = new Map()
 let StyleSn = 0
 /**
  * 根据变量内容自动插入class，仅能用于style属性
  * @param styles 对象/字符串
  */
-class Styles extends Directive {
-  created(point: EnterPoint, styles: Record<string, string> | string): void {
+export const styles = directive(function Styles(styles: Record<string, string> | string) {
+  return (point: EnterPoint, newArgs: any[], oldArgs: any[] | undefined, { renderComponent }: { renderComponent: CompElem }) => {
+
     let el = point.startNode as HTMLElement;
 
-    this.renderComponent.nextTick(() => {
-      CssHelper.setStyle(styles, el)
-    }, this.styleId)
+    let styleId = StyleMap.get(el)
+    if (!styleId) {
+      styleId = 'style_d' + StyleSn++
+      StyleMap.set(el, styleId)
+    }
+
+    renderComponent.nextTick(() => {
+      CssHelper.setStyle(newArgs[0], el)
+    }, styleId)
 
   }
-  update(point: EnterPoint, newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
-    this.created(point, newArgs[0])
-    return DirectiveUpdateTag.NONE
-  }
-  constructor(point: EnterPoint) {
-    super();
-    this.point = point
-    this.styleId = 'style_d' + StyleSn++
-  }
-  static get scopes(): EnterPointType[] {
-    return [EnterPointType.STYLE]
-  }
-  render(styles: Record<string, string> | string) {
-
-  }
-}
-export const styles = directive<Parameters<typeof Styles.prototype.render>>(Styles);
+}, [EnterPointType.STYLE])

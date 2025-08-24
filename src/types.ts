@@ -1,7 +1,8 @@
 /**
  * @author holyhigh2
  */
-
+import { CompElem } from "./CompElem";
+import { EnterPoint } from "./directive";
 import { Template } from "./render/Template";
 
 export type Constructor<T> = new (...args: any[]) => T;
@@ -17,6 +18,29 @@ export type SlotOptions = {
 }
 
 export type TmplFn = (...args: any[]) => Template;
+
+/**
+ * 属性定义
+ */
+export enum EnterPointType {
+    ATTR = "attr", //属性，文本内容，可以内嵌多插值
+    PROP = "prop", //参数，智能内嵌一个插值
+    TEXT = "text",
+    CLASS = "class",
+    STYLE = "style",
+    SLOT = "slot",
+    TAG = 'tag' //在标签内但不是属性内
+}
+
+export type DirectiveExecutor = (point: EnterPoint, newArgs: any[], oldArgs: any[] | undefined, meta?: { renderComponent?: CompElem, slotComponent?: CompElem, varChain?: string[][] }) => [DirectiveUpdateTag, Template?] | void
+
+export type DirectiveInstance = [
+    symbol,
+    Array<any>,// args
+    DirectiveExecutor,// executor
+    (scopeType: string) => void,// scope checker
+    any[][] // varChain
+]
 
 export enum DirectiveUpdateTag {
     NONE = 'NONE',//框架不处理
@@ -46,7 +70,7 @@ export class UpdatePoint {
     value: any
     isText: boolean = false;
     //是否模板
-    isTmpl: boolean = false;
+    // isTmpl: boolean = false;
     isDirective: boolean = false;
     //表达式所在节点，可能是元素/文本
     node: Node;
@@ -62,8 +86,8 @@ export class UpdatePoint {
     isProp: boolean = false;
     //是否布尔属性
     isToggleProp: boolean = false;
-    //是否事件
-    isEvent: boolean;
+    //是否被更新，对于 key，event，ref等属性不需要更新，仅用于占位
+    notUpdated: boolean
 
     constructor(varIndex: number, node: Node, attrName?: string, attrTmpl?: string) {
         this.varIndex = varIndex

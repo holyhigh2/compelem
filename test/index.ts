@@ -1,4 +1,4 @@
-import { CompElem, Template, computed, html, prop, query, state, tag, watch } from '../src/index';
+import { CompElem, Template, bind, computed, forEach, html, model, prop, query, state, tag, watch } from '../src/index';
 
 const Slogan = ['complete', 'componentize', 'compact', 'companion']
 
@@ -15,7 +15,8 @@ export class PageTest extends CompElem {
   @state colorG = Math.random() * 255 % 255 >> 0;
   @state colorB = Math.random() * 255 % 255 >> 0;
   @state rotation = 0
-  @state({ shallow: true }) test = { a: 1 }
+  @state({ shallow: false }) test = { a: 1 }
+  @state ary = [1, 2, 3, 4, 56, 234, 23, 423, 4, 234, 234]
 
   //////////////////////////////////// computed
   @computed
@@ -27,7 +28,7 @@ export class PageTest extends CompElem {
   //////////////////////////////////// watch
   @watch('rotation')
   function(ov: number, nv: number, src: string) {
-    console.log('watch...', ov, nv, src)
+    // console.log('watch...', ov, nv, src)
   }
 
   //////////////////////////////////// styles
@@ -92,7 +93,7 @@ export class PageTest extends CompElem {
 
   //////////////////////////////////// lifecycles
   updated(changed: Record<string, any>): void {
-    console.log('updated......')
+    // console.log('updated......')
   }
   mounted(): void {
     console.warn('starting to change...')
@@ -109,28 +110,27 @@ export class PageTest extends CompElem {
       console.log('nextTick......')
     });
     setInterval(() => {
-      this.rotation++
-    }, 20);
+      // this.rotation++
+    }, 100);
 
     setInterval(() => {
-      this.test.a++
+      // this.test.a++
     }, 1000);
 
     (window as any).xx = this
 
-    setInterval(() => {
-      this.text.classList.add('hide')
-      setTimeout(() => {
-        this.text.innerHTML = Slogan[this.sloganIndex % 4]
-        this.sloganIndex++
-        this.text.classList.remove('hide')
-      }, 500);
-    }, 5000);
+    // setInterval(() => {
+    //   this.text.classList.add('hide')
+    //   setTimeout(() => {
+    //     this.text.innerHTML = Slogan[this.sloganIndex % 4]
+    //     this.sloganIndex++
+    //     this.text.classList.remove('hide')
+    //   }, 500);
+    // }, 5000);
   }
   render(): Template {
     console.log('render......')
     return html`<div>
-    ${JSON.stringify(this.test)}
             <i>Welcome to</i>
             <br>
             <h2>CompElem</h2>
@@ -139,9 +139,12 @@ export class PageTest extends CompElem {
             <br>
             <i>for building</i>
             <h3>Web Components</h3>
+            ${forEach(this.ary, (v, i) => html`<div key="${i}">第${i}行 value:${v} -- ${this.test.a}</div>`)}
             <p>
-              &lt;c-element&gt; <i name="text">...</i> &lt;/c-element&gt;
+              &lt;c-element&gt; <i ${bind({ a: 'a', x: this.test.a })} name="text">...</i> &lt;/c-element&gt;
             </p>
+            <input type="checkbox" ${model(this.test.a)}>
+            <input type="text" ${model(this.test.a)}>
             ${this.arg}
         </div>`
   }

@@ -1,30 +1,38 @@
 import {
   camelCase,
+  clone,
   concat,
+  each,
   get,
   has,
+  isArray,
+  isBlank,
+  isEqual,
   isFunction,
+  isObject,
   isString,
-  isUndefined,
+  isSymbol,
+  join,
   kebabCase,
-  last,
+  map,
   replace,
   replaceAll,
+  set,
   snakeCase,
+  split,
   startsWith,
   toArray,
-  trim
+  toString
 } from "myfx";
 import { CompElem } from "../CompElem";
 import {
-  DirectiveWrapper,
   EnterPoint,
-  EnterPointType,
+  updateDirective
 } from "../directive/index";
 import { addEvent } from "../events/event";
-import { UpdatePoint } from "../types";
+import { Collector } from "../reactive";
+import { DirectiveExecutor, DirectiveInstance, EnterPointType, UpdatePoint } from "../types";
 import { showError, showTagError } from "../utils";
-import { IView, SubView } from "./RenderContext";
 import { Template } from "./Template";
 
 export const ATTR_PREFIX_EVENT = "@";
@@ -33,11 +41,38 @@ export const ATTR_PREFIX_BOOLEAN = "?";
 export const ATTR_PREFIX_REF = "*";
 export const ATTR_PROP_DELIMITER = ":";
 export const ATTR_REF = "ref";
+export const ATTR_KEY = "key";
 
-const TMPL_MAP = new Map()
 const EXP_ATTR_CHECK = /[.?-a-z]+\s*=\s*(['"])\s*([^='"]*<\!--c_ui-pl_df-->){2,}.*?\1/ims;
 const EXP_PLACEHOLDER = /<\s*[a-z0-9-]+([^>]*<\!--c_ui-pl_df-->)*[^>]*?(?<!-)>/imgs;
 const SLOT_KEY_PROPS = 'slot-props'
+const HTML_CACHE = new Map<Function, string>()
+const DOM_CACHE = new Map<Function, Node>()
+const VAR_CACHE = new Map<Function, Record<number, Array<VarPoint>>>()
+type VarPoint = { type: VarType, up: UpdatePoint, value?: any, name?: string, point?: EnterPoint, attrName?: string }
+enum VarType {
+  Event = 'event',
+  Directive = 'directive',
+  DirectiveTag = 'directiveTag',
+  DirectiveAttr = 'directiveAttr',
+  DirectiveProp = 'directiveProp',
+  DirectiveText = 'directiveText',
+  DirectiveSlot = 'directiveSlot',
+  Attr = 'attr',
+  AttrProp = 'attrProp',
+  AttrBool = 'attrBool',
+  AttrRef = 'attrRef',
+  AttrSlot = 'attrSlot',
+  AttrKey = 'key',
+  Ref = 'ref',
+  Text = 'text'
+}
+const ComponentUpdatePointsMap = new WeakMap<CompElem, UpdatePoint[]>()
+export const DirectiveUpdatePointsMap = new WeakMap<Node, UpdatePoint[]>()
+const TextOrSlotDirectiveExecutorMap = new WeakMap<Node, DirectiveExecutor>()
+const TextOrSlotDirectiveArgsMap = new WeakMap<Node, Array<any>>()
+const TextOrSlotDirectiveUpdatePointMap = new WeakMap<Node, UpdatePoint>()
+const DirectiveArgsMap = new WeakMap<Node, Record<string, Array<any>>>()
 /**
  * 提供渲染函数相关操作
  * @author holyhigh2
@@ -64,29 +99,24 @@ export function buildHTML(
   let vars = concat(tmpl.vars)
   let l = tmpl.strings.length - 1;
   let vl = tmpl.vars.length - 1
+  let varIndex = 0
   for (let i = 0; i <= l; i++) {
     const str = tmpl.strings[i];
-    let val = get<any>(tmpl.vars, i, '');
-    if (val && val.di) {
-      let rs = val.render(component)
-      if (rs instanceof Template) {
-        let [h, v] = buildHTML(component, rs)
-        Reflect.defineProperty(val, '_renderVars', { value: v })
-        val = PLACEHOLDER_DI_START + h + PLACEHOLDER_DI_END
-      } else {
-        val = rs ?? PLACEHOLDER
-      }
-    }
-    else if (val instanceof Template) {
+    let val = get<any>(vars, varIndex, '');
+
+    if (val instanceof Template) {
       let [h, v] = buildHTML(component, val)
-      Reflect.defineProperty(val, '_renderVars', { value: v })
-      val = PLACEHOLDER_TMPL_START + h + PLACEHOLDER_TMPL_END
+      val = h
+
+      vars.splice(varIndex, 1, ...v)
+      varIndex += v.length - 1
     }
     else {
       val = i > vl ? "" : PLACEHOLDER;
     }
 
-    html += str + val;
+    varIndex++
+    html = html + str + val;
   }
 
   if (process.env.DEV) {
@@ -108,13 +138,26 @@ export function buildHTML(
 
   return [html, vars];
 }
-const PLACEHOLDER_DI_START = "<!--c_ui-pl_di-start-->";
-const PLACEHOLDER_DI_END = "<!--c_ui-pl_di-end-->";
-const PLACEHOLDER_TMPL_START = "<!--c_ui-pl_tmpl-start-->";
-const PLACEHOLDER_TMPL_END = "<!--c_ui-pl_tmpl-end-->";
+function buildVars(
+  component: CompElem,
+  tmpl: Template) {
+  let vars = concat(tmpl.vars)
+  let l = tmpl.strings.length - 1;
+  for (let i = 0; i <= l; i++) {
+    let val = get<any>(tmpl.vars, i, '');
+    if (val instanceof Template) {
+      let [h, v] = buildHTML(component, val)
+
+      vars.splice(i, 1, ...v)
+    }
+  }
+  return vars
+}
+
 const PLACEHOLDER = "<!--c_ui-pl_df-->";
 const PLACEHOLDER_PREFFIX = "<!--c_ui-pl_df";
 export const PLACEHOLDER_EXP = /<!--c_ui-pl_df\d*(-->)?/
+
 /**
  * 构建模板为DOM结构
  * @param html
@@ -123,11 +166,16 @@ export function buildTmplate(
   updatePoints: Array<UpdatePoint>,
   html: string,
   vars: any[],
-  component: CompElem,
-  viewContext: IView
+  renderComponent: CompElem,
+  isDirective = false
 ): NodeListOf<ChildNode> {
   const container = document.createElement("div");
   container.innerHTML = html;
+  const hasVarChache = VAR_CACHE.has(renderComponent.constructor)
+  if (!isDirective && hasVarChache && !DOM_CACHE.has(renderComponent.constructor)) {
+    DOM_CACHE.set(renderComponent.constructor, container.cloneNode(true))
+  }
+  let NodeSn = 0
 
   //遍历dom
   const nodeIterator = document.createNodeIterator(
@@ -136,25 +184,24 @@ export function buildTmplate(
   );
   let currentNode: any;
   let varIndex = 0;
-  let slotComponent: CompElem | null = null;
-  let startDiCommentNode;
-  let startDiCommentNodeStack: Comment[] = [];
-  let startDiStack = [];
-  let startDiUpdatePointStack = [];
-  let updatePointsStack = [updatePoints]
-  let varStack = []
-  let varIndexStack = []
+  let slotComponent: CompElem | undefined;
+
+  let varCacheMap: Record<number, Array<any>> | undefined = hasVarChache ? undefined : {}
+  let keyNode: Element | null = null
+  let keyVal = ''
   while ((currentNode = nodeIterator.nextNode())) {
+    NodeSn++
+    let varCacheQueue: Record<string, any>[] | undefined = hasVarChache ? undefined : []
+    if (slotComponent && !slotComponent.contains(currentNode)) {
+      slotComponent = undefined;
+    }
     if (currentNode instanceof HTMLElement || currentNode instanceof SVGElement) {
       if (currentNode instanceof CompElem) {
         slotComponent = currentNode
-      } else {
-        if (!slotComponent?.contains(currentNode)) {
-          slotComponent = null;
-        }
       }
       let props: Record<string, any> = {};
       let attrs = toArray<Attr>(currentNode.attributes);
+
       for (let i = 0; i < attrs.length; i++) {
         const attr = attrs[i];
         let { name, value } = attr;
@@ -162,38 +209,49 @@ export function buildTmplate(
         if (name === SLOT_KEY_PROPS) {
           let slotName = currentNode.getAttribute('name') || 'default'
           if (slotComponent) {
-            let ary = slotComponent._slotsPropMap[slotName]
-            if (!ary) {
-              ary = slotComponent._slotsPropMap[slotName] = []
-            }
-            ary.push(currentNode)
+            // let ary = slotComponent._slotsPropMap[slotName]
+            // if (!ary) {
+            //   ary = slotComponent._slotsPropMap[slotName] = []
+            // }
+            // ary.push(currentNode)
           }
+          varCacheQueue && varCacheQueue.push({ type: VarType.AttrSlot, name: slotName, attrName: name })
+          continue
         }//endif
         if (startsWith(name, PLACEHOLDER_PREFFIX)) {
           let val = vars[varIndex];
           //support directive only for now
-          if (val instanceof DirectiveWrapper) {
-            val.checkScope(EnterPointType.TAG)
+          if (isArray(val) && isSymbol(val[0])) {
+            let [, args, executor, checker, varChain] = val as DirectiveInstance
+            checker(EnterPointType.TAG)
             let point = new EnterPoint(
               currentNode,
               name.substring(1),
               EnterPointType.TAG
             );
-            val.point = point
 
-            val.di.slotComponent = slotComponent!;
-            val.di.renderComponent = component
+            let attrMap = DirectiveArgsMap.get(currentNode)
+            if (!attrMap) {
+              attrMap = {}
+              DirectiveArgsMap.set(currentNode, attrMap)
+            }
+            attrMap[Symbol.keyFor(val[0])!] = [point, renderComponent, slotComponent]
 
             let po = new UpdatePoint(varIndex, currentNode)
             po.isDirective = true;
             po.value = val;
             po.isComponent = !!slotComponent
-
             updatePoints.push(po)
+
+            if (keyNode && keyNode?.contains(currentNode)) {
+              po.key = keyVal
+            }
 
             varIndex++;
 
-            val.di.created(point, ...val.args)
+            executor(point, args, undefined, { renderComponent, slotComponent, varChain })
+
+            varCacheQueue && varCacheQueue.push({ type: VarType.DirectiveTag, point, up: po, name })
           }
           currentNode.removeAttribute(name)
           continue;
@@ -202,6 +260,14 @@ export function buildTmplate(
         if (name[0] === ATTR_PREFIX_EVENT) {
           let cbk: (ev: Event) => any = (e: Event) => {/* Do nothing */ }
 
+          let po = new UpdatePoint(varIndex, currentNode)
+          po.notUpdated = true;
+          if (keyNode && keyNode?.contains(currentNode)) {
+            po.key = keyVal
+          }
+          updatePoints.push(po)
+
+          let hasValue = false
           if (PLACEHOLDER_EXP.test(value)) {
             let val = vars[varIndex];
             if (process.env.DEV && !isFunction(val)) {
@@ -210,18 +276,16 @@ export function buildTmplate(
               );
               continue;
             }
-            cbk = val.bind(component)
-
-            // let po = new UpdatePoint(varIndex, currentNode, name.replace(/\.|\?|@/, ''), value)
-            // po.isComponent = !!slotComponent
-            // po.isEvent = true
-
-            // updatePoints.push(po)
+            cbk = val.bind(renderComponent)
 
             varIndex++;
+            hasValue = true
           }
-          addEvent(name.substring(1), cbk, currentNode, component)
+          let evName = name.substring(1)
+          addEvent(evName, cbk, currentNode, renderComponent)
           currentNode.removeAttribute(name)
+
+          varCacheQueue && varCacheQueue.push({ type: VarType.Event, up: po, name: evName, attrName: name, value: hasValue })
           continue;
         }//endif
         if (name === ATTR_REF) {
@@ -233,11 +297,44 @@ export function buildTmplate(
               );
               continue;
             }
+
+            let po = new UpdatePoint(varIndex, currentNode)
+            po.notUpdated = true;
+            if (keyNode && keyNode?.contains(currentNode)) {
+              po.key = keyVal
+            }
+            updatePoints.push(po)
+
             varIndex++;
             val.current = currentNode
+
+            varCacheQueue && varCacheQueue.push({ type: VarType.Ref, up: po, attrName: name })
           }
           currentNode.removeAttribute(name)
           continue;
+        }//endif
+        if (name === ATTR_KEY) {
+          let val = vars[varIndex];
+          currentNode.setAttribute(name, val)
+
+          let po = new UpdatePoint(varIndex, currentNode)
+          po.notUpdated = true;
+          if (keyNode && keyNode?.contains(currentNode)) {
+            po.key = keyVal
+          }
+          updatePoints.push(po)
+
+          varIndex++;
+          keyNode = currentNode
+          keyVal = val
+          varCacheQueue && varCacheQueue.push({ up: po, type: VarType.AttrKey })
+
+          if (updatePoints.length > 0) {
+            updatePoints.forEach(up => {
+              up.key = up.key ?? val
+            })
+          }
+          continue
         }//endif
         //校验变量必须是表达式
         if (process.env.DEV && name[0] === ATTR_PREFIX_PROP && !PLACEHOLDER_EXP.test(value)) {
@@ -251,34 +348,47 @@ export function buildTmplate(
           let val = vars[varIndex];
           let po = new UpdatePoint(varIndex, currentNode, name.replace(/\.|\?|@/, ''), value)
           po.isComponent = !!slotComponent
-          // let add2up = true;
+          if (keyNode && keyNode?.contains(currentNode)) {
+            po.key = keyVal
+          }
           if (
             name[0] === ATTR_PREFIX_PROP ||
             name[0] === ATTR_PREFIX_BOOLEAN ||
             name[0] === ATTR_PREFIX_REF
           ) {
-            if (val instanceof DirectiveWrapper) {
-              val.checkScope(EnterPointType.PROP)
+            if (isArray(val) && isSymbol(val[0])) {
 
+              let [, args, executor, checker, varChain] = val as DirectiveInstance
+              checker(EnterPointType.PROP)
+
+              let attrName = name.substring(1)
               let point = new EnterPoint(
                 currentNode,
-                name.substring(1),
+                attrName,
                 EnterPointType.PROP
-              );
+              )
 
-              val.point = point
-              val.slotComponent = slotComponent!;
+              let attrMap = DirectiveArgsMap.get(currentNode)
+              if (!attrMap) {
+                attrMap = {}
+                DirectiveArgsMap.set(currentNode, attrMap)
+              }
+              attrMap[attrName] = [point, renderComponent, slotComponent]
+
+              executor(point, args, undefined, { renderComponent, slotComponent })
+
               po.value = val;
               po.isDirective = true;
 
-              if (val) {
-                val.di.created(val.point, ...val.args)
-              }
+              varCacheQueue && varCacheQueue.push({ type: VarType.DirectiveProp, up: po, point, name, attrName })
             } else if (name[0] === ATTR_PREFIX_BOOLEAN) {
               po.isToggleProp = true;
               po.value = !!val;
+              let attrName = name.substring(1)
               if (po.value)
-                currentNode.setAttribute(name.substring(1), '')
+                currentNode.setAttribute(attrName, '')
+
+              varCacheQueue && varCacheQueue.push({ type: VarType.AttrBool, name: attrName, up: po, attrName: name })
             } else if (name[0] === ATTR_PREFIX_REF) {
               po.value = val;
               let refNames = name.substring(1);
@@ -298,6 +408,8 @@ export function buildTmplate(
               }
               po.attrName = refName
               currentNode.setAttribute(refName, val)
+
+              varCacheQueue && varCacheQueue.push({ type: VarType.AttrRef, up: po, name, attrName: refName })
             } else {
               if (process.env.DEV && !(currentNode instanceof CompElem) && currentNode.tagName !== 'SLOT') {
                 showTagError(currentNode.tagName, `Prop '${name}' can only be set on a CompElem or a slot`)
@@ -310,188 +422,107 @@ export function buildTmplate(
                 po.value = val;
                 po.isProp = true;
                 props[propName] = val;
+
+                varCacheQueue && varCacheQueue.push({ type: VarType.AttrProp, up: po, name: propName, attrName: name })
               }
             }
             currentNode.removeAttribute(name)
             val = ''
           } else {
             po.value = val;
-            let dw
-            if (val instanceof DirectiveWrapper) {
+            let executor
+            let args
+            let cache: Record<string, any> = { type: VarType.Attr, up: po, attrName: name }
+            if (isArray(val) && isSymbol(val[0])) {
               let type = EnterPointType.ATTR;
               if (name === "class") {
                 type = EnterPointType.CLASS;
               } else if (name === "style") {
                 type = EnterPointType.STYLE;
               }
-              val.checkScope(type)
+
+              let [, ags, exec, checker, varChain] = val as DirectiveInstance
+              checker(type)
 
               po.isDirective = true;
+              po.attrName = name
               let point = new EnterPoint(
                 currentNode,
                 name,
                 type
               );
-              val.point = point
 
-              val.di.slotComponent = slotComponent!;
-              val.di.renderComponent = component
+              let attrMap = DirectiveArgsMap.get(currentNode)
+              if (!attrMap) {
+                attrMap = {}
+                DirectiveArgsMap.set(currentNode, attrMap)
+              }
+              attrMap[name] = [point, renderComponent, slotComponent]
 
-              dw = val
-              // val.di.created(point, ...val.args)
+              args = ags
+              executor = exec
+
               val = ''
+              cache.type = VarType.DirectiveAttr
+              cache.point = point
             }
             value = replace(value, PLACEHOLDER_EXP, val)
             //回填
             attr.value = value;
-            if (dw) {
-              dw.di.created(dw.point, ...dw.args)
-            }
 
+            executor && executor(cache.point, args!, undefined, { renderComponent, slotComponent })
+
+            varCacheQueue && varCacheQueue.push(cache)
           }
-          // if (add2up)
+
           updatePoints.push(po)
           varIndex++;
         }//endif
       }//endfor
       if (currentNode instanceof CompElem) {
         currentNode._initProps(props)
-        currentNode._regWrapper(component)
+        currentNode._regWrapper(renderComponent)
       } else if (currentNode instanceof HTMLSlotElement) {
-        component._bindSlot(currentNode, currentNode.name || 'default', props)
+        renderComponent._bindSlot(currentNode, currentNode.name || 'default', props)
       }
     } else {
       let comment = currentNode as Comment;
       let ph = `<!--${comment.nodeValue}-->`
-      if (ph === PLACEHOLDER_DI_START) {
-        if (startDiCommentNode) {
-          startDiCommentNodeStack.push(startDiCommentNode)
-        }
-        startDiCommentNode = comment
 
-        let val = vars[varIndex];
-        let po = new UpdatePoint(varIndex, currentNode)
-        po.isComponent = !!slotComponent
-        po.isDirective = true;
-        po.value = val
-        let pType = slotComponent ? EnterPointType.SLOT : EnterPointType.TEXT
-        let point = new EnterPoint(
-          startDiCommentNode,
-          "",
-          pType
-        );
-        val.point = point
-        val.di.slotComponent = slotComponent!;
-        val.di.renderComponent = component
-        startDiStack.push(val)
-
-        updatePoints.push(po)
-        startDiUpdatePointStack.push(po)
-        //stack updatePoints
-        updatePoints = []
-        updatePointsStack.push(updatePoints)
-
-        varIndex++;
-        //stack vars
-        varIndexStack.push(varIndex)
-        varStack.push(vars)
-        vars = val._renderVars
-        varIndex = 0
-
-        continue;
-      } else if (ph === PLACEHOLDER_DI_END) {
-        startDiUpdatePointStack.pop()!.textNode = comment
-        let startDi = startDiStack.pop()
-        startDi.point.endNode = comment;
-        //结束时调用created
-        startDi.di.created(startDi.point, ...startDi.args)
-        startDiCommentNode = startDiCommentNodeStack.pop()
-
-        startDi.di.__updatePoints = updatePoints
-        updatePointsStack.pop()
-        updatePoints = last(updatePointsStack)
-        //restore vars
-        vars = varStack.pop()!
-        varIndex = varIndexStack.pop()!
-      } else if (ph === PLACEHOLDER_TMPL_START) {
-        if (startDiCommentNode) {
-          startDiCommentNodeStack.push(startDiCommentNode)
-        }
-        startDiCommentNode = comment
-
-        let val = vars[varIndex];
-        let po = new UpdatePoint(varIndex, currentNode)
-        po.isComponent = !!slotComponent
-        po.isTmpl = true;
-        let parentDi = last(startDiStack)
-        if (parentDi && get(parentDi, 'diClass.name') === 'ForEach') {
-          po.key = val.getKey();
-        } else if (viewContext.constructor.name == 'ForEach') {
-          po.key = val.getKey();
-        }
-
-        val = po.value = new SubView(val)
-        let pType = slotComponent ? EnterPointType.SLOT : EnterPointType.TEXT
-        let point = new EnterPoint(
-          startDiCommentNode,
-          "",
-          pType
-        );
-        val.point = point
-        val.slotComponent = slotComponent!;
-        val.renderComponent = component
-        startDiStack.push(val)
-
-        updatePoints.push(po)
-        startDiUpdatePointStack.push(po)
-        //stack updatePoints
-        updatePoints = []
-        updatePointsStack.push(updatePoints)
-
-        varIndex++;
-        //stack vars
-        varIndexStack.push(varIndex)
-        varStack.push(vars)
-        vars = val._renderVars
-        varIndex = 0
-
-        continue;
-      } else if (ph === PLACEHOLDER_TMPL_END) {
-        startDiUpdatePointStack.pop()!.textNode = comment
-        let startDi = startDiStack.pop()
-        startDi.point.endNode = comment;
-        startDiCommentNode = startDiCommentNodeStack.pop()
-        startDi.__updatePoints = updatePoints
-        updatePointsStack.pop()
-        updatePoints = last(updatePointsStack)
-        //restore vars
-        vars = varStack.pop()!
-        varIndex = varIndexStack.pop()!
-      }
       if (ph !== PLACEHOLDER) {
         continue;
       }
       let po = new UpdatePoint(varIndex, currentNode)
+      if (keyNode && keyNode?.contains(currentNode)) {
+        po.key = keyVal
+      }
       updatePoints.push(po)
 
       po.isComponent = !!slotComponent
       po.isText = true;
 
       let val = vars[varIndex];
-      let startComment: Comment;
-      //插入start占位符
-      startComment = document.createComment(
-        `compelem-ui-${varIndex}-child-start`
-      );
-      comment.parentNode!.insertBefore(startComment, comment);
-      comment.nodeValue = `compelem-ui-${varIndex}-child-end`;
-      po.textNode = startComment
-      if (val instanceof DirectiveWrapper) {
+
+      if (isArray(val) && isSymbol(val[0])) {
+        const diName = Symbol.keyFor(val[0] as symbol)
+        //插入start占位符
+        let startComment: Comment;
+        startComment = document.createComment(
+          `compelem-${renderComponent.tagName}-${diName}-start`
+        );
+        po.textNode = startComment
+        comment.parentNode!.insertBefore(startComment, comment);
+        comment.nodeValue = `compelem-${renderComponent.tagName}-${diName}-end`;
+        (comment as any)._diName = diName
+
         po.isDirective = true;
         po.value = val;
 
         let pType = slotComponent ? EnterPointType.SLOT : EnterPointType.TEXT
-        // directives.push(val)
+
+        let [, args, executor, checker, varChain] = val as DirectiveInstance
+        checker(pType)
+
         let point = new EnterPoint(
           startComment,
           "",
@@ -499,37 +530,371 @@ export function buildTmplate(
         );
         point.endNode = comment;
 
-        val.point = point
-        val.di.slotComponent = slotComponent!;
-        val.di.renderComponent = component
+        TextOrSlotDirectiveArgsMap.set(comment, [point, renderComponent, slotComponent, args, varChain])
+        TextOrSlotDirectiveExecutorMap.set(comment, executor)
+        TextOrSlotDirectiveUpdatePointMap.set(comment, po)
+        Collector.startRender(comment)
+        let tmpl = executor(point, args, undefined, { renderComponent, slotComponent, varChain })!
+        Collector.endRender(renderComponent)
 
-        val.di.created(point, ...val.args)
-        val = ''
-      } else if (val instanceof Template) {
-        po.isTmpl = true;
-        po.value = val;
-        let [html, vars] = buildHTML(component, val)
-        val = buildTmplate(updatePoints, html, vars, component, viewContext)
+        //render
+        if (tmpl) {
+          let nodes = buildDirectiveView(comment, tmpl[1]!, renderComponent)
+          if (nodes && nodes.length > 0) {
+            DomUtil.insertBefore(comment, Array.from(nodes))
+          }
+        }
 
+        val = undefined
+
+        varCacheQueue && varCacheQueue.push({ type: pType === EnterPointType.SLOT ? VarType.DirectiveSlot : VarType.DirectiveText, up: po, point })
       } else {
         po.value = val
+
+        varCacheQueue && varCacheQueue.push({ type: VarType.Text, up: po })
       }
       varIndex++;
 
-      if (isUndefined(val)) continue;
-      if (val instanceof NodeList) {
-        let fragment = document.createDocumentFragment();
-        fragment.append(...val);
-        comment.parentNode!.insertBefore(fragment, comment);
-      } else if (val instanceof Element) {
-        comment.parentNode!.insertBefore(val, comment);
-      } else if (trim(val)) {
-        let text = document.createTextNode(val);
-        comment.parentNode!.insertBefore(text, comment);
+      let text = toString(val ?? '')
+      let textDom = document.createTextNode(text);
+      comment.parentNode!.insertBefore(textDom, comment);
+      po.textNode = textDom
+    }
+    if (varCacheMap && varCacheQueue)
+      varCacheMap[NodeSn] = varCacheQueue
+
+    if (keyNode && !keyNode.contains(currentNode) && keyNode !== currentNode) {
+      keyNode = null
+      keyVal = ''
+    }
+  }
+  if (!isDirective && varCacheMap)
+    VAR_CACHE.set(renderComponent.constructor, varCacheMap)
+  return container.childNodes;
+}
+
+export function buildTmplate2(updatePoints: Array<UpdatePoint>, vars: any[], component: CompElem) {
+  let container = DOM_CACHE.get(component.constructor)?.cloneNode(true)!
+  let varMap = VAR_CACHE.get(component.constructor)!
+
+  //遍历dom
+  const nodeIterator = document.createNodeIterator(
+    container,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT
+  );
+  let currentNode: any;
+  let slotComponent: CompElem | undefined;
+  let varIndex = 0;
+  let NodeSn = 0
+  while ((currentNode = nodeIterator.nextNode())) {
+    NodeSn++
+    let po: UpdatePoint
+    if (slotComponent && !slotComponent.contains(currentNode)) {
+      slotComponent = undefined;
+    }
+    if (currentNode instanceof HTMLElement || currentNode instanceof SVGElement) {
+      if (currentNode instanceof CompElem) {
+        slotComponent = currentNode
       }
+
+      let props: Record<string, any> = {};
+      let varCacheQueue = varMap[NodeSn]
+      varCacheQueue.forEach(vp => {
+        let val = vars[varIndex++];
+        switch (vp.type) {
+          case VarType.Event:
+            po = clone(vp.up)
+            if (!vp.value) {
+              varIndex--
+            }
+            addEvent(vp.name!, val.bind(component), currentNode, component)
+            currentNode.removeAttribute(vp.attrName)
+            break
+          case VarType.AttrSlot:
+            if (slotComponent && vp.name) {
+              // let ary = slotComponent._slotsPropMap[vp.name]
+              // if (!ary) {
+              //   ary = slotComponent._slotsPropMap[vp.name] = []
+              // }
+              // ary.push(currentNode)
+            }
+            currentNode.removeAttribute(vp.attrName)
+            break
+          case VarType.Ref:
+            po = clone(vp.up)
+            val.current = currentNode
+            currentNode.removeAttribute(vp.attrName)
+            break
+          case VarType.AttrKey:
+            po = clone(vp.up)
+            currentNode.setAttribute(ATTR_KEY, val)
+            break
+          case VarType.AttrBool:
+            po = clone(vp.up)
+            po.value = !!val
+            po.node = currentNode
+            if (po.value)
+              currentNode.setAttribute(vp.name, '')
+            currentNode.removeAttribute(vp.attrName)
+            break
+          case VarType.AttrProp:
+            po = clone(vp.up)
+            po.value = val
+            po.node = currentNode
+            props[vp.name!] = val
+            break
+          case VarType.AttrRef:
+          case VarType.Attr:
+            po = clone(vp.up)
+            po.value = val
+            po.node = currentNode
+            currentNode.setAttribute(vp.attrName, val)
+            if (VarType.AttrRef === vp.type) currentNode.removeAttribute(vp.name)
+            break
+          case VarType.DirectiveAttr:
+          case VarType.DirectiveTag:
+          case VarType.DirectiveProp:
+            po = clone(vp.up)
+            po.value = val
+            po.node = currentNode
+            let point = clone(vp.point!)
+            point.startNode = currentNode
+
+            let [sym, args, executor, checker, varChain] = val as DirectiveInstance
+
+            let attrMap = DirectiveArgsMap.get(currentNode)
+            if (!attrMap) {
+              attrMap = {}
+              DirectiveArgsMap.set(currentNode, attrMap)
+            }
+            attrMap[vp.attrName ?? Symbol.keyFor(sym)!] = [point, component, slotComponent]
+
+            executor(point, args, undefined, { renderComponent: component, slotComponent, varChain })
+
+            if (VarType.DirectiveAttr === vp.type) {
+              let attrValue = currentNode.getAttribute(vp.attrName)
+              attrValue = replace(attrValue, PLACEHOLDER_EXP, '')
+              currentNode.setAttribute(vp.attrName, attrValue)
+            }
+            if (vp.name)
+              currentNode.removeAttribute(vp.name)
+            break
+        }
+        if (po)
+          updatePoints.push(po)
+      })
+
+      if (currentNode instanceof CompElem) {
+        currentNode._initProps(props)
+        currentNode._regWrapper(component)
+      } else if (currentNode instanceof HTMLSlotElement) {
+        component._bindSlot(currentNode, currentNode.name || 'default', props)
+      }
+    } else {
+      let varCacheQueue = varMap[NodeSn]
+      varCacheQueue.forEach(vp => {
+        let val = vars[varIndex++]
+        switch (vp.type) {
+          case VarType.DirectiveSlot:
+          case VarType.DirectiveText:
+            po = clone(vp.up)
+            po.value = val
+            po.node = currentNode
+
+            let [sym, args, executor, checker, varChain] = val as DirectiveInstance
+            let diName = Symbol.keyFor(sym)
+            let startComment = document.createComment(
+              `compelem-${component.tagName}-${diName}-start`
+            );
+            po.textNode = startComment
+
+            currentNode.parentNode!.insertBefore(startComment, currentNode)
+            currentNode.nodeValue = `compelem-${component.tagName}-${diName}-end`
+
+            let point = clone(vp.point!)
+            point.startNode = startComment
+            point.endNode = currentNode
+
+            TextOrSlotDirectiveArgsMap.set(currentNode, [point, component, slotComponent, args, varChain])
+            TextOrSlotDirectiveExecutorMap.set(currentNode, executor)
+            TextOrSlotDirectiveUpdatePointMap.set(currentNode, po)
+            Collector.startRender(currentNode)
+            let tmpl = executor(point, args, undefined, { renderComponent: component, slotComponent, varChain })!
+            Collector.endRender(component)
+
+            //render
+            let nodes = buildDirectiveView(currentNode, tmpl[1]!, component)
+            if (nodes && nodes.length > 0) {
+              DomUtil.insertBefore(currentNode, Array.from(nodes))
+            }
+
+            break
+          case VarType.Text:
+            po = clone(vp.up)
+            po.node = currentNode
+            let text = toString(val ?? '')
+            let textDom = document.createTextNode(text);
+            currentNode.replaceWith(textDom)
+            // currentNode.parentNode!.insertBefore(textDom, currentNode);
+            po.textNode = textDom
+            break
+        }
+        if (po)
+          updatePoints.push(po)
+      })
+      //todo...
     }
   }
   return container.childNodes;
+}
+
+export function buildView(
+  tmpl: Template,
+  component: CompElem): NodeListOf<ChildNode> {
+
+  let updatePoints: UpdatePoint[] = []
+  let nodes
+  if (HTML_CACHE.has(component.constructor)) {
+    let htmlTmpl = HTML_CACHE.get(component.constructor)!
+    let vars = buildVars(component, tmpl)
+    if (DOM_CACHE.has(component.constructor)) {
+      nodes = buildTmplate2(updatePoints, vars, component)
+    } else {
+      nodes = buildTmplate(updatePoints, htmlTmpl, vars, component);
+    }
+  } else {
+    let [html, vars] = buildHTML(component, tmpl);
+    HTML_CACHE.set(component.constructor, html)
+    nodes = buildTmplate(updatePoints, html, vars, component);
+  }
+
+  ComponentUpdatePointsMap.set(component, updatePoints)
+  return nodes
+}
+export function buildDirectiveView(pointNode: Node, tmpl: Template, component: CompElem) {
+  let [html, vars] = buildHTML(component, tmpl!);
+  let updatePoints: UpdatePoint[] = []
+  let nodes = buildTmplate(updatePoints, html, vars, component, true);
+  DirectiveUpdatePointsMap.set(pointNode, updatePoints)
+  return nodes
+}
+
+export function updateView(tmpl: Template, comp: CompElem, updatePoints?: UpdatePoint[]): void {
+  if (isBlank(join(tmpl.strings))) return;
+  if (!ComponentUpdatePointsMap.has(comp)) return;
+  let { vars } = tmpl;
+  updatePoints = updatePoints ?? ComponentUpdatePointsMap.get(comp)!
+  for (let i = 0; i < updatePoints.length; i++) {
+    const up = updatePoints[i];
+    let varIndex = up.varIndex;
+    if (varIndex < 0) continue;
+    if (up.notUpdated) continue
+    let oldValue = up.value;
+    let newValue: any = vars;
+    let node = up.node;
+    let indexSegs = split(varIndex, '-')
+    for (let l = 0; l < indexSegs.length; l++) {
+      const seg = indexSegs[l];
+      newValue = get(newValue, seg)
+      if (newValue && newValue.vars && i < indexSegs.length - 1) {
+        newValue = newValue.vars
+      }
+    }
+
+    //check
+    if (!isObject(oldValue) && oldValue === newValue) continue;
+
+
+    let elNode = node as HTMLElement
+    if (up.isDirective) {
+      //指令
+      let [sym, oldArgs, executor, , varChain] = up.value
+      let args = TextOrSlotDirectiveArgsMap.get(node)!
+      if (!args) {
+        const argsMap = DirectiveArgsMap.get(node)!
+        args = argsMap[up.attrName] || argsMap[Symbol.keyFor(sym)!]
+      }
+
+      let [point, renderComponent, slotComponent] = args
+      let [, newArgs] = newValue
+
+      const tsUp = TextOrSlotDirectiveUpdatePointMap.get(node)
+      if (tsUp) {
+        tsUp.value = newValue
+        const tsdArgs = TextOrSlotDirectiveArgsMap.get(node)!
+        tsdArgs[3] = newArgs
+      }
+
+      updateDirective(point, newArgs, oldArgs, executor, renderComponent, slotComponent, varChain, point.type == EnterPointType.TEXT || point.type == EnterPointType.SLOT)
+    } else if (up.isToggleProp) {
+      //布尔特性
+      if ((!!newValue) === oldValue) continue
+
+      elNode.toggleAttribute(up.attrName, !!newValue)
+      set(elNode, up.attrName, !!newValue)
+
+    } else if (up.isProp) {
+      //子组件属性
+      if (!isObject(newValue) && newValue === oldValue) continue;
+      //如果node是slot则触发组件的slot更新
+      if (node instanceof CompElem) {
+        node._updateProps({ [up.attrName]: newValue });
+      } else if (node instanceof HTMLSlotElement) {
+        comp._updateSlot(node.getAttribute('name') || 'default', up.attrName, newValue)
+      }
+    } else if (up.attrName) {
+      //特性
+      if (!isEqual(oldValue, newValue)) {
+        switch (up.attrName) {
+          case 'value':
+            if (node instanceof HTMLInputElement) {
+              node.value = newValue
+
+              break;
+            }
+
+          default:
+            (node as HTMLElement).setAttribute(up.attrName, replace(up.attrTmpl, PLACEHOLDER_EXP, newValue + ''))
+        }
+      }
+    }
+    else if (up.isText) {
+      let textNode = up.textNode
+      textNode.textContent = toString(newValue ?? '')
+    }
+
+    up.value = newValue
+  }//endfor
+
+}
+
+export function updateDirectiveView(node: Node, comp: CompElem, tmpl?: Template, updatePoints?: UpdatePoint[]): void {
+  const render = TextOrSlotDirectiveExecutorMap.get(node)!
+  const [point, renderComponent, slotComponent, oldArgs, varChain] = TextOrSlotDirectiveArgsMap.get(node)!
+  const up = TextOrSlotDirectiveUpdatePointMap.get(node)!
+  if (!tmpl) {
+    let rs = render(point, up.value[1], oldArgs, { renderComponent, slotComponent, varChain })!
+    if (!rs) return
+
+    tmpl = rs[1]
+  }
+
+  //合并
+  if (tmpl && tmpl.vars[0] instanceof Template) {
+    let tStrAry = []
+    let tVarAry: any[] = []
+    each(tmpl.vars, v => {
+      tVarAry.push(...v.vars)
+      tStrAry.push(...map(v.vars, v => '1'))
+    })
+    tStrAry.push('1')
+    tmpl = new Template(tStrAry, tVarAry)
+  }
+  if (updatePoints) {
+    DirectiveUpdatePointsMap.set(node, updatePoints)
+  }
+  updatePoints = updatePoints ?? DirectiveUpdatePointsMap.get(node)
+  updateView(tmpl!, comp, updatePoints)
 }
 
 export const DomUtil = {

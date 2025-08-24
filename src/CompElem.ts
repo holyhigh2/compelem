@@ -40,11 +40,9 @@ import { ChangedMap, CollectorType, DecoratorKey } from "./constants";
 import { _DecoratorsKey, DecoratorWrapper } from "./decorator";
 import { _getObservedAttrs, PropOption } from "./decorators/prop";
 import { StateOption } from "./decorators/state";
-import { Directive } from "./directive/Directive";
 import { IComponent } from "./IComponent";
 import { Collector, Queue, reactive } from "./reactive";
-import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF } from "./render/render";
-import { IView, View } from "./render/RenderContext";
+import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildView, updateDirectiveView, updateView } from "./render/render";
 import { Template } from "./render/Template";
 import { Constructor, DefaultProps, Getter, SlotOptions, TmplFn } from "./types";
 import { _toUpdatePath, getBooleanValue, isBooleanProp, showTagError } from "./utils";
@@ -65,13 +63,14 @@ let DefaultGlobalProps = {}
 let DefaultComponentProps: Record<string, any> = {}
 let CompElemSn = 0
 const GlobalStyleMap = new Map<Function, HTMLStyleElement>()
+
 /**
  * CompElem基类，意为组件元素。提供了基本内置属性及生命周期等必备接口
  * 每个组件都需要继承自该类
  *
  * @author holyhigh2
  */
-export class CompElem extends View(HTMLElement) implements IComponent {
+export class CompElem extends HTMLElement implements IComponent {
   static __l_globalRule = document.createElement("style");
   //设置全局/组件默认属性
   static defaults(options: DefaultProps) {
@@ -101,7 +100,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
   #updateSources: Record<string, { value: any; chain?: string[], oldValue?: any, end?: boolean }> = {};
   #shadow: ShadowRoot;
   //保存所有渲染上下文 {CompElem/Directive}
-  #renderContextList: Record<string, Set<CompElem | Directive>> = {};
+  #renderContextList: Record<string, Set<CompElem | Node>> = {};
   __events: Record<string, Array<Node | ((e: Event) => void)>[]> = {}
 
   get [Symbol.toStringTag]() {
@@ -234,8 +233,10 @@ export class CompElem extends View(HTMLElement) implements IComponent {
 
     this.#shadow.adoptedStyleSheets = [...DefaultCss, ...styleSheets];
 
+    /////////////////////////////////////////////////// slots
+    this.#updateSlotsAry()
     //slots prop map
-    this._slotsPropMap = { default: [] }
+    // this._slotsPropMap = { default: [] }
 
     /////////////////////////////////////////////////// decorators create
     let ary: DecoratorWrapper[] = get(this.constructor, _DecoratorsKey)
@@ -276,7 +277,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
     this.#initiating = true;
 
     /////////////////////////////////////////////////// slots
-    this.#updateSlotsAry()
+    // this.#updateSlotsAry()
 
     //1. Props & States
     const props = this.#initProps();
@@ -361,16 +362,12 @@ export class CompElem extends View(HTMLElement) implements IComponent {
 
     //5. Render
     let tmpl = this.render()
-    let nodes = this.buildView(tmpl)
+    let nodes = buildView(tmpl, this)
 
     if (nodes) {
-      let children = toArray<HTMLElement>(nodes);
+      this.#shadow.append(...nodes)
 
-      children.forEach((c) => {
-        this.#shadow.appendChild(c);
-      });
-
-      this.#renderRoots = filter<HTMLElement>(children, (n: Node) => n.nodeType === Node.ELEMENT_NODE);
+      this.#renderRoots = filter<HTMLElement>(this.#shadow.childNodes, (n: Node) => n.nodeType === Node.ELEMENT_NODE);
       this.#renderRoot = this.#renderRoots[0] as HTMLElement;
     }
 
@@ -454,7 +451,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
   }
   beforeMount(): void { }
   mounted(): void { }
-  #onSlogChange(slot: HTMLSlotElement, name: string) {
+  #onSlotChange(slot: HTMLSlotElement, name: string) {
     //1. 更新 _slotsPropMap & slots
     this.#updateSlotsAry()
     //2. 设置attrs
@@ -480,7 +477,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
                   slotMap.props = {}
                 }
                 slotMap.props[k] = v
-                compOfSlot.#onSlogChange(node, sname)
+                compOfSlot.#onSlotChange(node, sname)
               } else {
                 //...
               }
@@ -557,7 +554,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
     let toBreak = !this.shouldUpdate(changed);
     if (toBreak) return;
 
-    let renderContextList: Set<CompElem | Directive> = new Set()
+    let renderContextList: Set<CompElem | Node> = new Set()
 
     //1. filter context
     each(changed, ({ value, chain, oldValue }, k: string) => {
@@ -570,11 +567,10 @@ export class CompElem extends View(HTMLElement) implements IComponent {
     //2. update context
     renderContextList.forEach(context => {
       if (context === this) {
-        this.updateView(this.render());
+        updateView(this.render(), this);
       } else {
         //指令在这里仅更新视图
-        let rs = context.render(...(context._renderArgs ? context._renderArgs : []))
-        if (rs) context.updateView(rs);
+        updateDirectiveView(context, this)
       }
     })
 
@@ -868,7 +864,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
 
     slot.addEventListener('slotchange', (e: Event) => {
       if (this.#inited)
-        this.#onSlogChange(slot, name === 'default' ? '' : name)
+        this.#onSlotChange(slot, name === 'default' ? '' : name)
     })
 
     //3. 保存参数
@@ -916,7 +912,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
       return node
     })
 
-    let groups = groupBy<Node, Record<string, Node[]>>(cs, node => {
+    let groups = groupBy<Node>(cs, node => {
       if (node.nodeType === Node.TEXT_NODE) return 'default'
       if (node instanceof Element) {
         return node.getAttribute('slot') || 'default'
@@ -996,7 +992,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
     }
 
   }
-  _asyncDirectives = new WeakMap<TmplFn, IView>()
+  _asyncDirectives = new WeakMap<TmplFn, any>()
   renderAsync(cbk: TmplFn, ...args: any[]) {
 
   }
@@ -1021,10 +1017,10 @@ export class CompElem extends View(HTMLElement) implements IComponent {
    * todo 
    * 1. 取消上溯递归路径
    */
-  _regDeps(varPath: string, renderContext: CompElem | Directive) {
+  _regDeps(varPath: string, renderContext: CompElem | Node) {
     let list = this.#renderContextList[varPath]
     if (!list) {
-      list = this.#renderContextList[varPath] = new Set<CompElem | Directive>()
+      list = this.#renderContextList[varPath] = new Set<CompElem | Node>()
     }
     list.add(renderContext)
 
@@ -1035,7 +1031,7 @@ export class CompElem extends View(HTMLElement) implements IComponent {
 
     list = this.#renderContextList[upperPath]
     if (!list) {
-      list = this.#renderContextList[upperPath] = new Set<CompElem | Directive>()
+      list = this.#renderContextList[upperPath] = new Set<CompElem | Node>()
     }
     list.add(renderContext)
   }

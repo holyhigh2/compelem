@@ -329,7 +329,7 @@ return html` <l-tooltip>
     "content"
   )}
 </l-tooltip>`;
-```
+```             
 2. 通过元素注入
 可在非CompElem环境中使用，比如将组件嵌入到React/Vue环境中使用
 ```html

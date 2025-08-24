@@ -1,0 +1,4 @@
+{
+  "editor.scrollbar.ignoreHorizontalScrollbarInContentHeight": false,
+  "npm.exclude": ["**/dist"]
+}

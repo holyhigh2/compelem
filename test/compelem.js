@@ -1,4 +1,4 @@
-/* compelem 0.6.1-b1 @holyhigh2 https://github.com/holyhigh2/compelem */
+/* compelem 0.6.7-b1 @holyhigh2 https://github.com/holyhigh2/compelem */
 (function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
@@ -34,7 +34,7 @@
     };
 
     /**
-       * myfx v1.10.0
+       * myfx v1.13.0
        * A modular utility library with more utils, higher performance and simpler declarations ...
        * https://github.com/holyhigh2/myfx
        * (c) 2021-2025 @holyhigh2 may be freely distributed under the MIT license
@@ -144,9 +144,9 @@
         // 具有length属性
         const list = v;
         if (list.length !== undefined) {
-            const proto = list.constructor.prototype;
+            const proto = Reflect.getPrototypeOf(list);
             // NodeList/HTMLCollection/CSSRuleList/...
-            if (isFunction(proto.item))
+            if (isFunction(proto?.item))
                 return true;
             // arguments
             if (isFunction(list[Symbol.iterator]))
@@ -207,7 +207,7 @@
     }
 
     /**
-     * 返回对象的所有key数组
+     * 返回对象/Map的所有key数组
      *
      * > 只返回对象的自身可枚举属性
      *
@@ -218,16 +218,19 @@
      * console.log(_.keys(new f()))
      *
      * @param obj
-     * @returns 对象的key
+     * @returns key数组
      */
     function keys(obj) {
         if (obj === null || obj === undefined)
             return [];
+        if (isMap(obj)) {
+            return Array.from(obj.keys());
+        }
         return Object.keys(obj);
     }
 
     /**
-     * 返回对象的所有value数组
+     * 返回对象/Map的所有value数组
      * <div class="alert alert-secondary">
           只返回对象的自身可枚举属性
         </div>
@@ -240,9 +243,12 @@
      * console.log(_.values(new f()))
      *
      * @param obj
-     * @returns 对象根属性对应的值列表
+     * @returns 值列表
      */
     function values(obj) {
+        if (isMap(obj)) {
+            return Array.from(obj.values());
+        }
         return keys(obj).map((k) => obj[k]);
     }
 
@@ -367,30 +373,7 @@
         return toArray(array).filter(identity);
     }
 
-    /**
-     * 合并数组或值并返回新数组，元素可以重复。基于 `Array.prototype.concat` 实现
-     *
-     * @example
-     * //[a/b/a]
-     * console.log(_.concat([{name:'a'},{name:'b'}],[{name:'a'}]))
-     * //[1, 2, 3, 1, 2]
-     * console.log(_.concat([1,2,3],[1,2]))
-     * //[1, 2, 3, 1, 2, null, 0]
-     * console.log(_.concat([1,2,3],[1,2],null,0))
-     * //[1, 2, 3, 1, 2, doms..., 0, null]
-     * console.log(_.concat([1,2,3],[1,2],document.body.children,0,null))
-     *
-     * @param arrays 1-n个数组对象
-     * @returns 如果参数为空，返回空数组
-     */
-    function concat(...arrays) {
-        if (arrays.length < 1)
-            return [];
-        arrays = arrays.map((alk) => (isArrayLike(alk) ? toArray(alk) : alk));
-        return toArray(arrays[0]).concat(...arrays.slice(1));
-    }
-
-    function _eachIterator(collection, callback) {
+    function each(collection, callback) {
         let values;
         let keys;
         if (isString(collection) || isArrayLike(collection)) {
@@ -432,8 +415,36 @@
         }
     }
 
-    function each(collection, callback) {
-        _eachIterator(collection, callback);
+    /**
+     * 合并数组或值并返回新数组，元素可以重复。基于 `Array.prototype.concat` 实现
+     *
+     * @example
+     * //[a/b/a]
+     * console.log(_.concat([{name:'a'},{name:'b'}],[{name:'a'}]))
+     * //[1, 2, 3, 1, 2]
+     * console.log(_.concat([1,2,3],[1,2]))
+     * //[1, 2, 3, 1, 2, null, 0]
+     * console.log(_.concat([1,2,3],[1,2],null,0))
+     * //[1, 2, 3, 1, 2, doms..., 0, null]
+     * console.log(_.concat([1,2,3],[1,2],document.body.children,0,null))
+     *
+     * @param arrays 1-n个数组对象
+     * @returns 如果参数为空，返回空数组
+     */
+    function concat(...arrays) {
+        if (arrays.length < 1)
+            return [];
+        let rs = [];
+        for (let i = 0; i < arrays.length; i++) {
+            const item = arrays[i];
+            if (isArrayLike(item)) {
+                each(item, (v) => rs.push(v));
+            }
+            else {
+                rs.push(item);
+            }
+        }
+        return rs;
     }
 
     /**
@@ -449,9 +460,9 @@
      * //[2, 3, "2", "3"] '2'和2不相等
      * console.log(_.except([1,2,3],[1,'2',3],[2,'3',1]))
      *
-     * @param [arrays] 1-n个数组或arraylike对象，非arraylike参数会被忽略
-     * @param [identifier] (v);标识函数，用来对每个元素返回唯一标识，标识相同的值会认为相等。使用<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Equality_comparisons_and_sameness#Same-value-zero_equality">SameValueZero</a>
-     * 算法进行值比较。如果为空，直接使用值自身比较
+     * @param params (...arrays[,identifier(v)])
+     * arrays - 1-n个数组或arraylike对象，非arraylike参数会被忽略;
+     * identifier - 标识函数，用来对每个元素返回唯一标识，标识相同的值会认为相等。使用<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Equality_comparisons_and_sameness#Same-value-zero_equality">SameValueZero</a> 算法进行值比较。如果为空，直接使用值自身比较
      * @returns 差集元素组成的新数组
      */
     function except(...params) {
@@ -538,14 +549,14 @@
         if (isArray(chain)) {
             chain = chain.join('.');
         }
-        else {
-            chain += '';
+        let rs = chain + '';
+        if (rs.includes('[')) {
+            rs = rs.replace(/\[(['"])?([^\]'"]+)\1?\]/gm, '.$2');
         }
-        const rs = (chain + '')
-            .replace(/\[([^\]]+)\]/gm, '.$1')
-            .replace(/^\./g, '')
-            .split('.');
-        return rs;
+        if (rs[0] === '.') {
+            rs = rs.substring(1);
+        }
+        return rs.split('.');
     }
 
     /**
@@ -573,6 +584,11 @@
     function get(obj, path, defaultValue) {
         if (!isObject(obj))
             return defaultValue;
+        if (!isArray(path) || (path.length === 1 && (path = path[0]) !== undefined)) {
+            let v = obj[path];
+            if (v !== undefined)
+                return v;
+        }
         const chain = toPath$1(path);
         let target = obj;
         for (let i = 0; i < chain.length; i++) {
@@ -650,7 +666,7 @@
      * @since 1.5.0
      */
     function isNode(v) {
-        return typeof v === 'object' && v instanceof Node;
+        return typeof v === 'object' && v instanceof (globalThis.Node || Object);
     }
 
     /**
@@ -660,9 +676,9 @@
      * @example
      * let target = {a:{x:1,y:2},b:1}
      * //true
-     * console.log(_.isMatchWith(target,{b:1}))
+     * console.log(_.isMatchWith(target,{b:1},_.eq))
      * //false
-     * console.log(_.isMatchWith(target,{b:'1'}))
+     * console.log(_.isMatchWith(target,{b:'1'},_.eq))
      *
      * target = {a:null,b:0}
      * //true
@@ -670,11 +686,11 @@
      *
      * @param target 如果不是对象类型，返回false
      * @param props 对比属性对象，如果是nil，返回true
-     * @param [comparator=eq] 比较器，参数(object[k],props[k],k,object,props)，返回true表示匹配
+     * @param comparator 比较器。参数(object[k],props[k],k,object,props)，返回true表示匹配
      * @returns 匹配所有props返回true
      * @since 0.18.1
      */
-    function isMatchWith(target, props, comparator = eq$1) {
+    function isMatchWith(target, props, comparator) {
         if (isNil(props))
             return true;
         const ks = Object.keys(props);
@@ -1003,9 +1019,9 @@
      * //[1] "2"和2不相同，3和"3"不相同
      * console.log(_.intersect([1,2,3],[1,'2',3],[2,'3',1]))
      *
-     * @param [arrays] 1-n个数组或arraylike对象，非arraylike参数会被忽略
-     * @param [identifier] (v);标识函数，用来对每个元素返回唯一标识，标识相同的值会认为相等。使用<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Equality_comparisons_and_sameness#Same-value-zero_equality">SameValueZero</a>
-     * 算法进行值比较。如果为空，直接使用值自身比较
+     * @param params (...arrays[,identifier(v)])
+     * arrays - 1-n个数组或arraylike对象，非arraylike参数会被忽略;
+     * identifier - 标识函数，用来对每个元素返回唯一标识，标识相同的值会认为相等。使用<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Equality_comparisons_and_sameness#Same-value-zero_equality">SameValueZero</a> 算法进行值比较。如果为空，直接使用值自身比较
      * @returns 交集元素组成的新数组
      */
     function intersect(...params) {
@@ -1330,9 +1346,9 @@
      * //2
      * console.log(_.sortedIndexBy([{a:1},{a:2},{a:3}], {a:2.5},'a'))
      *
-     * @param keys 对象属性标识符数组
+     * @param array 对象属性标识符数组
      * @param value 需要插入数组的值
-     * @param [iteratee=identity] (value)回调函数，返回排序对比值
+     * @param itee (value)回调函数，返回排序对比值。默认 identity
      * @returns array索引
      * @since 1.0.0
      */
@@ -1343,7 +1359,7 @@
         const cb = iteratee(itee || identity);
         value = cb(value);
         while (left < right) {
-            const mid = parseInt((left + right) / 2);
+            const mid = parseInt((left + right) / 2 + '');
             if (cb(array[mid]) < value) {
                 left = mid + 1;
                 index = left;
@@ -1399,9 +1415,9 @@
      * //[1, 2, 3, "3"] "3"和3不相等
      * console.log(_.union([1,2,3],[1,3],[2,'3',1]))
      *
-     * @param [arrays] 1-n个数组或arraylike对象，非arraylike参数会被忽略
-     * @param [identifier] (v);标识函数，用来对每个元素返回唯一标识，标识相同的值会认为相等。使用<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Equality_comparisons_and_sameness#Same-value-zero_equality">SameValueZero</a>
-     * 算法进行值比较。如果为空，直接使用值自身比较
+     * @param params (...arrays[,identifier(v)])
+     * arrays - 1-n个数组或arraylike对象，非arraylike参数会被忽略;
+     * identifier - 标识函数，用来对每个元素返回唯一标识，标识相同的值会认为相等。使用<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Equality_comparisons_and_sameness#Same-value-zero_equality">SameValueZero</a> 算法进行值比较。如果为空，直接使用值自身比较
      * @returns 并集元素组成的新数组
      */
     function union(...params) {
@@ -1456,7 +1472,7 @@
      * console.log(_.uniqBy([{a:1},{a:1},{a:'1'},{a:2},{a:'2'},{a:2}],v=>v.a>>0))
      *
      * @param array 数组
-     * @param iteratee (value,index) 筛选函数，返回需要对比的值。默认identity
+     * @param itee (value,index) 筛选函数，返回需要对比的值。默认identity
      * <br>当iteratee是函数时回调参数见定义
      * <br>其他类型请参考 {@link utils.iteratee}
      * @returns 去重后的新数组对象
@@ -1589,8 +1605,10 @@
      * //[3, 4]
      * console.log(_.zipWith([1,2],[3,4],[5,6],group=>_.avg(group)))
      *
-     * @param arrays 1-n个数组
-     * @param [iteratee=identity] (group)回调函数，返回组合后的分组值
+     * @param params (...arrays[,iteratee(group)])
+     * arrays - 1-n个数组或arraylike对象，非arraylike参数会被忽略;
+     * iteratee - 回调函数，返回组合后的分组值。默认使用<code>identity</code>函数
+     *
      * @returns 重新分组后的新数组
      * @since 1.0.0
      */
@@ -1653,7 +1671,7 @@
         return stat;
     }
 
-    function _eachIteratorRight(collection, callback) {
+    function eachRight(collection, callback) {
         let values;
         let keys;
         if (isString(collection) || isArrayLike(collection)) {
@@ -1695,10 +1713,6 @@
                     return;
             }
         }
-    }
-
-    function eachRight(collection, callback) {
-        _eachIteratorRight(collection, callback);
     }
 
     function every(collection, predicate) {
@@ -2205,7 +2219,6 @@
       flatMap: flatMap,
       flatMapDeep: flatMapDeep,
       groupBy: groupBy,
-      head: first,
       includes: includes,
       initial: initial,
       keyBy: keyBy,
@@ -2374,7 +2387,7 @@
             rs = new Date(value);
         }
         else if (isArray(value)) {
-            rs = new Date(...value);
+            rs = new Date(value[0], value[1] - 1, value[2] || 1, value[3] || 0, value[4] || 0, value[5] || 0, value[6] || 0);
         }
         else {
             rs = new Date(value);
@@ -2390,7 +2403,7 @@
     /**
      * 指定日期是否是闰年
      * @param date 日期对象
-     * @returns {number} 闰年返回true
+     * @returns 闰年返回true
      */
     function isLeapYear(date) {
         date = toDate(date);
@@ -2522,11 +2535,11 @@
      * console.log(_.formatDate('2020-12-11 10:09:08','现在时间:(yy-MM-dd hh:mm:ss)'))
      *
      * @param val 需要格式化的值，可以是日期对象或时间字符串或日期毫秒数
-     * @param [pattern='yyyy-MM-dd hh:mm:ss'] 格式化模式
+     * @param [pattern='yyyy-MM-dd HH:mm:ss'] 格式化模式
      * @returns 格式化后的日期字符串，无效日期返回空字符串
      */
     function formatDate(val, pattern) {
-        pattern = pattern || 'yyyy-MM-dd hh:mm:ss';
+        pattern = pattern || 'yyyy-MM-dd HH:mm:ss';
         let formatter = cache$1[pattern];
         if (!formatter) {
             formatter = (date) => {
@@ -2652,7 +2665,7 @@
     /**
      * 设置不同locale的配置
      * @param lang 语言标记，默认跟随系统
-     * @param options 格式化选项
+     * @param {object} options 格式化选项
      * @param options.quarters 季度描述，默认"一 - 四季度"
      * @param options.months 月度描述，默认"一 - 十二月"
      * @param options.weeks 一月中的周描述，默认"第一 - 六周"
@@ -2842,7 +2855,7 @@
      * @returns 绑定thisArg的新函数
      * @since 0.17.0
      */
-    function bind(fn, thisArg, ...args) {
+    function bind$1(fn, thisArg, ...args) {
         return partial((fn || (() => { })).bind(thisArg), ...args);
     }
 
@@ -2872,7 +2885,7 @@
             const nextSeg = chain[i + 1];
             let tmp = target[seg];
             if (nextSeg) {
-                let next = !tmp ? (isNaN(nextSeg) ? {} : []) : tmp;
+                let next = !tmp ? (isNaN(parseInt(nextSeg)) ? {} : []) : tmp;
                 if (!tmp) {
                     tmp = target[seg] = next;
                 }
@@ -3045,8 +3058,8 @@
      * @returns 表达式计算结果
      */
     function fval(expression, args, context) {
-        const ks = keys(args);
-        const val = values(args);
+        const ks = args ? keys(args) : [];
+        const val = args ? values(args) : [];
         return Function(...ks, '"use strict";return ' + expression).call(context, ...val);
     }
 
@@ -3148,7 +3161,7 @@
         }
         return (function (...args) {
             timeoutArgs = args.map(arg => {
-                if (arg instanceof Event) {
+                if (arg instanceof globalThis.Event) {
                     EventTargetMap.set(arg, {
                         currentTarget: arg.currentTarget,
                         fromElement: Reflect.get(arg, 'fromElement'),
@@ -3182,7 +3195,7 @@
       __proto__: null,
       after: after,
       alt: alt,
-      bind: bind,
+      bind: bind$1,
       bindAll: bindAll,
       call: call,
       compose: compose,
@@ -3262,7 +3275,7 @@
      * @since 1.0.0
      */
     function isElement(v) {
-        return typeof v === 'object' && v instanceof Element;
+        return typeof v === 'object' && v instanceof (globalThis.Element || Object);
     }
 
     /**
@@ -3424,6 +3437,26 @@
      */
     function isFinite(v) {
         return Number.isFinite(v);
+    }
+
+    /**
+     * 判断参数是否为小写字母
+     * @example
+     * //false
+     * console.log(_.isLowerCaseChar('A'))
+     * //true
+     * console.log(_.isLowerCaseChar('a'))
+     * //false
+     * console.log(_.isLowerCaseChar(null))
+     *
+     * @param v
+     * @returns
+     */
+    function isLowerCaseChar(v) {
+        if (v === null || v === undefined || Number.isNaN(v))
+            return false;
+        const code = (v + '').charCodeAt(0);
+        return code >= 97 && code <= 122;
     }
 
     /**
@@ -3594,6 +3627,24 @@
     }
 
     /**
+     * 判断参数是否为大写字母
+     * @example
+     * //true
+     * console.log(_.isUpperCaseChar('A'))
+     * //false
+     * console.log(_.isUpperCaseChar(null))
+     *
+     * @param v
+     * @returns
+     */
+    function isUpperCaseChar(v) {
+        if (v === null || v === undefined || Number.isNaN(v))
+            return false;
+        const code = (v + '').charCodeAt(0);
+        return code >= 65 && code <= 90;
+    }
+
+    /**
      * 判断值是不是一个WeakMap对象
      *
      * @example
@@ -3642,6 +3693,7 @@
       isFunction: isFunction,
       isInteger: isInteger,
       isIterator: isIterator,
+      isLowerCaseChar: isLowerCaseChar,
       isMap: isMap,
       isMatch: isMatch,
       isMatchWith: isMatchWith,
@@ -3661,6 +3713,7 @@
       isString: isString,
       isSymbol: isSymbol,
       isUndefined: isUndefined,
+      isUpperCaseChar: isUpperCaseChar,
       isWeakMap: isWeakMap,
       isWeakSet: isWeakSet
     });
@@ -3722,10 +3775,15 @@
      * @since 1.0.0
      */
     function max(values) {
-        const vals = flatMap(values, v => isNil(v) || isNaN(v) ? [] : v);
-        let f64a = new Float64Array(vals);
-        f64a.sort();
-        return f64a[f64a.length - 1];
+        if (!isArray(values) && !isSet(values))
+            return NaN;
+        let rs = isArray(values) ? values[0] : values.values().next().value;
+        values.forEach(v => {
+            if (isNumeric(v) && v > rs) {
+                rs = v;
+            }
+        });
+        return Number(rs);
     }
 
     /**
@@ -3743,13 +3801,52 @@
      * @since 1.0.0
      */
     function mean(values) {
-        const vals = map(values, v => v ?? 0);
-        let f64a = new Float64Array(vals);
-        let rs = 0;
-        f64a.forEach(v => {
-            rs += v;
+        if (!isArray(values) && !isSet(values))
+            return NaN;
+        let total = 0;
+        let len = 0;
+        values.forEach(v => {
+            if (isNumeric(v)) {
+                total += Number(v);
+                len++;
+            }
         });
-        return rs / f64a.length;
+        return total / len;
+    }
+
+    /**
+     * 对多个数字或数字列表计算中间值并返回结果
+     * @example
+     * //2.5
+     * console.log(_.median([1,2,'3',4]))
+     * //2
+     * console.log(_.median([1,'2',3]))
+     * //1
+     * console.log(_.median([1,'2',-3]))
+     *
+     * @param values 数字/字符数组/Set
+     * @returns mean value
+     * @since 1.12.0
+     */
+    function median(values) {
+        if (!isArray(values) && !isSet(values))
+            return NaN;
+        let sortNumbers = [];
+        values.forEach(v => {
+            if (isNumeric(v)) {
+                sortNumbers.push(Number(v));
+            }
+        });
+        sortNumbers.sort();
+        let rs;
+        if (sortNumbers.length % 2 === 0) {
+            let i = sortNumbers.length / 2 - 1;
+            rs = (sortNumbers[i] + sortNumbers[i + 1]) / 2;
+        }
+        else {
+            rs = sortNumbers[Math.ceil(sortNumbers.length / 2) - 1];
+        }
+        return rs;
     }
 
     /**
@@ -3762,14 +3859,19 @@
      * //-Infinity
      * console.log(_.min([-Infinity,-9999,0,null]))
      * @param values 数字/字符数组/Set
-     * @returns
+     * @returns 如果参数不是数组/Set，返回NaN
      * @since 1.0.0
      */
     function min(values) {
-        const vals = flatMap(values, v => isNil(v) || isNaN(v) ? [] : v);
-        let f64a = new Float64Array(vals);
-        f64a.sort();
-        return f64a[0];
+        if (!isArray(values) && !isSet(values))
+            return NaN;
+        let rs = isArray(values) ? values[0] : values.values().next().value;
+        values.forEach(v => {
+            if (isNumeric(v) && v < rs) {
+                rs = v;
+            }
+        });
+        return Number(rs);
     }
 
     /**
@@ -3847,18 +3949,38 @@
         return a - b;
     }
 
-    function sum(...values) {
-        let ary = values;
-        if (ary.length === 1 && isArrayLike(ary[0])) {
-            ary = ary[0];
-        }
-        const vals = ary.map((v) => isNil(v) ? 0 : v);
-        let rs = 0;
-        const f64a = new Float64Array(vals);
-        f64a.forEach((v) => {
-            rs += v;
+    /**
+     * 对字符/数字数组/Set进行求和并返回结果
+     * - 对nil值，自动转为0
+     * - 对NaN值，返回NaN
+     * - 对Infinity值，返回Infinity
+     *
+     * @example
+     * //10
+     * console.log(_.sum([1,'2',3,4]))
+     * //10
+     * console.log(_.sum([1,'2',3,4,null,undefined]))
+     * //9
+     * console.log(_.sum([NaN,'2',3,4]))
+     * //Infinity
+     * console.log(_.sum([Infinity,'2',3,4]))
+     * //6
+     * console.log(_.sum(new Set([1,2,3])))
+     *
+     * @param values 数字/字符数组/Set
+     * @since 1.0.0
+     * @returns
+     */
+    function sum(values) {
+        if (!isArray(values) && !isSet(values))
+            return NaN;
+        let total = 0;
+        values.forEach(v => {
+            if (isNumeric(v)) {
+                total += Number(v);
+            }
         });
-        return rs;
+        return total;
     }
 
     var math = /*#__PURE__*/Object.freeze({
@@ -3867,6 +3989,7 @@
       divide: divide,
       max: max,
       mean: mean,
+      median: median,
       min: min,
       minmax: minmax,
       multiply: multiply,
@@ -4164,7 +4287,6 @@
       inRange: inRange,
       lt: lt,
       lte: lte,
-      toInt: toInteger,
       toInteger: toInteger,
       toNumber: toNumber
     });
@@ -4255,37 +4377,27 @@
             rs = new Date(obj.getTime());
         }
         else if (isBoolean(obj)) {
-            rs = Boolean(obj);
+            rs = new Boolean(obj.valueOf());
         }
         else if (isString(obj)) {
-            rs = String(obj);
+            rs = new String(obj);
         }
         else if (isRegExp(obj)) {
             rs = new RegExp(obj);
         }
+        else if (isNumber(obj)) {
+            rs = new Number(obj);
+        }
+        else if (isSet(obj)) {
+            rs = new Set(obj);
+        }
+        else if (isMap(obj)) {
+            rs = new Map(obj);
+        }
         return rs;
     }
 
-    /**
-     * 浅层复制对象，支持赋值处理器
-     * 如果obj是基本类型，返回原值
-     * 如果obj是函数类型，返回原值
-     * 如果obj是元素类型，返回原值
-     *
-     * 只复制对象的自身可枚举属性
-     *
-     * @example
-     * //{x: 1, y: 2, z: null}
-     * console.log(_.cloneWith({x:1,y:2,z:3},(v,k)=>k=='z'?null:v))
-     * //null
-     * console.log(_.cloneWith(null))
-     *
-     * @param obj
-     * @param handler (value,key) 自定义赋值处理器，返回赋予新对象[k]的值。默认 `identity`
-     * @param skip (value,key) (value,key) 返回true 跳过clone该属性
-     * @returns 被复制的新对象
-     */
-    function cloneWith(obj, handler = identity, skip = () => false) {
+    function cloneWith(obj, handler, skip = (value, key) => false) {
         if (!isObject(obj))
             return obj;
         if (isFunction(obj))
@@ -4312,41 +4424,11 @@
         return copy;
     }
 
-    /**
-     * 浅层复制对象
-     * 如果是基本类型，返回原值
-     * 如果是函数类型，返回原值
-     * 只复制对象的自身可枚举属性
-     *
-     * @example
-     * //null
-     * console.log(_.clone(null))
-     *
-     * @param obj
-     * @returns 被复制的新对象
-     */
     function clone(obj) {
         return cloneWith(obj, identity);
     }
 
-    /**
-     * 完整复制对象,可以保持被复制属性的原有类型。支持赋值处理器
-     *
-     * 如果obj是基本类型，返回原值
-     * 如果obj是函数类型，返回原值
-     * 如果obj是元素类型，返回原值
-     * 只复制对象的自身可枚举属性
-     *
-     * @example
-     * //true
-     * console.log(_.cloneDeepWith({d:new Date}).d instanceof Date)
-     *
-     * @param obj
-     * @param handler (value,key,obj) 自定义赋值处理器，返回赋予新对象[k]的值，当返回对象且返回值与被复制值相同引用则跳过深度复制。默认 `clone`
-     * @param skip (value,key) 返回true 跳过clone该属性
-     * @returns 被复制的新对象
-     */
-    function cloneDeepWith(obj, handler, skip = () => false) {
+    function cloneDeepWith(obj, handler, skip = (value, key) => false) {
         if (!isObject(obj))
             return obj;
         if (isFunction(obj))
@@ -4376,20 +4458,6 @@
         return copy;
     }
 
-    /**
-     * 完整复制对象,可以保持被复制属性的原有类型
-     *
-     * 如果obj是基本类型，返回原值
-     * 如果obj是函数类型，返回原值
-     * 只复制对象的自身可枚举属性
-     *
-     * @example
-     * //true
-     * console.log(_.cloneDeep({d:new Date}).d instanceof Date)
-     *
-     * @param obj
-     * @returns 被复制的新对象
-     */
     function cloneDeep(obj) {
         return cloneDeepWith(obj, clone);
     }
@@ -4549,12 +4617,16 @@
      */
     function functions(obj) {
         let rs = [];
+        let ks = Object.keys(obj);
         //通过描述信息value判断而不是直接获取obj[k]可以避免getter的直接调用
-        let descrs = Object.getOwnPropertyDescriptors(obj);
-        let ks = Object.keys(descrs);
+        // let descrs = Object.getOwnPropertyDescriptors<Record<string, any>>(obj)
+        // let ks = Object.keys(descrs)
         for (const k of ks) {
-            let { value } = descrs[k];
-            if (isFunction(value)) {
+            let descr = Object.getOwnPropertyDescriptor(obj, k);
+            if (!descr)
+                continue;
+            // let { value } = descrs[k]
+            if (isFunction(descr.value)) {
                 rs.push(k);
             }
         }
@@ -4577,8 +4649,8 @@
     }
 
     /**
-     * 返回对象的所有key数组
-     * 包括原型链中的属性key
+     * 返回对象/Map的所有key数组
+     * 包括对象原型链中的属性key
      *
      * @example
      * let f = new Function("this.a=1;this.b=2;");
@@ -4587,9 +4659,12 @@
      * console.log(_.keysIn(new f()))
      *
      * @param obj
-     * @returns 对象的key
+     * @returns key数组
      */
     function keysIn(obj) {
+        if (isMap(obj)) {
+            return Array.from(obj.keys());
+        }
         const rs = [];
         // eslint-disable-next-line guard-for-in
         for (const k in obj) {
@@ -4613,8 +4688,9 @@
      * console.log(_.mergeWith({x:1,y:{a:1,b:2,c:3}},{x:2,y:{a:2,d:3}},{y:{b:4}},(sv,tv,k)=>k=='d'?sv*9:undefined))
      *
      * @param target 目标对象
-     * @param sources 1-n个源对象
-     * @param [handler=noop] (src[k],target[k],k,src,target,chain) 自定义赋值处理器，返回赋予target[k]的值
+     * @param sources (...src[,handler(src[k],target[k],k,src,target,chain)])
+     * src - 1-n个源对象;
+     * handler - 自定义赋值处理器，返回赋予target[k]的值。默认使用<code>noop</code>
      * @returns 返回target
      * @since 0.22.0
      */
@@ -4726,7 +4802,10 @@
     }
 
     /**
-     * 解析标准/非标准JSON字符串，返回对象
+     * 解析标准/非标准JSON字符串
+     * 如果str非字符串类型，返回原值
+     * 如果str是无效JSON字符串，返回原值
+     *
      * @example
      * //{a:1,b:2,c:'3'}
      * console.log(_.parseJSON("{a:1,b:2,c:'3'}"))
@@ -4737,18 +4816,23 @@
      * //12
      * console.log(_.parseJSON('12')
      *
+     *
      * @param str JSON字符串
+     * @param ignore 如果为true，当值为 NaN/Infinity 时忽略该属性，否则返回值对应字符串。默认false
      * @returns 解析后的对象或空对象
      * @since 1.9.0
      */
-    function parseJSON(str) {
+    function parseJSON(str, ignore = false) {
+        if (!isString(str))
+            return str;
         let s = (str + '').replace(/:\s*(['`])(.*)\1(?=\s*[},])/mg, ':"$2"').replace(/([{,])\s*([a-zA-Z0-9_$]+)\s*:/mg, '$1"$2":');
+        s = ignore ? s.replace(/[{,]\s*"[a-zA-Z0-9_$]+"\s*:\s*([-+]?NaN|[-+]?Infinity)\s*/mg, '') : s.replace(/:\s*([-+]?NaN|[-+]?Infinity)\s*([,}])/mg, ':"$1"$2');
         let rs;
         try {
             rs = JSON.parse(s);
         }
         catch (e) {
-            rs = {};
+            rs = str;
         }
         return rs;
     }
@@ -4831,6 +4915,11 @@
                 const tmp = toObject(...v);
                 assign(rs, tmp);
             }
+            else if (isMap(v)) {
+                v.forEach((val, k) => {
+                    rs[k] = val;
+                });
+            }
             else if (isObject(v)) {
                 if (key) {
                     pairs.push(key, v);
@@ -4897,7 +4986,7 @@
             const nextSeg = chain[i + 1];
             let tmp = target[seg];
             if (nextSeg) {
-                tmp = target[seg] = !tmp ? (isNaN(nextSeg) ? {} : []) : tmp;
+                tmp = target[seg] = !tmp ? (isNaN(parseInt(nextSeg)) ? {} : []) : tmp;
             }
             else {
                 return delete target[seg];
@@ -4908,7 +4997,7 @@
     }
 
     /**
-     * 返回对象的所有value数组
+     * 返回对象/Map的所有value数组
      * 包括原型链中的属性
      *
      * @example
@@ -4918,9 +5007,12 @@
      * console.log(_.valuesIn(new f()))
      *
      * @param obj
-     * @returns 对象根属性对应的值列表
+     * @returns 值列表
      */
     function valuesIn(obj) {
+        if (isMap(obj)) {
+            return Array.from(obj.values());
+        }
         return keysIn(obj).map((k) => obj[k]);
     }
 
@@ -4977,29 +5069,6 @@
         return str[0].toLowerCase() + str.substring(1);
     }
 
-    function _getGrouped(str) {
-        return (str.match(/[A-Z]{2,}|([^\s-_]([^\s-_A-Z]+)?(?=[\s-_A-Z]))|([^\s-_]+(?=$))/g) || []);
-    }
-
-    /**
-     * 转换字符串第一个字符为大写并返回
-     *
-     * @example
-     * //'First'
-     * console.log(_.upperFirst('first'))//mixCase
-     * //'GetMyURL'
-     * console.log(_.upperFirst('getMyURL'))//camelCase
-     *
-     * @param str
-     * @returns 返回新字符串
-     */
-    function upperFirst(str) {
-        str = toString(str);
-        if (str.length < 1)
-            return str;
-        return str[0].toUpperCase() + str.substring(1);
-    }
-
     /**
      * 返回帕斯卡风格的字符串
      *
@@ -5019,7 +5088,34 @@
      * @returns 返回新字符串
      */
     function pascalCase(str) {
-        return _getGrouped(toString(str)).reduce((acc, v) => acc + upperFirst(v.toLowerCase()), '');
+        let rs = "";
+        str = toString(str);
+        let prevType = 0; //1小写字母；2大写字母；3分隔符
+        for (let i = 0; i < str.length; i++) {
+            let s = str[i];
+            if (isLowerCaseChar(s)) {
+                if (prevType === 3 || prevType === 0) {
+                    s = s.toUpperCase();
+                }
+                rs += s;
+                prevType = 1;
+                continue;
+            }
+            if (s === " " || s === "-" || s === "_") {
+                if (prevType === 3)
+                    continue;
+                prevType = 3;
+                continue;
+            }
+            if (isUpperCaseChar(s)) {
+                if (prevType === 2) {
+                    s = s.toLowerCase();
+                }
+                rs += s;
+                prevType = 2;
+            }
+        }
+        return rs;
     }
 
     /**
@@ -5082,22 +5178,6 @@
         return toString(str).endsWith(searchStr, position);
     }
 
-    const REG_EXP_KEYWORDS = [
-        '\\',
-        '$',
-        '(',
-        ')',
-        '*',
-        '+',
-        '.',
-        '[',
-        ']',
-        '?',
-        '^',
-        '{',
-        '}',
-        '|',
-    ];
     /**
      * 转义正则字符串中的特殊字符，包括 '\', '$', '(', ')', '*', '+', '.', '[', ']', '?', '^', '\{', '\}', '|'
      *
@@ -5110,9 +5190,22 @@
      * @since 1.0.0
      */
     function escapeRegExp(str) {
-        return toString(str)
-            .split('')
-            .reduce((a, b) => a + (REG_EXP_KEYWORDS.includes(b) ? '\\' + b : b), '');
+        let rs = "";
+        str = toString(str);
+        for (let i = 0; i < str.length; i++) {
+            let s = str[i];
+            const code = s.charCodeAt(0);
+            if (code === 36 ||
+                code === 46 ||
+                code === 63 ||
+                (code >= 40 && code <= 43) ||
+                (code >= 91 && code <= 94) ||
+                (code >= 123 && code <= 125)) {
+                s = "\\" + s;
+            }
+            rs += s;
+        }
+        return rs;
     }
 
     /**
@@ -5135,22 +5228,6 @@
     }
 
     /**
-     * 返回所有字母是小写格式的字符串
-     *
-     * @example
-     * //''
-     * console.log(_.lowerCase())
-     * //'func.js'
-     * console.log(_.lowerCase('FUNC.JS'))
-     *
-     * @param str
-     * @returns 返回新字符串
-     */
-    function lowerCase(str) {
-        return toString(str).toLowerCase();
-    }
-
-    /**
      * 返回短横线风格的字符串
      *
      * @example
@@ -5167,7 +5244,33 @@
      * @returns 返回新字符串
      */
     function kebabCase(str) {
-        return lowerCase(_getGrouped(toString(str)).join('-'));
+        let rs = "";
+        str = toString(str);
+        let prevType = 0; //1小写字母；2大写字母；3分隔符
+        let lastPos = str.length - 1;
+        for (let i = 0; i < str.length; i++) {
+            const s = str[i];
+            if (isLowerCaseChar(s)) {
+                rs += s;
+                prevType = 1;
+                continue;
+            }
+            if (s === " " || s === "-" || s === "_") {
+                if (prevType === 3 || i === lastPos)
+                    continue;
+                rs += "-";
+                prevType = 3;
+                continue;
+            }
+            if (isUpperCaseChar(s)) {
+                if (prevType === 1) {
+                    rs += "-";
+                }
+                rs += s.toLowerCase();
+                prevType = 2;
+            }
+        }
+        return rs;
     }
 
     /**
@@ -5187,6 +5290,22 @@
     function lastIndexOf(str, search, fromIndex) {
         str = toString(str);
         return str.lastIndexOf(search, fromIndex || Infinity);
+    }
+
+    /**
+     * 返回所有字母是小写格式的字符串
+     *
+     * @example
+     * //''
+     * console.log(_.lowerCase())
+     * //'func.js'
+     * console.log(_.lowerCase('FUNC.JS'))
+     *
+     * @param str
+     * @returns 返回新字符串
+     */
+    function lowerCase(str) {
+        return toString(str).toLowerCase();
     }
 
     /**
@@ -5324,7 +5443,33 @@
      * @returns 返回新字符串
      */
     function snakeCase(str) {
-        return lowerCase(_getGrouped(toString(str)).join('_'));
+        let rs = "";
+        str = toString(str);
+        let prevType = 0; //1小写字母；2大写字母；3分隔符
+        let lastPos = str.length - 1;
+        for (let i = 0; i < str.length; i++) {
+            const s = str[i];
+            if (isLowerCaseChar(s)) {
+                rs += s;
+                prevType = 1;
+                continue;
+            }
+            if (s === " " || s === "-" || s === "_") {
+                if (prevType === 3 || i === lastPos)
+                    continue;
+                rs += "_";
+                prevType = 3;
+                continue;
+            }
+            if (isUpperCaseChar(s)) {
+                if (prevType === 1) {
+                    rs += "_";
+                }
+                rs += s.toLowerCase();
+                prevType = 2;
+            }
+        }
+        return rs;
     }
 
     /**
@@ -5469,16 +5614,17 @@
                 startZ = true;
             }
             let n = Math.round(parseFloat(keep + '.' + round));
+            let nStr = n + '';
             const strN = n + '';
             if (n > 0 && strN.length > keep.length) {
                 integ += 1 * isNeg;
-                n = strN.substring(1);
+                nStr = strN.substring(1);
             }
             if (startZ) {
-                n = parseInt(strN[0]) - 1 + strN.substring(1);
+                nStr = parseInt(strN[0]) - 1 + strN.substring(1);
             }
-            n = n !== '' && keep.length > 0 ? '.' + n : n;
-            rs = integ + n + '';
+            nStr = nStr !== '' && keep.length > 0 ? '.' + nStr : nStr;
+            rs = integ + nStr + '';
             if (isNeg < 0 && rs[0] !== '-')
                 rs = '-' + rs;
         }
@@ -5551,9 +5697,9 @@
      *
      * @param str
      * @param len 最大长度。如果长度大于<code>str</code>长度，直接返回str
-     * @param options 可选项
+     * @param {object} options 可选项
      * @param options.omission 替代字符，默认 '...'
-     * @param options.separator 截断符。如果截取后的字符串中包含截断符，则最终只会返回截断符之前的内容
+     * @param [options.separator] 截断符。如果截取后的字符串中包含截断符，则最终只会返回截断符之前的内容
      * @returns 返回新字符串
      * @since 1.0.0
      */
@@ -5600,6 +5746,25 @@
      */
     function upperCase(str) {
         return toString(str).toUpperCase();
+    }
+
+    /**
+     * 转换字符串第一个字符为大写并返回
+     *
+     * @example
+     * //'First'
+     * console.log(_.upperFirst('first'))//mixCase
+     * //'GetMyURL'
+     * console.log(_.upperFirst('getMyURL'))//camelCase
+     *
+     * @param str
+     * @returns 返回新字符串
+     */
+    function upperFirst(str) {
+        str = toString(str);
+        if (str.length < 1)
+            return str;
+        return str[0].toUpperCase() + str.substring(1);
     }
 
     var str = /*#__PURE__*/Object.freeze({
@@ -5673,7 +5838,7 @@
      * console.log(render())
      *
      * @param string 模板字符串
-     * @param options MTL参数
+     * @param {object} options MTL参数
      * @param options.delimiters 分隔符，默认 ['[%' , '%]']
      * @param options.mixins 混入对象。\{名称:模板字符串\}
      * @param options.globals 全局变量对象，可以在任意位置引用。模板内置的全局对象有两个：`print(content)`函数、`_` 对象，Myfx的命名空间
@@ -5688,7 +5853,14 @@
                 return includes(ESCAPES, l) ? "\\" + l : l;
             }).join("");
         });
-        options = toObject(options);
+        if (!options) {
+            options = {
+                delimiters: delimiters,
+                globals: {},
+                mixins: undefined,
+                stripWhite: false
+            };
+        }
         const mixins = options.mixins;
         const stripWhite = options.stripWhite || false;
         const comment = delimiters[0] + template$1.settings.comment + delimiters[1];
@@ -5852,9 +6024,9 @@
                 globalKeys = paramAry[0];
                 globalValues = paramAry[1];
             }
-            if (!globalKeys.includes("_") && self.myfx) {
+            if (!globalKeys.includes("_") && globalThis.myfx) {
                 globalKeys.push("_");
-                globalValues.push(self.myfx);
+                globalValues.push(globalThis.myfx);
             }
             const getRender = new Function(...globalKeys, "$options", `return function(${declarations}){
       const textQ=[];
@@ -5909,7 +6081,7 @@
      * @param array 原始数据集。如果非Array类型，返回空数组
      * @param idKey id标识
      * @param pidKey='pid' 父id标识
-     * @param options 自定义选项
+     * @param {object} options 自定义选项
      * @param options.rootParentValue 根节点的parentValue，用于识别根节点。默认null
      * @param options.childrenKey 包含子节点容器的key。默认'children'
      * @param options.attrMap 转换tree节点时的属性映射，如\{text:'name'\}表示把array中一条记录的name属性映射为tree节点的text属性
@@ -5917,7 +6089,7 @@
      * @returns 返回转换好的顶级节点数组或空数组
      * @since 1.0.0
      */
-    function arrayToTree(array, idKey = 'id', pidKey, options = {}) {
+    function arrayToTree(array, idKey = 'id', pidKey, options = { childrenKey: 'children', rootParentValue: null, attrMap: undefined, sortKey: '' }) {
         if (!isArray(array))
             return [];
         const pk = pidKey || 'pid';
@@ -5981,14 +6153,6 @@
         return hasSortKey ? sortBy(roots, sortKey) : roots;
     }
 
-    /**
-     * 根据指定的node及parentKey属性，查找最近的祖先节点
-     * @param node Element节点或普通对象节点
-     * @param predicate (node,times,cancel)断言函数，如果返回true表示节点匹配。或调用cancel中断查找
-     * @param parentKey 父节点引用属性名
-     * @returns 断言为true的最近一个祖先节点
-     * @since 1.0.0
-     */
     function closest(node, predicate, parentKey) {
         let p = node;
         let t = null;
@@ -6039,7 +6203,7 @@
      *
      * @param treeNodes 一组节点或一个节点
      * @param callback (node,parentNode,chain,level,index)回调函数，如果返回false则中断遍历，如果返回-1则停止分支遍历
-     * @param options 自定义选项
+     * @param {object} options 自定义选项
      * @param options.childrenKey 包含子节点容器的key。默认'children'
      * @since 1.0.0
      */
@@ -6058,7 +6222,7 @@
             const node = data[i];
             const rs = callback(node, parentNode, chain, chain.length, i);
             if (rs === false)
-                return;
+                return false;
             if (rs === -1)
                 continue;
             if (!isEmpty(node[childrenKey])) {
@@ -6112,13 +6276,12 @@
      * @param predicate (node,parentNode,chain,level) 断言
      * <br>当断言是函数时回调参数见定义
      * <br>其他类型请参考 {@link utils!iteratee}
-     * @param options 自定义选项
+     * @param {object} options 自定义选项
      * @param options.childrenKey 包含子节点容器的key。默认'children'
      * @returns 找到的符合条件的所有节点副本或空数组
      * @since 1.0.0
      */
-    function filterTree(treeNodes, predicate, options) {
-        options = options || {};
+    function filterTree(treeNodes, predicate, options = { childrenKey: 'children' }) {
         const callback = iteratee(predicate);
         const childrenKey = options.childrenKey || 'children';
         let nodes = [];
@@ -6137,49 +6300,6 @@
         return nodes;
     }
 
-    /**
-     * 查找给定节点及所有子孙节点中符合断言的第一个节点并返回
-     * @example
-     * //生成测试数据
-     * function addChildren(count,parent){
-     *  const data = [];
-     *  const pid = parent?parent.id:null;
-     *  const parentName = parent?parent.name+'-':'';
-     *  _.each(_.range(0,count),i=>{
-     *    const sortNo = _.randi(0,count);
-     *    data.push({id:_.alphaId(),pid,name:parentName+i,sortNo})
-     *  });
-     *  return data;
-     * }
-     *
-     * function genTree(depth,parents,data){
-     *  _.each(parents,r=>{
-     *    const children = addChildren(_.randi(2,5),r);
-     *    if(depth-1>0){
-     *      genTree(depth-1,children,data);
-     *    }
-     *    _.append(data,...children);
-     *  });
-     * }
-     *
-     * const roots = addChildren(2);
-     * const data = [];
-     * genTree(4,roots,data);
-     * _.insert(data,0,...roots);
-     * const tree = _.arrayToTree(data,'id','pid',{sortKey:'sortNo'});
-     *
-     * console.log(_.omit(_.findTreeNode(tree,node=>node.sortNo>2),'children','id','pid'))
-     *
-     *
-     * @param treeNodes 一组节点或一个节点
-     * @param predicate (node,parentNode,chain,level,index) 断言
-     * <br>当断言是函数时回调参数见定义
-     * <br>其他类型请参考 {@link utils!iteratee}
-     * @param options 自定义选项
-     * @param options.childrenKey 包含子节点容器的key。默认'children'
-     * @returns 第一个匹配断言的节点或undefined
-     * @since 1.0.0
-     */
     function findTreeNode(treeNodes, predicate, options) {
         const callback = iteratee(predicate);
         let node;
@@ -6244,13 +6364,12 @@
      *
      * @param treeNodes 一组节点或一个节点
      * @param comparator (a,b) 排序函数
-     * @param options 自定义选项
+     * @param {object} options 自定义选项
      * @param options.childrenKey 包含子节点容器的key。默认'children'
      *
      * @since 1.0.0
      */
-    function sortTree(treeNodes, comparator, options) {
-        options = options || {};
+    function sortTree(treeNodes, comparator, options = { childrenKey: 'children' }) {
         const childrenKey = options.childrenKey || 'children';
         const data = isArray(treeNodes)
             ? treeNodes
@@ -6288,7 +6407,7 @@
      * @since 1.0.0
      */
     function alphaId(len) {
-        const bytes = self.crypto.getRandomValues(new Uint8Array(len || 16));
+        const bytes = globalThis.crypto.getRandomValues(new Uint8Array(len || 16));
         let rs = '';
         bytes.forEach(b => rs += ALPHABET[b % ALPHABET.length]);
         return rs;
@@ -6322,7 +6441,7 @@
      *  select:_.get,
      *  from:_.chain,
      *  where:_.filter,
-     *  top:_.head
+     *  top:_.first
      * });
      *
      * const libs = [
@@ -6475,9 +6594,9 @@
      */
     function uuid(delimiter) {
         let uuid = '';
-        if (self.crypto.randomUUID) {
+        if (globalThis.crypto && globalThis.crypto.randomUUID) {
             // only in https
-            uuid = self.crypto.randomUUID();
+            uuid = globalThis.crypto.randomUUID();
         }
         else {
             const r32 = Math.random();
@@ -6621,9 +6740,10 @@
         isFunction() { return get(FuncChain.prototype, '_isFunction').call(this, ...arguments); }
         isInteger() { return get(FuncChain.prototype, '_isInteger').call(this, ...arguments); }
         isIterator() { return get(FuncChain.prototype, '_isIterator').call(this, ...arguments); }
+        isLowerCaseChar() { return get(FuncChain.prototype, '_isLowerCaseChar').call(this, ...arguments); }
         isMap() { return get(FuncChain.prototype, '_isMap').call(this, ...arguments); }
         isMatch(props) { return get(FuncChain.prototype, '_isMatch').call(this, ...arguments); }
-        isMatchWith(props, comparator = eq$1) { return get(FuncChain.prototype, '_isMatchWith').call(this, ...arguments); }
+        isMatchWith(props, comparator) { return get(FuncChain.prototype, '_isMatchWith').call(this, ...arguments); }
         isNaN() { return get(FuncChain.prototype, '_isNaN').call(this, ...arguments); }
         isNative() { return get(FuncChain.prototype, '_isNative').call(this, ...arguments); }
         isNil() { return get(FuncChain.prototype, '_isNil').call(this, ...arguments); }
@@ -6640,12 +6760,14 @@
         isString() { return get(FuncChain.prototype, '_isString').call(this, ...arguments); }
         isSymbol() { return get(FuncChain.prototype, '_isSymbol').call(this, ...arguments); }
         isUndefined() { return get(FuncChain.prototype, '_isUndefined').call(this, ...arguments); }
+        isUpperCaseChar() { return get(FuncChain.prototype, '_isUpperCaseChar').call(this, ...arguments); }
         isWeakMap() { return get(FuncChain.prototype, '_isWeakMap').call(this, ...arguments); }
         isWeakSet() { return get(FuncChain.prototype, '_isWeakSet').call(this, ...arguments); }
         add(b) { return get(FuncChain.prototype, '_add').call(this, ...arguments); }
         divide(b) { return get(FuncChain.prototype, '_divide').call(this, ...arguments); }
         max() { return get(FuncChain.prototype, '_max').call(this, ...arguments); }
         mean() { return get(FuncChain.prototype, '_mean').call(this, ...arguments); }
+        median() { return get(FuncChain.prototype, '_median').call(this, ...arguments); }
         min() { return get(FuncChain.prototype, '_min').call(this, ...arguments); }
         minmax(max, value) { return get(FuncChain.prototype, '_minmax').call(this, ...arguments); }
         multiply(b) { return get(FuncChain.prototype, '_multiply').call(this, ...arguments); }
@@ -6665,8 +6787,8 @@
         assignWith(...sources) { return get(FuncChain.prototype, '_assignWith').call(this, ...arguments); }
         clone() { return get(FuncChain.prototype, '_clone').call(this, ...arguments); }
         cloneDeep() { return get(FuncChain.prototype, '_cloneDeep').call(this, ...arguments); }
-        cloneDeepWith(handler, skip = () => false) { return get(FuncChain.prototype, '_cloneDeepWith').call(this, ...arguments); }
-        cloneWith(handler = identity, skip = () => false) { return get(FuncChain.prototype, '_cloneWith').call(this, ...arguments); }
+        cloneDeepWith(handler, skip = (value, key) => false) { return get(FuncChain.prototype, '_cloneDeepWith').call(this, ...arguments); }
+        cloneWith(handler, skip = (value, key) => false) { return get(FuncChain.prototype, '_cloneWith').call(this, ...arguments); }
         defaults(...sources) { return get(FuncChain.prototype, '_defaults').call(this, ...arguments); }
         defaultsDeep(...sources) { return get(FuncChain.prototype, '_defaultsDeep').call(this, ...arguments); }
         eq(b) { return get(FuncChain.prototype, '_eq').call(this, ...arguments); }
@@ -6681,7 +6803,7 @@
         mergeWith(...sources) { return get(FuncChain.prototype, '_mergeWith').call(this, ...arguments); }
         omit(...props) { return get(FuncChain.prototype, '_omit').call(this, ...arguments); }
         omitBy(predicate) { return get(FuncChain.prototype, '_omitBy').call(this, ...arguments); }
-        parseJSON() { return get(FuncChain.prototype, '_parseJSON').call(this, ...arguments); }
+        parseJSON(ignore = false) { return get(FuncChain.prototype, '_parseJSON').call(this, ...arguments); }
         pick(...props) { return get(FuncChain.prototype, '_pick').call(this, ...arguments); }
         pickBy(predicate) { return get(FuncChain.prototype, '_pickBy').call(this, ...arguments); }
         prop() { return get(FuncChain.prototype, '_prop').call(this, ...arguments); }
@@ -6720,9 +6842,9 @@
         truncate(len, options) { return get(FuncChain.prototype, '_truncate').call(this, ...arguments); }
         upperCase() { return get(FuncChain.prototype, '_upperCase').call(this, ...arguments); }
         upperFirst() { return get(FuncChain.prototype, '_upperFirst').call(this, ...arguments); }
-        arrayToTree(idKey = 'id', pidKey, options = {}) { return get(FuncChain.prototype, '_arrayToTree').call(this, ...arguments); }
+        arrayToTree(idKey = 'id', pidKey, options = { childrenKey: 'children', rootParentValue: null, attrMap: undefined, sortKey: '' }) { return get(FuncChain.prototype, '_arrayToTree').call(this, ...arguments); }
         closest(predicate, parentKey) { return get(FuncChain.prototype, '_closest').call(this, ...arguments); }
-        filterTree(predicate, options) { return get(FuncChain.prototype, '_filterTree').call(this, ...arguments); }
+        filterTree(predicate, options = { childrenKey: 'children' }) { return get(FuncChain.prototype, '_filterTree').call(this, ...arguments); }
         findTreeNode(predicate, options) { return get(FuncChain.prototype, '_findTreeNode').call(this, ...arguments); }
         findTreeNodes(predicate, options) { return get(FuncChain.prototype, '_findTreeNodes').call(this, ...arguments); }
         alphaId() { return get(FuncChain.prototype, '_alphaId').call(this, ...arguments); }
@@ -6848,7 +6970,6 @@
                 }
                 break;
             case first.name:
-            case first.name:
                 if (isUndefined(comprehension.count) || 1 < comprehension.count) {
                     comprehension.count = 1;
                     comprehension.returnEl = true;
@@ -6916,7 +7037,7 @@
     /* eslint-disable require-jsdoc */
     /* eslint-disable no-invalid-this */
     /* eslint-disable max-len */
-    const VERSION = "1.10.0"; //#ver
+    const VERSION = "1.13.0"; //#ver
     /**
     * 显式开启myfx的函数链，返回一个包裹了参数v的myfx链式对象。函数链可以链接Myfx提供的所有函数，如
      <p>
@@ -7032,6 +7153,11 @@
         DecoratorKey["WATCH"] = "__deco_watch";
         DecoratorKey["EVENTS"] = "__deco_events";
     })(DecoratorKey || (DecoratorKey = {}));
+    var Mode;
+    (function (Mode) {
+        Mode["Prod"] = "prod";
+        Mode["Dev"] = "dev";
+    })(Mode || (Mode = {}));
 
     function showError(msg) {
         console.error(`[CompElem]`, msg);
@@ -7152,11 +7278,11 @@
         let fn = (...args) => {
             return (...metadata) => {
                 let ctor = metadata[0].constructor;
-                let ary = get(ctor, _DecoratorsKey);
+                let ary = ctor[_DecoratorsKey];
                 if (!has(ctor, _DecoratorsKey)) {
                     //继承父类
-                    let parentAry = get(Object.getPrototypeOf(ctor), _DecoratorsKey);
-                    ary = parentAry ? concat(parentAry) : [];
+                    let proto = Object.getPrototypeOf(ctor);
+                    ary = proto ? concat(proto[_DecoratorsKey] ?? []) : [];
                     Reflect.defineProperty(ctor, _DecoratorsKey, {
                         configurable: false,
                         enumerable: false,
@@ -7165,7 +7291,7 @@
                 }
                 let kMap = {};
                 let k;
-                let getKey = get(decoClass, GetKeyFnName);
+                let getKey = decoClass[GetKeyFnName];
                 if (getKey) {
                     let compMap = DecoKeyMap.get(decoClass);
                     if (!compMap) {
@@ -7210,7 +7336,7 @@
         defineProp(target, propertyKey, options, descriptor);
     }
     function defineProp(target, propertyKey, options, descriptor) {
-        if (!/[a-z]/.test(propertyKey[0])) {
+        if (!isLowerCaseChar(propertyKey[0])) {
             showError(`Prop '${propertyKey}' must be in CamelCase`);
         }
         let attrSet;
@@ -7505,7 +7631,7 @@
                         }
                     }
                     let updater = dep._notify(ov, subChain);
-                    Queue.pushNext(updater);
+                    Queue.pushNext(updater, dep.cid);
                 });
                 return rs;
             }
@@ -7558,6 +7684,7 @@
         }
         return proxyObject;
     }
+    const QMap = new Map();
     class Queue {
         static watchSet = new Set();
         static computedSet = new Set();
@@ -7579,6 +7706,7 @@
             cq.forEach(u => u());
             sq.forEach(u => u());
             nq.forEach(u => u());
+            QMap.clear();
         }
         static pushWatch(updater) {
             Queue.watchSet.add(updater);
@@ -7589,7 +7717,14 @@
         static pushCss(updater) {
             Queue.cssSet.add(updater);
         }
-        static pushNext(updater) {
+        static pushNext(updater, key) {
+            if (key) {
+                if (QMap.has(key)) {
+                    // console.log(updater, 'nextting......')
+                    return;
+                }
+                QMap.set(key, updater);
+            }
             Queue.nextSet.add(updater);
             if (!Queue.nextPending) {
                 Queue.nextPending = true;
@@ -7605,136 +7740,6 @@
         };
     })();
 
-    /**
-     * 视图基类 为组件视图及指令子视图提供统一服务
-     * @param spuerClass
-     * @returns
-     */
-    function View(spuerClass) {
-        //mixin class
-        return class extends spuerClass {
-            __updatePoints;
-            /**
-             * 渲染上下文所属组件，仅用于指令
-             */
-            renderComponent;
-            buildView(tmpl) {
-                let comp = this instanceof CompElem ? this : this.renderComponent;
-                let [html, vars] = buildHTML(comp, tmpl);
-                let updatePoints = [];
-                let nodes = buildTmplate(updatePoints, html, vars, comp, this);
-                this.__updatePoints = updatePoints;
-                return nodes;
-            }
-            updateView(tmpl) {
-                if (isBlank(join(tmpl.strings)))
-                    return;
-                if (!this.__updatePoints)
-                    return;
-                let { vars } = tmpl;
-                let comp = this instanceof CompElem ? this : this.renderComponent;
-                for (let i = 0; i < this.__updatePoints.length; i++) {
-                    const up = this.__updatePoints[i];
-                    let varIndex = up.varIndex;
-                    if (varIndex < 0)
-                        continue;
-                    let oldValue = up.value;
-                    let newValue = vars;
-                    let node = up.node;
-                    let indexSegs = split(varIndex, '-');
-                    for (let l = 0; l < indexSegs.length; l++) {
-                        const seg = indexSegs[l];
-                        newValue = get(newValue, seg);
-                        if (newValue && newValue.vars && i < indexSegs.length - 1) {
-                            newValue = newValue.vars;
-                        }
-                    }
-                    //check
-                    if (!isObject(oldValue) && oldValue === newValue)
-                        continue;
-                    let elNode = node;
-                    if (up.isDirective) {
-                        if (!oldValue.di)
-                            continue; //指令还在异步执行中，不更新
-                        //指令
-                        newValue.di = oldValue.di;
-                        newValue.di.renderParams = newValue.varChain;
-                        newValue.di._renderArgs = newValue.args;
-                        newValue.point = oldValue.point;
-                        newValue.varPath = oldValue.varPath;
-                        oldValue.update(oldValue.point, newValue.args, oldValue.args);
-                    }
-                    else if (up.isToggleProp) {
-                        //布尔特性
-                        if ((!!newValue) === oldValue)
-                            continue;
-                        elNode.toggleAttribute(up.attrName, !!newValue);
-                        set(elNode, up.attrName, !!newValue);
-                    }
-                    else if (up.isProp) {
-                        //子组件属性
-                        if (!isObject(newValue) && newValue === oldValue)
-                            continue;
-                        //如果node是slot则触发组件的slot更新
-                        if (node instanceof CompElem) {
-                            node._updateProps({ [up.attrName]: newValue });
-                        }
-                        else if (node instanceof HTMLSlotElement) {
-                            comp._updateSlot(node.getAttribute('name') || 'default', up.attrName, newValue);
-                        }
-                    }
-                    else if (up.attrName && !up.isEvent) {
-                        //特性
-                        if (!isEqual(oldValue, newValue)) {
-                            switch (up.attrName) {
-                                case 'value':
-                                    if (node instanceof HTMLInputElement) {
-                                        node.value = newValue;
-                                        break;
-                                    }
-                                default:
-                                    node.setAttribute(up.attrName, replace(up.attrTmpl, PLACEHOLDER_EXP, newValue + ''));
-                            }
-                        }
-                    }
-                    else if (up.isTmpl) {
-                        //这里一定是子视图更新，子视图仅更新内部__expose
-                        if (newValue.strings.join() !== oldValue.tmpl.strings.join()) {
-                            up.value.updateView(newValue);
-                        }
-                        else if (newValue.vars.some((v) => isObject(v) && !isPlainObject(v)) || oldValue.tmpl.vars.some((v) => isObject(v) && !isPlainObject(v)) || !isEqual(newValue.vars, oldValue.tmpl.vars)) {
-                            up.value.updateView(newValue);
-                        }
-                        oldValue.tmpl = newValue;
-                        newValue = oldValue; //new SubView(newValue)
-                    }
-                    else if (up.isText) {
-                        let textNode = up.textNode.nextSibling;
-                        if (textNode && textNode === up.node.previousSibling) {
-                            textNode.textContent = newValue;
-                        }
-                        else {
-                            DomUtil.remove(up.textNode, up.node);
-                            DomUtil.insertBefore(up.node, [newValue]);
-                        }
-                    }
-                    up.value = newValue;
-                } //endfor
-            }
-        };
-    }
-    /**
-     * 子视图，用于组件视图模板中的非指令子模版
-     */
-    class SubView extends View(Object) {
-        tmpl;
-        constructor(tmpl) {
-            super();
-            this._renderVars = get(tmpl, '_renderVars');
-            this.tmpl = tmpl;
-        }
-    }
-
     const PropTypeMap = {
         boolean: Boolean,
         string: String,
@@ -7748,13 +7753,15 @@
     //组件静态样式
     const ComponentStyleMap = new WeakMap();
     let DefaultCss = [];
+    let CompElemSn = 0;
+    const GlobalStyleMap = new Map();
     /**
      * CompElem基类，意为组件元素。提供了基本内置属性及生命周期等必备接口
      * 每个组件都需要继承自该类
      *
      * @author holyhigh2
      */
-    class CompElem extends View(HTMLElement) {
+    class CompElem extends HTMLElement {
         static __l_globalRule = document.createElement("style");
         //设置全局/组件默认属性
         static defaults(options) {
@@ -7775,6 +7782,7 @@
                 if (test(k[0], /[A-Z]/)) ;
             });
         }
+        #cid;
         #slotPropsMap = {};
         #data = { '#slots': {} };
         #reactiveData = {};
@@ -7785,6 +7793,9 @@
         __events = {};
         get [Symbol.toStringTag]() {
             return this.constructor.name;
+        }
+        get cid() {
+            return this.#cid;
         }
         get reactiveData() {
             return this.#reactiveData;
@@ -7812,6 +7823,9 @@
         }
         get css() {
             return ComponentStyleMap.get(this.constructor);
+        }
+        get globalStyleSheet() {
+            return GlobalStyleMap.get(this.constructor)?.sheet;
         }
         get isMounted() {
             return this.#mounted;
@@ -7847,6 +7861,7 @@
         #initiating = false;
         constructor(...args) {
             super();
+            this.#cid = CompElemSn++;
             //init props via constructor
             if (size(args) === 1) {
                 this.#props = {};
@@ -7863,16 +7878,20 @@
             /////////////////////////////////////////////////// styles
             //global styles
             let globalStyles = get(this.constructor, "globalStyles");
-            let beAttached = get(this.constructor, '_global_style_attached');
-            if (!isEmpty(globalStyles) && beAttached !== '1') {
+            // let beAttached = get(this.constructor, '_global_style_attached')
+            let beAttached = GlobalStyleMap.has(this.constructor);
+            if (!isEmpty(globalStyles) && !beAttached) {
                 let globalTextContent = "";
                 globalStyles.forEach((st) => {
                     if (isString(st)) {
                         globalTextContent += st + "\n";
                     }
                 });
-                CompElem.__l_globalRule.textContent += globalTextContent;
-                set(this.constructor, '_global_style_attached', '1');
+                let style = document.createElement('style');
+                style.textContent += globalTextContent;
+                GlobalStyleMap.set(this.constructor, style);
+                document.head.appendChild(style);
+                // set(this.constructor, '_global_style_attached', '1')
             }
             //component styles
             let beAttached2 = ComponentStyleMap.get(this.constructor);
@@ -7895,8 +7914,10 @@
                 mode: "open"
             });
             this.#shadow.adoptedStyleSheets = [...DefaultCss, ...styleSheets];
+            /////////////////////////////////////////////////// slots
+            this.#updateSlotsAry();
             //slots prop map
-            this._slotsPropMap = { default: [] };
+            // this._slotsPropMap = { default: [] }
             /////////////////////////////////////////////////// decorators create
             let ary = get(this.constructor, _DecoratorsKey);
             ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => dw.create(this));
@@ -7926,7 +7947,7 @@
                 return;
             this.#initiating = true;
             /////////////////////////////////////////////////// slots
-            this.#updateSlotsAry();
+            // this.#updateSlotsAry()
             //1. Props & States
             const props = this.#initProps();
             this.propsReady(props);
@@ -8002,13 +8023,10 @@
             });
             //5. Render
             let tmpl = this.render();
-            let nodes = this.buildView(tmpl);
+            let nodes = buildView(tmpl, this);
             if (nodes) {
-                let children = toArray(nodes);
-                children.forEach((c) => {
-                    this.#shadow.appendChild(c);
-                });
-                this.#renderRoots = filter(children, (n) => n.nodeType === Node.ELEMENT_NODE);
+                this.#shadow.append(...nodes);
+                this.#renderRoots = filter(this.#shadow.childNodes, (n) => n.nodeType === Node.ELEMENT_NODE);
                 this.#renderRoot = this.#renderRoots[0];
             }
             /////////////////////////////////////////////////// before mount
@@ -8030,7 +8048,7 @@
             eventList && eventList.forEach(async (ev) => {
                 let name = ev.name;
                 let options = assign({ target: document, once: false, passive: false, capture: false }, ev.options);
-                let listener = bind(ev.fn, this);
+                let listener = bind$1(ev.fn, this);
                 let target = options.target;
                 if (isFunction(target)) {
                     target = await target.call(this, this);
@@ -8059,7 +8077,9 @@
                 cssss.replaceSync(css);
             });
             Collector.endCollect();
-            this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, ...cssAry];
+            if (cssAry.length > 0) {
+                this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, ...cssAry];
+            }
             setTimeout(() => {
                 this.#mounted = true;
                 this.mounted();
@@ -8078,7 +8098,7 @@
         }
         beforeMount() { }
         mounted() { }
-        #onSlogChange(slot, name) {
+        #onSlotChange(slot, name) {
             //1. 更新 _slotsPropMap & slots
             this.#updateSlotsAry();
             //2. 设置attrs
@@ -8104,7 +8124,7 @@
                                         slotMap.props = {};
                                     }
                                     slotMap.props[k] = v;
-                                    compOfSlot.#onSlogChange(node, sname);
+                                    compOfSlot.#onSlotChange(node, sname);
                                 }
                             }
                             else {
@@ -8185,13 +8205,11 @@
             //2. update context
             renderContextList.forEach(context => {
                 if (context === this) {
-                    this.updateView(this.render());
+                    updateView(this.render(), this);
                 }
                 else {
                     //指令在这里仅更新视图
-                    let rs = context.render(...(context._renderArgs ? context._renderArgs : []));
-                    if (rs)
-                        context.updateView(rs);
+                    updateDirectiveView(context, this);
                 }
             });
             //update slot view
@@ -8230,7 +8248,12 @@
             });
             this.#attrs = this.#attrs ? assign(this.#attrs, filterAttrs) : filterAttrs;
             let rs = {};
-            each(propDefs, (def, key) => {
+            if (!propDefs)
+                return Object.seal(rs);
+            let keys = Object.keys(propDefs);
+            let size = keys.length;
+            for (let i = 0; i < size; i++) {
+                const key = keys[i];
                 let propDef = propDefs[key];
                 let isInited = has(parentProps, key);
                 let defaultVal = get(this, key);
@@ -8265,15 +8288,15 @@
                 let isRequired = propDef.required;
                 if (isRequired && !isInited) {
                     showTagError(tagName, "Prop '" + key + "' is required");
-                    return false;
+                    break;
                 }
                 val = this.#propTypeCheck(propDefs, key, val);
                 let getter = get(propDefs, [key, 'getter']);
                 if (getter)
-                    getter = bind(getter, this);
+                    getter = bind$1(getter, this);
                 let setter = get(propDefs, [key, 'setter']);
                 if (setter)
-                    setter = bind(setter, this);
+                    setter = bind$1(setter, this);
                 if (getter || setter) {
                     Reflect.defineProperty(this.#data, key, {
                         set: setter || function (v) { },
@@ -8298,7 +8321,7 @@
                 }
                 this.#data[key] = val;
                 rs[key] = val;
-            });
+            }
             return Object.seal(rs);
         }
         #convertValue(v, types) {
@@ -8455,7 +8478,7 @@
             }
             slot.addEventListener('slotchange', (e) => {
                 if (this.#inited)
-                    this.#onSlogChange(slot, name === 'default' ? '' : name);
+                    this.#onSlotChange(slot, name === 'default' ? '' : name);
             });
             //3. 保存参数
             if (!isEmpty(props)) {
@@ -8651,8 +8674,8 @@
          * 下一帧执行
          * @param cbk
          */
-        nextTick(cbk) {
-            Queue.pushNext(cbk);
+        nextTick(cbk, key) {
+            Queue.pushNext(cbk, key);
         }
         /**
          * 强制更新一次视图
@@ -8667,11 +8690,20 @@
             this.#update();
         }
     }
-    document.head.appendChild(CompElem.__l_globalRule);
 
     /**
-     * @author holyhigh2
+     * 属性定义
      */
+    var EnterPointType;
+    (function (EnterPointType) {
+        EnterPointType["ATTR"] = "attr";
+        EnterPointType["PROP"] = "prop";
+        EnterPointType["TEXT"] = "text";
+        EnterPointType["CLASS"] = "class";
+        EnterPointType["STYLE"] = "style";
+        EnterPointType["SLOT"] = "slot";
+        EnterPointType["TAG"] = "tag"; //在标签内但不是属性内
+    })(EnterPointType || (EnterPointType = {}));
     var DirectiveUpdateTag;
     (function (DirectiveUpdateTag) {
         DirectiveUpdateTag["NONE"] = "NONE";
@@ -8721,19 +8753,6 @@
     }
 
     /**
-     * 属性定义
-     */
-    var EnterPointType;
-    (function (EnterPointType) {
-        EnterPointType["ATTR"] = "attr";
-        EnterPointType["PROP"] = "prop";
-        EnterPointType["TEXT"] = "text";
-        EnterPointType["CLASS"] = "class";
-        EnterPointType["STYLE"] = "style";
-        EnterPointType["SLOT"] = "slot";
-        EnterPointType["TAG"] = "tag"; //在标签内但不是属性内
-    })(EnterPointType || (EnterPointType = {}));
-    /**
      * 交互点信息
      */
     class EnterPoint {
@@ -8768,168 +8787,221 @@
     (function (MovePosition) {
         MovePosition["AFTER_BEGIN"] = "afterbegin";
     })(MovePosition || (MovePosition = {}));
-    /**
-     * Delay the actual time of execution of directive
-     */
-    class DirectiveWrapper {
-        diClass;
-        args;
-        di;
-        varPath;
-        point;
-        slotComponent;
-        varChain;
-        constructor(diClass, ...args) {
-            this.diClass = diClass;
-            this.args = args;
-            this.varChain = Collector.popDirectiveQ();
-            this.di = new this.diClass();
-            this.di.renderParams = this.varChain;
-        }
-        //校验scope
-        checkScope(scopeType) {
-            let scopes = get(this.diClass, 'scopes');
-            if (!isEmpty(scopes) && !test(scopes.join(','), scopeType)) {
-                showError(`Directive '${this.diClass.name}' is out of scopes, expect '${scopes.join(',')}' bug got '${scopeType}'`);
-                return;
-            }
-        }
-        render(component) {
-            let di = this.di;
-            if (!di.renderComponent) {
-                di.renderComponent = component;
-            }
-            this.di = di;
-            di._renderArgs = this.args;
-            return this.di.render(...this.args);
-        }
-        update(point, newArgs, oldArgs) {
-            let tag = this.di.update(point, newArgs, oldArgs);
-            if (tag === DirectiveUpdateTag.NONE)
-                return;
-            let nodes = point.getNodes();
-            if (tag === DirectiveUpdateTag.REMOVE) {
-                for (let i = 0; i < nodes.length; i++) {
-                    const n = nodes[i];
-                    n.parentNode?.removeChild(n);
-                }
-            }
-            else if (tag === DirectiveUpdateTag.REPLACE) {
-                let newNodes = [];
-                for (let i = 0; i < nodes.length; i++) {
-                    const n = nodes[i];
-                    n.parentNode?.removeChild(n);
-                }
-                let rs = this.di.render(...newArgs);
-                let nnodes = this.di.buildView(rs);
-                newNodes = toArray(nnodes);
-                let fragment = document.createDocumentFragment();
-                fragment.append(...newNodes);
-                point.endNode.parentNode.insertBefore(fragment, point.endNode);
-            }
-            else if (tag === DirectiveUpdateTag.UPDATE) {
-                let newKeys = {};
-                let nodesToUpdate;
-                //原节点顺序
-                let oldSeq = [];
-                let newSeq = [];
-                let updateRs = this.di.render(...newArgs);
-                if (!updateRs) {
-                    updateRs = new Template([], []);
-                }
-                if (isEmpty(nodes)) {
-                    let nodes = this.di.buildView(updateRs);
-                    point.startNode.after(...nodes);
-                    return;
-                }
-                let newTmpls = {};
-                if (updateRs instanceof Template) {
-                    updateRs.vars.forEach(v => {
-                        if (v instanceof Template) {
-                            const k = v.getKey();
-                            newTmpls[k] = v;
-                            newKeys[k] = true;
-                            newSeq.push(k);
-                        }
-                    });
-                }
-                //UPDATE仅处理元素节点
-                nodes = filter(compact(nodes), n => n.nodeType === Node.ELEMENT_NODE);
-                nodesToUpdate = filter(compact(toArray(nodesToUpdate)), n => n.nodeType === Node.ELEMENT_NODE);
-                let oldNodeMap = {};
-                let dupKey = '';
-                let keyQ = {};
-                for (let i = 0; i < nodes.length; i++) {
-                    const node = nodes[i];
-                    let treeNode = node;
-                    let k = treeNode.getAttribute("key");
-                    if (!k)
-                        continue;
-                    if (oldNodeMap[k]) {
-                        dupKey = k;
-                        break;
+    const newNodeMap = {};
+    function addNodes(adds, newTmpls, newSeq, component, updatePoints, pointNode) {
+        const combStrings = [];
+        const combVars = [];
+        const ks = [];
+        let addGroup = [];
+        let lastKey;
+        adds.forEach(add => {
+            let lastAdd = last(addGroup);
+            if (lastAdd) {
+                if (lastKey === add.prevNode) {
+                    if (!lastAdd.group) {
+                        lastAdd.group = [lastKey];
                     }
-                    oldNodeMap[k] = treeNode;
-                    oldSeq.push(k);
-                    keyQ[k] = true;
+                    lastAdd.group.push(add.newkey);
                 }
-                if (dupKey) {
-                    showError(`${camelCase(this.diClass.name)} - duplicate key '${dupKey}'`);
-                    return;
+                else {
+                    addGroup.push(add);
                 }
-                let updateQ = newKeys;
-                const parentNode = point.startNode.parentNode;
-                //compare
-                let adds = [];
-                let dels = [];
-                //计算del
-                each(keyQ, (v, k) => {
-                    if (!updateQ[k]) {
-                        dels.push(k);
-                        delete keyQ[k];
-                        remove(oldSeq, x => x === k);
+            }
+            else {
+                addGroup.push(add);
+            }
+            lastKey = add.newkey;
+            let k = add.newkey;
+            ks.push(k);
+            combStrings.push('');
+            combVars.push(newTmpls[k]);
+        });
+        combStrings.push('');
+        let tmpl = new Template(combStrings, combVars);
+        let originalUps = [...updatePoints];
+        let nodes = buildDirectiveView(pointNode, tmpl, component); //this.di.buildView(tmpl)
+        let ups = DirectiveUpdatePointsMap.get(pointNode);
+        updatePoints.length = 0;
+        updatePoints.push(...ups);
+        let kMap = new Map();
+        nodes.forEach((n) => {
+            const k = n.getAttribute('key');
+            if (ks.includes(k)) {
+                kMap.set(k, true);
+                newNodeMap[k] = n;
+            }
+        });
+        originalUps.forEach((up, i) => {
+            const k = up.key + '';
+            if (!kMap.get(k) && newSeq.includes(k)) {
+                updatePoints.push(up);
+            }
+        });
+        return addGroup;
+    }
+    function updateDirective(point, newArgs, oldArgs, updater, renderComponent, slotComponent, varChain, isTextOrSlot = false) {
+        let rs;
+        if (isTextOrSlot) {
+            Collector.startRender(point.endNode);
+            rs = updater(point, newArgs, oldArgs, { renderComponent, slotComponent, varChain });
+            Collector.endRender(renderComponent);
+        }
+        else {
+            rs = updater(point, newArgs, oldArgs, { renderComponent, slotComponent, varChain });
+        }
+        if (!rs)
+            return;
+        let [tag, tmpl] = rs;
+        if (tag === DirectiveUpdateTag.NONE)
+            return;
+        let nodes = point.getNodes();
+        if (tag === DirectiveUpdateTag.REMOVE) {
+            for (let i = 0; i < nodes.length; i++) {
+                const n = nodes[i];
+                n.parentNode?.removeChild(n);
+            }
+        }
+        else if (tag === DirectiveUpdateTag.REPLACE) {
+            let newNodes = [];
+            for (let i = 0; i < nodes.length; i++) {
+                const n = nodes[i];
+                n.parentNode?.removeChild(n);
+            }
+            let nnodes = buildDirectiveView(point.endNode, tmpl, renderComponent);
+            newNodes = toArray(nnodes);
+            let fragment = document.createDocumentFragment();
+            fragment.append(...newNodes);
+            point.endNode.parentNode.insertBefore(fragment, point.endNode);
+        }
+        else if (tag === DirectiveUpdateTag.UPDATE) {
+            let newKeys = {};
+            let nodesToUpdate;
+            //原节点顺序
+            let oldSeq = [];
+            let newSeq = [];
+            let updatePoints = DirectiveUpdatePointsMap.get(point.endNode);
+            if (!tmpl) {
+                tmpl = new Template([], []);
+            }
+            if (isEmpty(nodes)) {
+                let nodes = buildDirectiveView(point.endNode, tmpl, renderComponent);
+                point.startNode.after(...nodes);
+                return;
+            }
+            let newTmpls = {};
+            if (tmpl instanceof Template) {
+                tmpl.vars.forEach(v => {
+                    if (v instanceof Template) {
+                        const k = v.getKey();
+                        newTmpls[k] = v;
+                        newKeys[k] = true;
+                        newSeq.push(k);
                     }
                 });
-                //计算move
-                if (!isEmpty(newSeq)) {
-                    let lastMoveNodeId = '';
-                    let lastMoveIndex = -1;
-                    let lastGroup = [];
-                    let idWeightMap = new Map();
-                    for (let i = 0; i < newSeq.length; i++) {
-                        const nodeId = newSeq[i];
-                        let oldI = oldSeq.findIndex(c => c === nodeId);
-                        if (oldI > -1 && oldI !== i) {
-                            if (lastMoveIndex < 0 || lastMoveIndex - oldI == 1) {
-                                let lastEl = last(lastGroup);
-                                lastGroup.push({ nodeId, targetId: i === 0 ? MovePosition.AFTER_BEGIN : (lastEl ? lastEl.nodeId : newSeq[i - 1]) });
+            }
+            //UPDATE仅处理元素节点
+            nodes = filter(compact(nodes), n => n.nodeType === Node.ELEMENT_NODE);
+            nodesToUpdate = filter(compact(toArray(nodesToUpdate)), n => n.nodeType === Node.ELEMENT_NODE);
+            let oldNodeMap = {};
+            let dupKey = '';
+            let keyQ = {};
+            for (let i = 0; i < nodes.length; i++) {
+                const node = nodes[i];
+                let treeNode = node;
+                let k = treeNode.getAttribute("key");
+                if (!k)
+                    continue;
+                if (oldNodeMap[k]) {
+                    dupKey = k;
+                    break;
+                }
+                oldNodeMap[k] = treeNode;
+                oldSeq.push(k);
+                keyQ[k] = true;
+            }
+            if (dupKey) {
+                showError(`${camelCase(point.endNode._diName)} - duplicate key '${dupKey}'`);
+                return;
+            }
+            let updateQ = newKeys;
+            const parentNode = point.startNode.parentNode;
+            //compare
+            let adds = [];
+            let dels = [];
+            //计算del
+            each(keyQ, (v, k) => {
+                if (!updateQ[k]) {
+                    dels.push(k);
+                    delete keyQ[k];
+                    remove(oldSeq, x => x === k);
+                }
+            });
+            //计算move
+            let moved = false;
+            if (!isEmpty(newSeq)) {
+                let lastMoveIndex = -1;
+                let lastGroup = [];
+                let moveQueue = [];
+                let edgeOffset = 0;
+                let i = 0;
+                for (; i < newSeq.length; i++) {
+                    const nodeId = newSeq[i];
+                    let oldI = oldSeq.findIndex(c => c === nodeId);
+                    if (oldI < 0) {
+                        let prevKey = newSeq[i - 1];
+                        let prev = prevKey ? oldNodeMap[prevKey] || prevKey : point.startNode;
+                        //add
+                        adds.push({ prevNode: prev, newkey: nodeId });
+                        edgeOffset++;
+                        continue;
+                    }
+                    if (oldI > -1 && oldI !== (i - edgeOffset)) {
+                        if (lastMoveIndex < 0 || Math.abs(lastMoveIndex - oldI) === 1) {
+                            let lastEl = last(lastGroup);
+                            lastGroup.push({ nodeId, targetId: i === 0 ? MovePosition.AFTER_BEGIN : (lastEl ? lastEl.nodeId : newSeq[i - 1]) });
+                        }
+                        else {
+                            moveQueue.push({ moveGroup: lastGroup, moveIndex: i + lastGroup.length });
+                            lastGroup = [];
+                            lastGroup.push({ nodeId, targetId: newSeq[i - 1] });
+                        }
+                        lastMoveIndex = oldI;
+                    }
+                }
+                if (lastGroup.length > 0) {
+                    moveQueue.push({ moveGroup: lastGroup, moveIndex: i + lastGroup.length });
+                }
+                if (moveQueue.length > 0) {
+                    moved = true;
+                    let vals = moveQueue.sort((a, b) => a.moveGroup.length - b.moveGroup.length);
+                    if (vals.length < 2) {
+                        let { moveGroup } = vals[0];
+                        if (moveGroup.length > 1) {
+                            let lastTId = last(moveGroup).targetId;
+                            if (moveGroup[moveGroup.length - 2].nodeId === lastTId) {
+                                moveGroup = initial(moveGroup);
+                            }
+                        }
+                        moveGroup.forEach(({ targetId, nodeId }) => {
+                            let srcEl = oldNodeMap[nodeId];
+                            let target;
+                            if (targetId === MovePosition.AFTER_BEGIN) {
+                                target = point.startNode;
+                                target.after(srcEl);
                             }
                             else {
-                                idWeightMap.set(lastGroup.length, { group: lastGroup, targetId: '' });
-                                // idWeightMap[lastGroup.length] = { group: lastGroup, targetId: '' }
-                                lastGroup = [];
-                                lastGroup.push({ nodeId, targetId: oldSeq[oldI] });
+                                target = oldNodeMap[targetId];
+                                target.after(srcEl);
                             }
-                            lastMoveIndex = oldI;
-                        }
-                        else if (oldI < 0) {
-                            let prev = lastMoveNodeId ? oldNodeMap[lastMoveNodeId] || point.endNode : point.startNode;
-                            //add
-                            adds.push({ prevNode: prev, newkey: nodeId });
-                        }
-                        lastMoveNodeId = nodeId;
+                        });
                     }
-                    if (isEmpty(idWeightMap) && lastGroup.length > 0) {
-                        idWeightMap.set(lastGroup.length, { group: lastGroup, targetId: '' });
-                        // idWeightMap[lastGroup.length] = { group: lastGroup, targetId: '' }
-                    }
-                    let keys = toArray(idWeightMap.keys());
-                    let keyNums = keys.sort((a, b) => a - b);
-                    if (keys.length > 0) {
-                        if (keys.length < 2) {
-                            //如果仅有一组，留最后一个节点
-                            let { group } = idWeightMap.get(keyNums[0]); //idWeightMap[keyNums[0]]
-                            initial(group).forEach(({ targetId, nodeId }) => {
+                    else {
+                        let lastGroupIndex = last(vals).moveIndex;
+                        if (Math.abs(vals[vals.length - 2].moveIndex - lastGroupIndex) === 1) {
+                            vals = initial(vals);
+                        }
+                        vals.forEach(({ moveGroup }) => {
+                            moveGroup.forEach(({ targetId, nodeId }) => {
                                 let srcEl = oldNodeMap[nodeId];
                                 let target;
                                 if (targetId === MovePosition.AFTER_BEGIN) {
@@ -8941,83 +9013,106 @@
                                     target.after(srcEl);
                                 }
                             });
-                        }
-                        else {
-                            //如果多组，留最后一组
-                            console.debug('todo....');
-                        }
-                    } //endif
-                    console.debug('test....');
-                }
-                if (adds.length > 0) {
-                    this.#addNodes(adds, newTmpls, newSeq);
-                }
-                //todo 这里可以调整为如果prevNode是字符串，则从newNodeMap中获取
-                adds.forEach(v => {
+                        });
+                    }
+                } //endif
+            }
+            let addGroup;
+            if (adds.length > 0) {
+                addGroup = addNodes(adds, newTmpls, newSeq, renderComponent, updatePoints, point.endNode);
+                addGroup.forEach((v, i) => {
                     let k = v.newkey;
-                    let treeNode = this.newNodeMap[k];
+                    let treeNode = newNodeMap[k];
                     let prevNode = v.prevNode;
+                    if (v.group) {
+                        let fragment = document.createDocumentFragment();
+                        fragment.append(...map(v.group, (nk) => newNodeMap[nk]));
+                        treeNode = fragment;
+                    }
                     if (prevNode === point.endNode) {
                         prevNode.before(treeNode);
                     }
                     else if (prevNode === point.startNode) {
                         prevNode.after(treeNode);
                     }
+                    else if (typeof prevNode === 'string') {
+                        newNodeMap[prevNode].after(treeNode);
+                    }
                     else {
                         prevNode.after(treeNode);
                     }
                 });
-                dels.forEach(k => {
-                    let treeNode = oldNodeMap[k];
-                    if (treeNode && treeNode.parentNode) {
-                        parentNode.removeChild(treeNode);
-                    }
-                });
-                //reset varIndex
-                this.di.__updatePoints.forEach(up => {
-                    if (!up.key) {
-                        up.key = up.value.tmpl.getKey();
-                    }
-                    const i = newSeq.findIndex(s => s == up.key);
-                    up.varIndex = i;
-                });
-                this.di.updateView(updateRs);
             }
-        }
-        getDirective() {
-            return this.di;
-        }
-        newNodeMap = {};
-        #addNodes(adds, newTmpls, newSeq) {
-            const combStrings = [];
-            const combVars = [];
-            adds.forEach(add => {
-                let k = add.newkey;
-                combStrings.push('');
-                combVars.push(newTmpls[k]);
-            });
-            combStrings.push('');
-            let tmpl = new Template(combStrings, combVars);
-            let originalUps = this.di.__updatePoints;
-            let nodes = this.di.buildView(tmpl);
-            let kMap = new Map();
-            this.di.__updatePoints.forEach((up, i) => {
-                const k = up.value.tmpl.getKey();
-                up.key = k;
-                kMap.set(k, true);
-            });
-            originalUps.forEach((up, i) => {
-                const k = up.key ?? up.value.tmpl.getKey();
-                if (!kMap.get(k)) {
-                    this.di.__updatePoints.push(up);
+            dels.forEach(k => {
+                let treeNode = oldNodeMap[k];
+                if (treeNode && treeNode.parentNode) {
+                    parentNode.removeChild(treeNode);
                 }
             });
-            // this.di.__updatePoints.push(...originalUps)
-            nodes.forEach((n) => {
-                if (n instanceof HTMLElement)
-                    this.newNodeMap[n.getAttribute('key')] = n;
-            });
+            //合并
+            if (tmpl.vars[0] instanceof Template) {
+                let tStrAry = [];
+                let tVarAry = [];
+                each(tmpl.vars, v => {
+                    tVarAry.push(...v.vars);
+                    tStrAry.push(...map(v.vars, v => '1'));
+                });
+                tStrAry.push('1');
+                tmpl = new Template(tStrAry, tVarAry);
+            }
+            //移动顺序
+            if (moved || dels.length > 0 || addGroup) {
+                const groupOffset = [];
+                const upGroup = groupBy(updatePoints, up => up.key);
+                const upValues = values(upGroup);
+                let groupVarIndexOffset = 0;
+                if (oldSeq.length > 1) {
+                    groupVarIndexOffset = Math.abs(upGroup[oldSeq[1]][0].varIndex - upGroup[oldSeq[0]][0].varIndex);
+                }
+                else if (newSeq.length > 1) {
+                    groupVarIndexOffset = Math.abs(upGroup[newSeq[1]][0].varIndex - upGroup[newSeq[0]][0].varIndex);
+                }
+                let startVarIndex = min(map(upValues, uv => uv[0].varIndex));
+                let lastVarIndex = -1;
+                each(upValues[0], (up) => {
+                    if (lastVarIndex < 0) {
+                        lastVarIndex = up.varIndex;
+                        groupOffset.push(0);
+                        return;
+                    }
+                    groupOffset.push(up.varIndex - lastVarIndex);
+                });
+                let movedUpAry = [];
+                newSeq.forEach(nk => {
+                    upGroup[nk].forEach((up, i) => {
+                        up.varIndex = startVarIndex + groupOffset[i];
+                        movedUpAry.push(up);
+                    });
+                    startVarIndex = startVarIndex + groupVarIndexOffset;
+                });
+                updatePoints = movedUpAry;
+            }
+            updateDirectiveView(point.endNode, renderComponent, tmpl, updatePoints);
         }
+    }
+    let DiSn = 0;
+    /**
+     * 返回指令调用函数
+     * @param di
+     * @returns
+     */
+    function directive(fn, scopes) {
+        let name = fn.name || ('Di-' + DiSn++);
+        let sym = Symbol.for(name);
+        return (...args) => {
+            let executor = fn(...args);
+            return [sym, args, executor, (scopeType) => {
+                    if (!isEmpty(scopes) && !test(scopes.join(','), scopeType)) {
+                        showError(`Directive '${Symbol.keyFor(sym)}' is out of scopes, expect '${scopes.join(',')}' bug got '${scopeType}'`);
+                        return;
+                    }
+                }, Collector.popDirectiveQ()];
+        };
     }
 
     /*************************************************************
@@ -9311,9 +9406,37 @@
     const ATTR_PREFIX_REF = "*";
     const ATTR_PROP_DELIMITER = ":";
     const ATTR_REF = "ref";
+    const ATTR_KEY = "key";
     const EXP_ATTR_CHECK = /[.?-a-z]+\s*=\s*(['"])\s*([^='"]*<\!--c_ui-pl_df-->){2,}.*?\1/ims;
     const EXP_PLACEHOLDER = /<\s*[a-z0-9-]+([^>]*<\!--c_ui-pl_df-->)*[^>]*?(?<!-)>/imgs;
     const SLOT_KEY_PROPS = 'slot-props';
+    const HTML_CACHE = new Map();
+    const DOM_CACHE = new Map();
+    const VAR_CACHE = new Map();
+    var VarType;
+    (function (VarType) {
+        VarType["Event"] = "event";
+        VarType["Directive"] = "directive";
+        VarType["DirectiveTag"] = "directiveTag";
+        VarType["DirectiveAttr"] = "directiveAttr";
+        VarType["DirectiveProp"] = "directiveProp";
+        VarType["DirectiveText"] = "directiveText";
+        VarType["DirectiveSlot"] = "directiveSlot";
+        VarType["Attr"] = "attr";
+        VarType["AttrProp"] = "attrProp";
+        VarType["AttrBool"] = "attrBool";
+        VarType["AttrRef"] = "attrRef";
+        VarType["AttrSlot"] = "attrSlot";
+        VarType["AttrKey"] = "key";
+        VarType["Ref"] = "ref";
+        VarType["Text"] = "text";
+    })(VarType || (VarType = {}));
+    const ComponentUpdatePointsMap = new WeakMap();
+    const DirectiveUpdatePointsMap = new WeakMap();
+    const TextOrSlotDirectiveExecutorMap = new WeakMap();
+    const TextOrSlotDirectiveArgsMap = new WeakMap();
+    const TextOrSlotDirectiveUpdatePointMap = new WeakMap();
+    const DirectiveArgsMap = new WeakMap();
     /**
      * 提供渲染函数相关操作
      * @author holyhigh2
@@ -9336,36 +9459,30 @@
         let vars = concat(tmpl.vars);
         let l = tmpl.strings.length - 1;
         let vl = tmpl.vars.length - 1;
+        let varIndex = 0;
         for (let i = 0; i <= l; i++) {
             const str = tmpl.strings[i];
-            let val = get(tmpl.vars, i, '');
-            if (val && val.di) {
-                let rs = val.render(component);
-                if (rs instanceof Template) {
-                    let [h, v] = buildHTML(component, rs);
-                    Reflect.defineProperty(val, '_renderVars', { value: v });
-                    val = PLACEHOLDER_DI_START + h + PLACEHOLDER_DI_END;
-                }
-                else {
-                    val = rs ?? PLACEHOLDER;
-                }
-            }
-            else if (val instanceof Template) {
+            let val = get(vars, varIndex, '');
+            if (val instanceof Template) {
                 let [h, v] = buildHTML(component, val);
-                Reflect.defineProperty(val, '_renderVars', { value: v });
-                val = PLACEHOLDER_TMPL_START + h + PLACEHOLDER_TMPL_END;
+                val = h;
+                vars.splice(varIndex, 1, ...v);
+                varIndex += v.length - 1;
             }
             else {
                 val = i > vl ? "" : PLACEHOLDER;
             }
-            html += str + val;
+            varIndex++;
+            html = html + str + val;
         }
-        //attr check
-        let rs = html.match(EXP_ATTR_CHECK);
-        if (rs) {
-            let errorMsg = replaceAll(rs[0], PLACEHOLDER, '${...}');
-            showError(`Parse error: attribute value can be set only one interpolation —— \n ${errorMsg}`);
-            return ['', vars];
+        {
+            //attr check
+            let rs = html.match(EXP_ATTR_CHECK);
+            if (rs) {
+                let errorMsg = replaceAll(rs[0], PLACEHOLDER, '${...}');
+                showError(`Parse error: attribute value can be set only one interpolation —— \n ${errorMsg}`);
+                return ['', vars];
+            }
         }
         let i = 0;
         html = html.replace(EXP_PLACEHOLDER, (a, b) => {
@@ -9375,10 +9492,18 @@
         html = html.replace(EXP_STR, '$1><').trim();
         return [html, vars];
     }
-    const PLACEHOLDER_DI_START = "<!--c_ui-pl_di-start-->";
-    const PLACEHOLDER_DI_END = "<!--c_ui-pl_di-end-->";
-    const PLACEHOLDER_TMPL_START = "<!--c_ui-pl_tmpl-start-->";
-    const PLACEHOLDER_TMPL_END = "<!--c_ui-pl_tmpl-end-->";
+    function buildVars(component, tmpl) {
+        let vars = concat(tmpl.vars);
+        let l = tmpl.strings.length - 1;
+        for (let i = 0; i <= l; i++) {
+            let val = get(tmpl.vars, i, '');
+            if (val instanceof Template) {
+                let [h, v] = buildHTML(component, val);
+                vars.splice(i, 1, ...v);
+            }
+        }
+        return vars;
+    }
     const PLACEHOLDER = "<!--c_ui-pl_df-->";
     const PLACEHOLDER_PREFFIX = "<!--c_ui-pl_df";
     const PLACEHOLDER_EXP = /<!--c_ui-pl_df\d*(-->)?/;
@@ -9386,29 +9511,32 @@
      * 构建模板为DOM结构
      * @param html
      */
-    function buildTmplate(updatePoints, html, vars, component, viewContext) {
+    function buildTmplate(updatePoints, html, vars, renderComponent, isDirective = false) {
         const container = document.createElement("div");
         container.innerHTML = html;
+        const hasVarChache = VAR_CACHE.has(renderComponent.constructor);
+        if (!isDirective && hasVarChache && !DOM_CACHE.has(renderComponent.constructor)) {
+            DOM_CACHE.set(renderComponent.constructor, container.cloneNode(true));
+        }
+        let NodeSn = 0;
         //遍历dom
         const nodeIterator = document.createNodeIterator(container, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT);
         let currentNode;
         let varIndex = 0;
-        let slotComponent = null;
-        let startDiCommentNode;
-        let startDiCommentNodeStack = [];
-        let startDiStack = [];
-        let startDiUpdatePointStack = [];
-        let updatePointsStack = [updatePoints];
-        let varStack = [];
-        let varIndexStack = [];
+        let slotComponent;
+        let varCacheMap = hasVarChache ? undefined : {};
+        let keyNode = null;
+        let keyVal = '';
         while ((currentNode = nodeIterator.nextNode())) {
+            NodeSn++;
+            let varCacheQueue = hasVarChache ? undefined : [];
             if (currentNode instanceof HTMLElement || currentNode instanceof SVGElement) {
                 if (currentNode instanceof CompElem) {
                     slotComponent = currentNode;
                 }
                 else {
                     if (!slotComponent?.contains(currentNode)) {
-                        slotComponent = null;
+                        slotComponent = undefined;
                     }
                 }
                 let props = {};
@@ -9416,32 +9544,36 @@
                 for (let i = 0; i < attrs.length; i++) {
                     const attr = attrs[i];
                     let { name, value } = attr;
+                    //todo 这里需要修改为 data-slot-xx
                     if (name === SLOT_KEY_PROPS) {
                         let slotName = currentNode.getAttribute('name') || 'default';
-                        if (slotComponent) {
-                            let ary = slotComponent._slotsPropMap[slotName];
-                            if (!ary) {
-                                ary = slotComponent._slotsPropMap[slotName] = [];
-                            }
-                            ary.push(currentNode);
-                        }
+                        varCacheQueue && varCacheQueue.push({ type: VarType.AttrSlot, name: slotName, attrName: name });
+                        continue;
                     } //endif
                     if (startsWith(name, PLACEHOLDER_PREFFIX)) {
                         let val = vars[varIndex];
                         //support directive only for now
-                        if (val instanceof DirectiveWrapper) {
-                            val.checkScope(EnterPointType.TAG);
+                        if (isArray(val) && isSymbol(val[0])) {
+                            let [, args, executor, checker, varChain] = val;
+                            checker(EnterPointType.TAG);
                             let point = new EnterPoint(currentNode, name.substring(1), EnterPointType.TAG);
-                            val.point = point;
-                            val.di.slotComponent = slotComponent;
-                            val.di.renderComponent = component;
+                            let attrMap = DirectiveArgsMap.get(currentNode);
+                            if (!attrMap) {
+                                attrMap = {};
+                                DirectiveArgsMap.set(currentNode, attrMap);
+                            }
+                            attrMap[Symbol.keyFor(val[0])] = [point, renderComponent, slotComponent];
                             let po = new UpdatePoint(varIndex, currentNode);
                             po.isDirective = true;
                             po.value = val;
                             po.isComponent = !!slotComponent;
                             updatePoints.push(po);
+                            if (keyNode && keyNode?.contains(currentNode)) {
+                                po.key = keyVal;
+                            }
                             varIndex++;
-                            val.di.created(point, ...val.args);
+                            executor(point, args, undefined, { renderComponent, slotComponent, varChain });
+                            varCacheQueue && varCacheQueue.push({ type: VarType.DirectiveTag, point, up: po });
                         }
                         currentNode.removeAttribute(name);
                         continue;
@@ -9449,21 +9581,21 @@
                     //@event.stop.prevent.debounce
                     if (name[0] === ATTR_PREFIX_EVENT) {
                         let cbk = (e) => { };
+                        let hasValue = false;
                         if (PLACEHOLDER_EXP.test(value)) {
                             let val = vars[varIndex];
                             if (!isFunction(val)) {
                                 showTagError(currentNode.tagName, `Event '${name}' must be a function`);
                                 continue;
                             }
-                            cbk = val.bind(component);
-                            let po = new UpdatePoint(varIndex, currentNode, name.replace(/\.|\?|@/, ''), value);
-                            po.isComponent = !!slotComponent;
-                            po.isEvent = true;
-                            updatePoints.push(po);
+                            cbk = val.bind(renderComponent);
                             varIndex++;
+                            hasValue = true;
                         }
-                        addEvent(name.substring(1), cbk, currentNode, component);
+                        let evName = name.substring(1);
+                        addEvent(evName, cbk, currentNode, renderComponent);
                         currentNode.removeAttribute(name);
+                        varCacheQueue && varCacheQueue.push({ type: VarType.Event, name: evName, attrName: name, value: hasValue });
                         continue;
                     } //endif
                     if (name === ATTR_REF) {
@@ -9475,8 +9607,23 @@
                             }
                             varIndex++;
                             val.current = currentNode;
+                            varCacheQueue && varCacheQueue.push({ type: VarType.Ref, attrName: name });
                         }
                         currentNode.removeAttribute(name);
+                        continue;
+                    } //endif
+                    if (name === ATTR_KEY) {
+                        let val = vars[varIndex];
+                        currentNode.setAttribute(name, val);
+                        varIndex++;
+                        keyNode = currentNode;
+                        keyVal = val;
+                        varCacheQueue && varCacheQueue.push({ type: VarType.AttrKey });
+                        if (updatePoints.length > 0) {
+                            updatePoints.forEach(up => {
+                                up.key = up.key ?? val;
+                            });
+                        }
                         continue;
                     } //endif
                     //校验变量必须是表达式
@@ -9488,26 +9635,35 @@
                         let val = vars[varIndex];
                         let po = new UpdatePoint(varIndex, currentNode, name.replace(/\.|\?|@/, ''), value);
                         po.isComponent = !!slotComponent;
-                        // let add2up = true;
+                        if (keyNode && keyNode?.contains(currentNode)) {
+                            po.key = keyVal;
+                        }
                         if (name[0] === ATTR_PREFIX_PROP ||
                             name[0] === ATTR_PREFIX_BOOLEAN ||
                             name[0] === ATTR_PREFIX_REF) {
-                            if (val instanceof DirectiveWrapper) {
-                                val.checkScope(EnterPointType.PROP);
-                                let point = new EnterPoint(currentNode, name.substring(1), EnterPointType.PROP);
-                                val.point = point;
-                                val.slotComponent = slotComponent;
+                            if (isArray(val) && isSymbol(val[0])) {
+                                let [, args, executor, checker, varChain] = val;
+                                checker(EnterPointType.PROP);
+                                let attrName = name.substring(1);
+                                let point = new EnterPoint(currentNode, attrName, EnterPointType.PROP);
+                                let attrMap = DirectiveArgsMap.get(currentNode);
+                                if (!attrMap) {
+                                    attrMap = {};
+                                    DirectiveArgsMap.set(currentNode, attrMap);
+                                }
+                                attrMap[attrName] = [point, renderComponent, slotComponent];
+                                executor(point, args, undefined, { renderComponent, slotComponent });
                                 po.value = val;
                                 po.isDirective = true;
-                                if (val) {
-                                    val.di.created(val.point, ...val.args);
-                                }
+                                varCacheQueue && varCacheQueue.push({ type: VarType.DirectiveProp, up: po, point });
                             }
                             else if (name[0] === ATTR_PREFIX_BOOLEAN) {
                                 po.isToggleProp = true;
                                 po.value = !!val;
+                                let attrName = name.substring(1);
                                 if (po.value)
-                                    currentNode.setAttribute(name.substring(1), '');
+                                    currentNode.setAttribute(attrName, '');
+                                varCacheQueue && varCacheQueue.push({ type: VarType.AttrBool, name: attrName, up: po, attrName: name });
                             }
                             else if (name[0] === ATTR_PREFIX_REF) {
                                 po.value = val;
@@ -9527,6 +9683,7 @@
                                 }
                                 po.attrName = refName;
                                 currentNode.setAttribute(refName, val);
+                                varCacheQueue && varCacheQueue.push({ type: VarType.AttrRef, up: po, name: refName, attrName: name });
                             }
                             else {
                                 if (!(currentNode instanceof CompElem) && currentNode.tagName !== 'SLOT') {
@@ -9540,6 +9697,7 @@
                                     po.value = val;
                                     po.isProp = true;
                                     props[propName] = val;
+                                    varCacheQueue && varCacheQueue.push({ type: VarType.AttrProp, up: po, name: propName, attrName: name });
                                 }
                             }
                             currentNode.removeAttribute(name);
@@ -9547,8 +9705,10 @@
                         }
                         else {
                             po.value = val;
-                            let dw;
-                            if (val instanceof DirectiveWrapper) {
+                            let executor;
+                            let args;
+                            let cache = { type: VarType.Attr, up: po, name, attrName: name };
+                            if (isArray(val) && isSymbol(val[0])) {
                                 let type = EnterPointType.ATTR;
                                 if (name === "class") {
                                     type = EnterPointType.CLASS;
@@ -9556,28 +9716,190 @@
                                 else if (name === "style") {
                                     type = EnterPointType.STYLE;
                                 }
-                                val.checkScope(type);
+                                let [, ags, exec, checker, varChain] = val;
+                                checker(type);
                                 po.isDirective = true;
+                                po.attrName = name;
                                 let point = new EnterPoint(currentNode, name, type);
-                                val.point = point;
-                                val.di.slotComponent = slotComponent;
-                                val.di.renderComponent = component;
-                                dw = val;
-                                // val.di.created(point, ...val.args)
+                                let attrMap = DirectiveArgsMap.get(currentNode);
+                                if (!attrMap) {
+                                    attrMap = {};
+                                    DirectiveArgsMap.set(currentNode, attrMap);
+                                }
+                                attrMap[name] = [point, renderComponent, slotComponent];
+                                args = ags;
+                                executor = exec;
                                 val = '';
+                                cache.type = VarType.DirectiveAttr;
+                                cache.point = point;
                             }
                             value = replace(value, PLACEHOLDER_EXP, val);
                             //回填
                             attr.value = value;
-                            if (dw) {
-                                dw.di.created(dw.point, ...dw.args);
-                            }
+                            executor && executor(cache.point, args, undefined, { renderComponent, slotComponent });
+                            varCacheQueue && varCacheQueue.push(cache);
                         }
-                        // if (add2up)
                         updatePoints.push(po);
                         varIndex++;
                     } //endif
                 } //endfor
+                if (currentNode instanceof CompElem) {
+                    currentNode._initProps(props);
+                    currentNode._regWrapper(renderComponent);
+                }
+                else if (currentNode instanceof HTMLSlotElement) {
+                    renderComponent._bindSlot(currentNode, currentNode.name || 'default', props);
+                }
+            }
+            else {
+                let comment = currentNode;
+                let ph = `<!--${comment.nodeValue}-->`;
+                if (ph !== PLACEHOLDER) {
+                    continue;
+                }
+                let po = new UpdatePoint(varIndex, currentNode);
+                if (keyNode && keyNode?.contains(currentNode)) {
+                    po.key = keyVal;
+                }
+                updatePoints.push(po);
+                po.isComponent = !!slotComponent;
+                po.isText = true;
+                let val = vars[varIndex];
+                if (isArray(val) && isSymbol(val[0])) {
+                    const diName = Symbol.keyFor(val[0]);
+                    //插入start占位符
+                    let startComment;
+                    startComment = document.createComment(`compelem-${renderComponent.tagName}-${diName}-start`);
+                    po.textNode = startComment;
+                    comment.parentNode.insertBefore(startComment, comment);
+                    comment.nodeValue = `compelem-${renderComponent.tagName}-${diName}-end`;
+                    comment._diName = diName;
+                    po.isDirective = true;
+                    po.value = val;
+                    let pType = slotComponent ? EnterPointType.SLOT : EnterPointType.TEXT;
+                    let [, args, executor, checker, varChain] = val;
+                    checker(pType);
+                    let point = new EnterPoint(startComment, "", pType);
+                    point.endNode = comment;
+                    TextOrSlotDirectiveArgsMap.set(comment, [point, renderComponent, slotComponent, args, varChain]);
+                    TextOrSlotDirectiveExecutorMap.set(comment, executor);
+                    TextOrSlotDirectiveUpdatePointMap.set(comment, po);
+                    Collector.startRender(comment);
+                    let tmpl = executor(point, args, undefined, { renderComponent, slotComponent, varChain });
+                    Collector.endRender(renderComponent);
+                    //render
+                    let nodes = buildDirectiveView(comment, tmpl[1], renderComponent);
+                    if (nodes && nodes.length > 0) {
+                        DomUtil.insertBefore(comment, Array.from(nodes));
+                    }
+                    val = undefined;
+                    varCacheQueue && varCacheQueue.push({ type: pType === EnterPointType.SLOT ? VarType.DirectiveSlot : VarType.DirectiveText, up: po, point });
+                }
+                else {
+                    po.value = val;
+                    varCacheQueue && varCacheQueue.push({ type: VarType.Text, up: po });
+                }
+                varIndex++;
+                let text = toString(val ?? '');
+                let textDom = document.createTextNode(text);
+                comment.parentNode.insertBefore(textDom, comment);
+                po.textNode = textDom;
+            }
+            if (varCacheMap && varCacheQueue)
+                varCacheMap[NodeSn] = varCacheQueue;
+            if (keyNode && !keyNode.contains(currentNode) && keyNode !== currentNode) {
+                keyNode = null;
+                keyVal = '';
+            }
+        }
+        if (!isDirective && varCacheMap)
+            VAR_CACHE.set(renderComponent.constructor, varCacheMap);
+        return container.childNodes;
+    }
+    function buildTmplate2(updatePoints, vars, component) {
+        let container = DOM_CACHE.get(component.constructor)?.cloneNode(true);
+        let varMap = VAR_CACHE.get(component.constructor);
+        //遍历dom
+        const nodeIterator = document.createNodeIterator(container, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT);
+        let currentNode;
+        let slotComponent;
+        let varIndex = 0;
+        let NodeSn = 0;
+        while ((currentNode = nodeIterator.nextNode())) {
+            NodeSn++;
+            let po;
+            if (currentNode instanceof HTMLElement || currentNode instanceof SVGElement) {
+                if (currentNode instanceof CompElem) {
+                    slotComponent = currentNode;
+                }
+                else {
+                    if (!slotComponent?.contains(currentNode)) {
+                        slotComponent = undefined;
+                    }
+                }
+                let props = {};
+                let varCacheQueue = varMap[NodeSn];
+                varCacheQueue.forEach(vp => {
+                    let val = vars[varIndex++];
+                    switch (vp.type) {
+                        case VarType.Event:
+                            if (!vp.value) {
+                                varIndex--;
+                            }
+                            addEvent(vp.name, val.bind(component), currentNode, component);
+                            currentNode.removeAttribute(vp.attrName);
+                            break;
+                        case VarType.AttrSlot:
+                            if (slotComponent && vp.name) ;
+                            currentNode.removeAttribute(vp.attrName);
+                            break;
+                        case VarType.Ref:
+                            val.current = currentNode;
+                            currentNode.removeAttribute(vp.attrName);
+                            break;
+                        case VarType.AttrKey:
+                            currentNode.setAttribute(ATTR_KEY, val);
+                            break;
+                        case VarType.AttrBool:
+                            po = clone(vp.up);
+                            po.value = !!val;
+                            if (po.value)
+                                currentNode.setAttribute(vp.name, '');
+                            currentNode.removeAttribute(vp.attrName);
+                            break;
+                        case VarType.AttrProp:
+                            po = clone(vp.up);
+                            po.value = val;
+                            props[vp.name] = val;
+                            break;
+                        case VarType.AttrRef:
+                        case VarType.Attr:
+                            po = clone(vp.up);
+                            po.value = val;
+                            currentNode.setAttribute(vp.name, val);
+                            currentNode.removeAttribute(vp.attrName);
+                            break;
+                        case VarType.DirectiveAttr:
+                        case VarType.DirectiveTag:
+                        case VarType.DirectiveProp:
+                            po = clone(vp.up);
+                            po.value = val;
+                            let point = clone(vp.point);
+                            point.startNode = currentNode;
+                            val.point = point;
+                            val.di.slotComponent = slotComponent;
+                            val.di.renderComponent = component;
+                            val.di.created(val.point, ...val.args);
+                            if (VarType.DirectiveAttr === vp.type) {
+                                let attrValue = currentNode.getAttribute(vp.name);
+                                attrValue = replace(attrValue, PLACEHOLDER_EXP, '');
+                                currentNode.setAttribute(vp.name, attrValue);
+                            }
+                            break;
+                    }
+                    if (po)
+                        updatePoints.push(po);
+                });
                 if (currentNode instanceof CompElem) {
                     currentNode._initProps(props);
                     currentNode._regWrapper(component);
@@ -9587,153 +9909,195 @@
                 }
             }
             else {
-                let comment = currentNode;
-                let ph = `<!--${comment.nodeValue}-->`;
-                if (ph === PLACEHOLDER_DI_START) {
-                    if (startDiCommentNode) {
-                        startDiCommentNodeStack.push(startDiCommentNode);
+                let varCacheQueue = varMap[NodeSn];
+                varCacheQueue.forEach(vp => {
+                    let val = vars[varIndex++];
+                    switch (vp.type) {
+                        case VarType.DirectiveText:
+                            po = clone(vp.up);
+                            po.value = val;
+                            let startComment = document.createComment(`compelem-${val.diClass.name}-start`);
+                            po.textNode = startComment;
+                            currentNode.parentNode.insertBefore(startComment, currentNode);
+                            currentNode.nodeValue = `compelem-${val.diClass.name}-end`;
+                            let point = clone(vp.point);
+                            point.startNode = startComment;
+                            point.endNode = currentNode;
+                            val.point = point;
+                            val.di.slotComponent = slotComponent;
+                            val.di.renderComponent = component;
+                            val.di.created(val.point, ...val.args);
+                            let nodes = buildDirectiveView(currentNode, val, component);
+                            if (nodes) {
+                                DomUtil.insertBefore(currentNode, Array.from(nodes));
+                            }
+                            break;
+                        case VarType.Text:
+                            po = clone(vp.up);
+                            let text = toString(val ?? '');
+                            let textDom = document.createTextNode(text);
+                            currentNode.replaceWith(textDom);
+                            // currentNode.parentNode!.insertBefore(textDom, currentNode);
+                            po.textNode = textDom;
+                            break;
                     }
-                    startDiCommentNode = comment;
-                    let val = vars[varIndex];
-                    let po = new UpdatePoint(varIndex, currentNode);
-                    po.isComponent = !!slotComponent;
-                    po.isDirective = true;
-                    po.value = val;
-                    let pType = slotComponent ? EnterPointType.SLOT : EnterPointType.TEXT;
-                    let point = new EnterPoint(startDiCommentNode, "", pType);
-                    val.point = point;
-                    val.di.slotComponent = slotComponent;
-                    val.di.renderComponent = component;
-                    startDiStack.push(val);
-                    updatePoints.push(po);
-                    startDiUpdatePointStack.push(po);
-                    //stack updatePoints
-                    updatePoints = [];
-                    updatePointsStack.push(updatePoints);
-                    varIndex++;
-                    //stack vars
-                    varIndexStack.push(varIndex);
-                    varStack.push(vars);
-                    vars = val._renderVars;
-                    varIndex = 0;
-                    continue;
-                }
-                else if (ph === PLACEHOLDER_DI_END) {
-                    startDiUpdatePointStack.pop().textNode = comment;
-                    let startDi = startDiStack.pop();
-                    startDi.point.endNode = comment;
-                    //结束时调用created
-                    startDi.di.created(startDi.point, ...startDi.args);
-                    startDiCommentNode = startDiCommentNodeStack.pop();
-                    startDi.di.__updatePoints = updatePoints;
-                    updatePointsStack.pop();
-                    updatePoints = last(updatePointsStack);
-                    //restore vars
-                    vars = varStack.pop();
-                    varIndex = varIndexStack.pop();
-                }
-                else if (ph === PLACEHOLDER_TMPL_START) {
-                    if (startDiCommentNode) {
-                        startDiCommentNodeStack.push(startDiCommentNode);
-                    }
-                    startDiCommentNode = comment;
-                    let val = vars[varIndex];
-                    let po = new UpdatePoint(varIndex, currentNode);
-                    po.isComponent = !!slotComponent;
-                    po.isTmpl = true;
-                    let parentDi = last(startDiStack);
-                    if (parentDi && get(parentDi, 'diClass.name') === 'ForEach') {
-                        po.key = val.getKey();
-                    }
-                    else if (viewContext.constructor.name == 'ForEach') {
-                        po.key = val.getKey();
-                    }
-                    val = po.value = new SubView(val);
-                    let pType = slotComponent ? EnterPointType.SLOT : EnterPointType.TEXT;
-                    let point = new EnterPoint(startDiCommentNode, "", pType);
-                    val.point = point;
-                    val.slotComponent = slotComponent;
-                    val.renderComponent = component;
-                    startDiStack.push(val);
-                    updatePoints.push(po);
-                    startDiUpdatePointStack.push(po);
-                    //stack updatePoints
-                    updatePoints = [];
-                    updatePointsStack.push(updatePoints);
-                    varIndex++;
-                    //stack vars
-                    varIndexStack.push(varIndex);
-                    varStack.push(vars);
-                    vars = val._renderVars;
-                    varIndex = 0;
-                    continue;
-                }
-                else if (ph === PLACEHOLDER_TMPL_END) {
-                    startDiUpdatePointStack.pop().textNode = comment;
-                    let startDi = startDiStack.pop();
-                    startDi.point.endNode = comment;
-                    startDiCommentNode = startDiCommentNodeStack.pop();
-                    startDi.__updatePoints = updatePoints;
-                    updatePointsStack.pop();
-                    updatePoints = last(updatePointsStack);
-                    //restore vars
-                    vars = varStack.pop();
-                    varIndex = varIndexStack.pop();
-                }
-                if (ph !== PLACEHOLDER) {
-                    continue;
-                }
-                let po = new UpdatePoint(varIndex, currentNode);
-                updatePoints.push(po);
-                po.isComponent = !!slotComponent;
-                po.isText = true;
-                let val = vars[varIndex];
-                let startComment;
-                //插入start占位符
-                startComment = document.createComment(`compelem-ui-${varIndex}-child-start`);
-                comment.parentNode.insertBefore(startComment, comment);
-                comment.nodeValue = `compelem-ui-${varIndex}-child-end`;
-                po.textNode = startComment;
-                if (val instanceof DirectiveWrapper) {
-                    po.isDirective = true;
-                    po.value = val;
-                    let pType = slotComponent ? EnterPointType.SLOT : EnterPointType.TEXT;
-                    // directives.push(val)
-                    let point = new EnterPoint(startComment, "", pType);
-                    point.endNode = comment;
-                    val.point = point;
-                    val.di.slotComponent = slotComponent;
-                    val.di.renderComponent = component;
-                    val.di.created(point, ...val.args);
-                    val = '';
-                }
-                else if (val instanceof Template) {
-                    po.isTmpl = true;
-                    po.value = val;
-                    let [html, vars] = buildHTML(component, val);
-                    val = buildTmplate(updatePoints, html, vars, component, viewContext);
-                }
-                else {
-                    po.value = val;
-                }
-                varIndex++;
-                if (isUndefined(val))
-                    continue;
-                if (val instanceof NodeList) {
-                    let fragment = document.createDocumentFragment();
-                    fragment.append(...val);
-                    comment.parentNode.insertBefore(fragment, comment);
-                }
-                else if (val instanceof Element) {
-                    comment.parentNode.insertBefore(val, comment);
-                }
-                else if (trim(val)) {
-                    let text = document.createTextNode(val);
-                    comment.parentNode.insertBefore(text, comment);
-                }
+                    if (po)
+                        updatePoints.push(po);
+                });
+                //todo...
             }
         }
         return container.childNodes;
+    }
+    self.viewTime = 0;
+    function buildView(tmpl, component) {
+        let updatePoints = [];
+        console.time(component.tagName);
+        let st = Date.now();
+        let nodes;
+        if (HTML_CACHE.has(component.constructor)) {
+            let htmlTmpl = HTML_CACHE.get(component.constructor);
+            let vars = buildVars(component, tmpl);
+            if (DOM_CACHE.has(component.constructor)) {
+                nodes = buildTmplate2(updatePoints, vars, component);
+            }
+            else {
+                nodes = buildTmplate(updatePoints, htmlTmpl, vars, component);
+            }
+        }
+        else {
+            let [html, vars] = buildHTML(component, tmpl);
+            HTML_CACHE.set(component.constructor, html);
+            nodes = buildTmplate(updatePoints, html, vars, component);
+        }
+        self.viewTime += Date.now() - st;
+        console.timeEnd(component.tagName);
+        ComponentUpdatePointsMap.set(component, updatePoints);
+        return nodes;
+    }
+    function buildDirectiveView(pointNode, tmpl, component) {
+        let [html, vars] = buildHTML(component, tmpl);
+        let updatePoints = [];
+        let nodes = buildTmplate(updatePoints, html, vars, component, true);
+        DirectiveUpdatePointsMap.set(pointNode, updatePoints);
+        return nodes;
+    }
+    function updateView(tmpl, comp, updatePoints) {
+        if (isBlank(join(tmpl.strings)))
+            return;
+        if (!ComponentUpdatePointsMap.has(comp))
+            return;
+        let { vars } = tmpl;
+        updatePoints = updatePoints ?? ComponentUpdatePointsMap.get(comp);
+        for (let i = 0; i < updatePoints.length; i++) {
+            const up = updatePoints[i];
+            let varIndex = up.varIndex;
+            if (varIndex < 0)
+                continue;
+            let oldValue = up.value;
+            let newValue = vars;
+            let node = up.node;
+            let indexSegs = split(varIndex, '-');
+            for (let l = 0; l < indexSegs.length; l++) {
+                const seg = indexSegs[l];
+                newValue = get(newValue, seg);
+                if (newValue && newValue.vars && i < indexSegs.length - 1) {
+                    newValue = newValue.vars;
+                }
+            }
+            //check
+            if (!isObject(oldValue) && oldValue === newValue)
+                continue;
+            let elNode = node;
+            if (up.isDirective) {
+                //指令
+                let [sym, oldArgs, executor, , varChain] = up.value;
+                let args = TextOrSlotDirectiveArgsMap.get(node);
+                if (!args) {
+                    const argsMap = DirectiveArgsMap.get(node);
+                    if (up.attrName) {
+                        args = argsMap[up.attrName];
+                    }
+                    else {
+                        args = argsMap[Symbol.keyFor(sym)];
+                    }
+                }
+                let [point, renderComponent, slotComponent] = args;
+                let [, newArgs] = newValue;
+                const tsUp = TextOrSlotDirectiveUpdatePointMap.get(node);
+                if (tsUp) {
+                    tsUp.value = newValue;
+                    const tsdArgs = TextOrSlotDirectiveArgsMap.get(node);
+                    tsdArgs[3] = newArgs;
+                }
+                updateDirective(point, newArgs, oldArgs, executor, renderComponent, slotComponent, varChain, point.type == EnterPointType.TEXT || point.type == EnterPointType.SLOT);
+            }
+            else if (up.isToggleProp) {
+                //布尔特性
+                if ((!!newValue) === oldValue)
+                    continue;
+                elNode.toggleAttribute(up.attrName, !!newValue);
+                set(elNode, up.attrName, !!newValue);
+            }
+            else if (up.isProp) {
+                //子组件属性
+                if (!isObject(newValue) && newValue === oldValue)
+                    continue;
+                //如果node是slot则触发组件的slot更新
+                if (node instanceof CompElem) {
+                    node._updateProps({ [up.attrName]: newValue });
+                }
+                else if (node instanceof HTMLSlotElement) {
+                    comp._updateSlot(node.getAttribute('name') || 'default', up.attrName, newValue);
+                }
+            }
+            else if (up.attrName && !up.isEvent) {
+                //特性
+                if (!isEqual(oldValue, newValue)) {
+                    switch (up.attrName) {
+                        case 'value':
+                            if (node instanceof HTMLInputElement) {
+                                node.value = newValue;
+                                break;
+                            }
+                        default:
+                            node.setAttribute(up.attrName, replace(up.attrTmpl, PLACEHOLDER_EXP, newValue + ''));
+                    }
+                }
+            }
+            else if (up.isText) {
+                let textNode = up.textNode;
+                textNode.textContent = toString(newValue ?? '');
+            }
+            up.value = newValue;
+        } //endfor
+    }
+    function updateDirectiveView(node, comp, tmpl, updatePoints) {
+        const render = TextOrSlotDirectiveExecutorMap.get(node);
+        const [point, renderComponent, slotComponent, oldArgs, varChain] = TextOrSlotDirectiveArgsMap.get(node);
+        const up = TextOrSlotDirectiveUpdatePointMap.get(node);
+        if (!tmpl) {
+            let rs = render(point, up.value[1], oldArgs, { renderComponent, slotComponent, varChain });
+            if (!rs)
+                return;
+            tmpl = rs[1];
+        }
+        //合并
+        if (tmpl && tmpl.vars[0] instanceof Template) {
+            let tStrAry = [];
+            let tVarAry = [];
+            each(tmpl.vars, v => {
+                tVarAry.push(...v.vars);
+                tStrAry.push(...map(v.vars, v => '1'));
+            });
+            tStrAry.push('1');
+            tmpl = new Template(tStrAry, tVarAry);
+        }
+        if (updatePoints) {
+            DirectiveUpdatePointsMap.set(node, updatePoints);
+        }
+        updatePoints = updatePoints ?? DirectiveUpdatePointsMap.get(node);
+        updateView(tmpl, comp, updatePoints);
     }
     const DomUtil = {
         insertBefore: function (node, newNodes) {
@@ -9841,7 +10205,7 @@
         }
         getHTML(comp) {
             let [html, vars] = buildHTML(comp, this);
-            let nodes = buildTmplate([], html, vars, comp, comp);
+            let nodes = buildTmplate([], html, vars, comp);
             return reduce(nodes, (a, v) => a + v.outerHTML, '');
         }
     }
@@ -9855,6 +10219,46 @@
         }
         target.constructor[DecoratorKey.COMPUTED][propertyKey] = descriptor.get;
     }
+
+    /**
+     * 定义防抖函数
+     * 同时会创建一个以 _$__ 结尾的非防抖版本
+     * @example
+     *  @debounced(50, true)
+     *
+     * @param wait 抖动间隔，单位ms
+     */
+    class DebouncedDecorator extends Decorator {
+        static get priority() {
+            return Number.MAX_VALUE;
+        }
+        created(component, classProto, fieldName, ...args) {
+            let fn = get(component, fieldName);
+            set(component, fieldName, debounce(fn, this.wait, this.immediate));
+            let proto = Reflect.getPrototypeOf(component);
+            if (proto && !get(proto, fieldName + '_$__')) {
+                set(proto, fieldName + '_$__', fn);
+            }
+        }
+        beforeMount(component, setReactive, ...args) {
+        }
+        mounted(component, setReactive, ...args) {
+        }
+        updated(component, changed) {
+        }
+        get targets() {
+            return [DecoratorType.METHOD];
+        }
+        wait;
+        immediate;
+        result;
+        constructor(wait, immediate = false) {
+            super();
+            this.wait = wait;
+            this.immediate = immediate;
+        }
+    }
+    decorator(DebouncedDecorator);
 
     /**
      * 缓存策略
@@ -9999,13 +10403,518 @@
         };
     }
 
+    const Ignores = ['key'];
+    /**
+     * 绑定属性到节点上，如果节点是组件会使用in操作符判断是否props
+     * @param styles 对象/数组/字符串
+     */
+    const bind = directive(function Bind(obj) {
+        return (point, [obj], oldArgs) => {
+            if (oldArgs)
+                return;
+            let el = point.startNode;
+            if (el instanceof CompElem) {
+                //判断是否prop
+                let props = {};
+                let attrs = {};
+                each(obj, (v, k) => {
+                    if (Ignores.includes(k))
+                        return;
+                    if (k in el) {
+                        props[k] = v;
+                    }
+                    else {
+                        attrs[k] = v + '';
+                    }
+                });
+                el._initProps(props, attrs);
+            }
+            else {
+                each(obj, (v, k) => {
+                    el.setAttribute(k, v);
+                });
+            }
+        };
+    }, [EnterPointType.TAG]);
+
+    let ClassSn = 0;
+    const ClassIdMap = new Map();
+    const ClassLastMap = new Map();
+    /**
+     * 根据变量内容自动插入class，仅能用于class属性
+     * @param styles 对象/数组/字符串
+     */
+    directive(function Classes(clazz) {
+        return (point, [clazz], oldArgs, { renderComponent }) => {
+            let rs = [];
+            if (isArray(clazz)) {
+                rs = compact(clazz);
+            }
+            else if (isObject(clazz)) {
+                rs = flatMap(clazz, (v, k) => v ? k : []);
+            }
+            else if (isString(clazz)) {
+                rs = clazz.split(' ');
+            }
+            if (rs.length < 1 && !oldArgs)
+                return;
+            let el = point.startNode;
+            if (isMatch(ClassLastMap.get(el), rs))
+                return;
+            let classId = ClassIdMap.get(el);
+            if (!classId) {
+                classId = 'class_d' + ClassSn++;
+                ClassIdMap.set(el, classId);
+            }
+            renderComponent.nextTick(() => {
+                let lastCls = ClassLastMap.get(el);
+                each(lastCls, (cls) => {
+                    el.classList.remove(cls);
+                });
+                each(rs, cls => {
+                    el.classList.add(cls);
+                });
+                lastCls = concat(rs);
+                ClassLastMap.set(el, lastCls);
+            }, classId);
+        };
+    }, [EnterPointType.CLASS]);
+
+    const LastValueMap = new Map();
+    const LastTmplMap$1 = new Map();
+    /**
+     * 循环列表并自动优化列表更新
+     * foreach循环的只能是节点，且必须有key属性。非节点元素会被过滤掉
+     * 使用序号作为key时可能会导致异常问题
+     */
+    const forEach = directive(function ForEach(value, cbk) {
+        return (point, newArgs, oldArgs, { varChain }) => {
+            let el = point.startNode;
+            let lastRenderTmpl = comboTmpl(newArgs[0], cbk, el);
+            if (oldArgs) {
+                //更新
+                const lastAry = LastValueMap.get(el);
+                // const lastRenderTmpl = LastTmplMap.get(el)
+                if (isEmpty(point.getNodes()) && (!newArgs || isEmpty(newArgs[0])))
+                    return [DirectiveUpdateTag.NONE, lastRenderTmpl];
+                if (isMatch(lastAry, newArgs[0]) && lastAry.length === newArgs[0].length)
+                    return [DirectiveUpdateTag.NONE, lastRenderTmpl];
+            }
+            LastValueMap.set(el, clone(newArgs[0]));
+            if (oldArgs) {
+                return [DirectiveUpdateTag.UPDATE, lastRenderTmpl];
+            }
+            return [DirectiveUpdateTag.APPEND, lastRenderTmpl];
+        };
+    }, [EnterPointType.TEXT, EnterPointType.SLOT]);
+    function comboTmpl(value, cbk, el) {
+        //1. 产生模板
+        let tmpls = map(value, (v, k) => {
+            return cbk(v, k);
+        });
+        if (tmpls.length < 1) {
+            let lastRenderTmpl = new Template([], []);
+            LastTmplMap$1.set(el, lastRenderTmpl);
+            return lastRenderTmpl;
+        }
+        //2. 检查 & 合并模板
+        let keyAry = [];
+        let strs = [];
+        const combStrings = [];
+        const combVars = [];
+        for (let l = 0; l < tmpls.length; l++) {
+            const tmpl = tmpls[l];
+            let lastStr = last(strs);
+            let vars = tmpl.vars;
+            let hasNoKey = true;
+            let tmplStrs = tmpl.strings;
+            for (let i = 0; i < tmplStrs.length; i++) {
+                const str = tmplStrs[i];
+                if (EXP_KEY.test(str)) {
+                    let key = vars[i] + '';
+                    if (keyAry.includes(key)) {
+                        showError(`forEach - duplicate key '${key}'`);
+                        return;
+                    }
+                    keyAry.push(key);
+                    hasNoKey = false;
+                }
+                if (i == 0 && lastStr) {
+                    strs[strs.length - 1] = lastStr + str;
+                    continue;
+                }
+                strs.push(str);
+            }
+            if (hasNoKey) {
+                showError("forEach - missing 'key' prop");
+                return;
+            }
+            let lastVar = last(combStrings);
+            if (lastVar && tmplStrs.length > 0) {
+                combStrings[combStrings.length - 1] = trim(lastVar) + tmplStrs.shift();
+            }
+            combStrings.push('');
+            combVars.push(tmpl);
+        }
+        combStrings.push('');
+        let lastRenderTmpl = new Template(combStrings, combVars);
+        LastTmplMap$1.set(el, lastRenderTmpl);
+        return lastRenderTmpl;
+    }
+
+    const LastTmplMap = new WeakMap();
+    /**
+     * 条件为真时返回参数1，否则返回参数2，仅能用于文本节点
+     * @param condition 条件
+     * @param tmpl 模板
+     */
+    directive(function IfElse(condition, ifTmpl, elseTmpl) {
+        return (point, [condi, render], oldArgs) => {
+            let el = point.endNode;
+            if (oldArgs) {
+                //更新
+                if (!!condi === !!oldArgs[0]) {
+                    let tmpl = LastTmplMap.get(el);
+                    return [DirectiveUpdateTag.NONE, tmpl(condi)];
+                }
+                let tmpl = condi ? ifTmpl : elseTmpl;
+                LastTmplMap.set(el, tmpl);
+                return [DirectiveUpdateTag.REPLACE, tmpl(condi)];
+            }
+            else {
+                let tmpl = condi ? ifTmpl : elseTmpl;
+                LastTmplMap.set(el, tmpl);
+                return [DirectiveUpdateTag.APPEND, tmpl(condition)];
+            }
+        };
+    }, [EnterPointType.TEXT, EnterPointType.SLOT]);
+
+    /**
+     * 条件为真时返回内容，仅能用于文本节点
+     * @param condition 条件
+     * @param tmpl 模板
+     */
+    directive(function IfTrue(condition, tmplFn) {
+        return (point, [condi, render], oldArgs) => {
+            if (oldArgs) {
+                //更新
+                if (condi === oldArgs[0])
+                    return;
+                if (condi) {
+                    return [DirectiveUpdateTag.REPLACE, condi ? render() : html ``];
+                }
+                return [DirectiveUpdateTag.REMOVE];
+            }
+            else {
+                return [DirectiveUpdateTag.APPEND, condi ? render() : html ``];
+            }
+        };
+    }, [EnterPointType.TEXT, EnterPointType.SLOT]);
+
     var ModelTriggerType;
     (function (ModelTriggerType) {
         ModelTriggerType["CHANGE"] = "change";
         ModelTriggerType["INPUT"] = "input";
     })(ModelTriggerType || (ModelTriggerType = {}));
+    const PathMap = new WeakMap;
+    /**
+     * 实现双向绑定（仅支持静态路径，动态增加的属性路径无法识别）
+     * 当用于组件时，监控 @update:value 事件
+     * 当用于元素时，
+     * - 对于 input/textarea 监控 @input，并设置 value 属性
+     * - 对于 checkbox/radio 监控 @change，并设置 checked 属性
+     * - 对于 select  监控 @change，并设置 value 属性
+     * @param modelValue 双向绑定的组件变量
+     * @param updateProp 绑定模型变更时的监控属性，默认 value
+     */
+    const model = directive(function Model(modelValue, updateProp = 'value') {
+        return (point, newArgs, oldArgs, { varChain, renderComponent }) => {
+            const node = point.startNode;
+            if (oldArgs) {
+                if (isEqual(newArgs, oldArgs))
+                    return;
+                if (!isEqual(newArgs, oldArgs)) {
+                    let newValue = newArgs[0];
+                    if (node instanceof CompElem) {
+                        node._updateProps({ [updateProp]: newValue });
+                    }
+                    else if (node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) {
+                        node.setAttribute(updateProp, newValue + '');
+                    }
+                    else if (node instanceof HTMLInputElement) {
+                        if (node.value == newValue)
+                            return;
+                        switch (node.type) {
+                            case 'checkbox':
+                            case 'radio':
+                                if (!!newValue) {
+                                    node.setAttribute('checked', '');
+                                }
+                                else {
+                                    node.removeAttribute('checked');
+                                }
+                                break;
+                            case 'text':
+                            case 'email':
+                            case 'number':
+                            case 'password':
+                            case 'search':
+                            case 'tel':
+                            case 'url':
+                                node.setAttribute(updateProp, newValue + '');
+                                set(node, updateProp, newValue);
+                                break;
+                            default:
+                                node.setAttribute(updateProp, newValue + '');
+                                break;
+                        }
+                    }
+                }
+                return;
+            }
+            if (get(node, '_model') === 'binded')
+                return;
+            let path = last(varChain);
+            PathMap.set(node, path);
+            if (!isObject(modelValue) && !trim(modelValue))
+                modelValue = '';
+            if (node instanceof CompElem) {
+                node._initProps({ [updateProp]: modelValue });
+                node.addEventListener('update:' + updateProp, (e) => {
+                    console.debug('Model =>', path);
+                    set(renderComponent, path, e.detail.value);
+                });
+                set(node, '_model', 'binded');
+            }
+            else if (node instanceof HTMLTextAreaElement) {
+                node.setAttribute(updateProp, modelValue + '');
+                node.addEventListener('input', (e) => {
+                    console.debug('Model =>', path);
+                    let t = e.target;
+                    set(renderComponent, path, t.value);
+                });
+                set(node, '_model', 'binded');
+            }
+            else if (node instanceof HTMLInputElement) {
+                let propName = '';
+                let evName = '';
+                switch (node.type) {
+                    case 'checkbox':
+                    case 'radio':
+                        propName = 'checked';
+                        evName = 'change';
+                        break;
+                    case 'text':
+                    case 'email':
+                    case 'number':
+                    case 'password':
+                    case 'search':
+                    case 'tel':
+                    case 'url':
+                        propName = 'value';
+                        evName = 'input';
+                        break;
+                    default:
+                        propName = 'value';
+                        evName = 'input';
+                        break;
+                }
+                node.setAttribute(updateProp ?? propName, modelValue + '');
+                node.addEventListener(evName, (e) => {
+                    console.debug('Model =>', path);
+                    let t = e.target;
+                    set(renderComponent, path, t.value);
+                });
+                set(node, '_model', 'binded');
+            }
+            else if (node instanceof HTMLSelectElement) {
+                node.setAttribute(updateProp, modelValue + '');
+                node.addEventListener('change', (e) => {
+                    console.debug('Model =>', path);
+                    let t = e.target;
+                    set(renderComponent, path, t.value);
+                });
+                set(node, '_model', 'binded');
+            }
+        };
+    }, [EnterPointType.TAG]);
 
-    const Slogan = ['complete', 'componentize', 'compact', 'companion'];
+    const DisplayMap = new Map();
+    /**
+     * display的快捷指令
+     * 如果
+     * @param isvisible 是否显示
+     * @param cbk 显示状态变更后调用的回调函数
+     */
+    directive(function Show(isVisible, cbk) {
+        return (point, [condi], oldArgs) => {
+            if (oldArgs && condi === oldArgs[0])
+                return;
+            let el = point.startNode;
+            if (!DisplayMap.has(el)) {
+                let dis = el.style.display;
+                DisplayMap.set(el, dis == 'none' ? 'unset' : dis);
+            }
+            el.style.display = condi ? DisplayMap.get(el) : 'none';
+            if (cbk) {
+                cbk(el, condi);
+            }
+        };
+    }, [EnterPointType.TAG]);
+
+    /**
+     * 创建一个动态插槽内容
+     * @param cbk 回调函数，函数接收插槽上定义得变量
+     * @param slotName 插槽名词，默认default
+     */
+    directive(function Slot(cbk, slotName) {
+        return (point, [condi], oldArgs, { renderComponent, slotComponent }) => {
+            if (oldArgs)
+                return;
+            cbk = cbk.bind(renderComponent);
+            slotComponent._bindSlotHook(slotName || 'default', cbk);
+        };
+    }, [EnterPointType.SLOT]);
+
+    /**
+     * Css 辅助类
+     */
+    class CssHelper {
+        /**
+         * 用于转换style对象为标准style字符串，会自动转换对象key为短横线格式
+         * @param styles 样式对象
+         * @returns
+         */
+        static getCssText(styles, important = false) {
+            if (isString(styles))
+                return styles;
+            return join(map(styles, (v, k) => {
+                if (k.startsWith('--'))
+                    return k + ":" + v + (important ? ' !important' : '');
+                return kebabCase(k) + ":" + v + (important ? ' !important' : '');
+            }), ';');
+        }
+        /**
+         * 设置样式
+         * @param styles 样式字符串或样式对象
+         * @param node HTML元素
+         * @returns 每个样式的旧值map
+         */
+        static setStyle(styles, node) {
+            if (isString(styles) && !trim(styles))
+                return {};
+            let css = CssHelper.getCssText(styles);
+            let oldValueMap = {};
+            each(css.split(';'), prop => {
+                let kv = prop.split(':');
+                let k = trim(kv[0]);
+                let v = trim(kv[1]);
+                oldValueMap[k] = node.style.getPropertyValue(k);
+                node.style.setProperty(k, v);
+            });
+            return oldValueMap;
+        }
+    }
+
+    const StyleMap = new Map();
+    let StyleSn = 0;
+    /**
+     * 根据变量内容自动插入class，仅能用于style属性
+     * @param styles 对象/字符串
+     */
+    directive(function Styles(styles) {
+        return (point, newArgs, oldArgs, { renderComponent }) => {
+            let el = point.startNode;
+            let styleId = StyleMap.get(el);
+            if (!styleId) {
+                styleId = 'style_d' + StyleSn++;
+                StyleMap.set(el, styleId);
+            }
+            renderComponent.nextTick(() => {
+                CssHelper.setStyle(newArgs[0], el);
+            }, styleId);
+        };
+    }, [EnterPointType.STYLE]);
+
+    /**
+     * 类似Model，实现属性的同步跟踪
+     * 设置组件prop，并监控 @update:prop 事件
+     * @param syncValue 双向绑定的组件变量
+     */
+    directive(function Sync(syncValue) {
+        return (point, newArgs, oldArgs, { renderComponent, varChain }) => {
+            const targetComponent = point.startNode;
+            if (oldArgs) {
+                if (!isEqual(newArgs, oldArgs)) {
+                    let attrName = point.attrName;
+                    targetComponent._updateProps({ [attrName]: newArgs[0] });
+                }
+                return;
+            }
+            let modelPath = last(varChain);
+            let attrName = point.attrName;
+            //todo _setParentProps接口不应该外部使用
+            targetComponent._initProps({ [attrName]: syncValue });
+            targetComponent.addEventListener('update:' + attrName, (e) => {
+                set(renderComponent, modelPath, e.detail.value);
+            });
+        };
+    }, [EnterPointType.PROP]);
+
+    /**
+     * 分支指令，具有switch / else if 两种模式
+     * @example
+     *  switch 模式
+     * ${when(var, {
+        closed: () => html``, //case 1
+        connecting: () => html``, //case 2
+        default: () => html``// default是switch模式下的关键字key
+       })}
+
+       else if 模式
+     * ${when(this.editingTitle, [
+        [(v: any) => v.substring(2) > 0, () => html`<div style="${PageHome.tunnelLight}"></div>`],
+        [(v: any) => v == 'closed', () => html`<div style="${PageHome.tunnelLight}"></div>`],
+        [() => true, () => html`默认`]
+        ])}
+     *
+     * @param condition 条件
+     * @param tmpl 模板
+     */
+    directive(function When(value, cases) {
+        return (point, [value, cases], oldArgs) => {
+            let defaultFn = () => html ``;
+            let conditionList = [];
+            let tmplList = [];
+            each(cases, (v, k) => {
+                if (isFunction(v)) {
+                    conditionList.push(k);
+                    tmplList.push(v);
+                }
+                else {
+                    let condiFn = v[0];
+                    let tmplFn = v[1];
+                    conditionList.push(condiFn);
+                    tmplList.push(tmplFn);
+                }
+                if (k === 'default') {
+                    defaultFn = v;
+                }
+            });
+            let i = findIndex(conditionList, c => {
+                if (isFunction(c)) {
+                    return c(value);
+                }
+                else {
+                    return c == value;
+                }
+            });
+            if (oldArgs)
+                return [DirectiveUpdateTag.REPLACE, call(tmplList[i] ?? defaultFn)];
+            return [DirectiveUpdateTag.APPEND, call(tmplList[i] ?? defaultFn)];
+        };
+    }, [EnterPointType.TEXT, EnterPointType.SLOT]);
+
     exports.PageTest = class PageTest extends CompElem {
         //////////////////////////////////// props
         arg = '';
@@ -10014,6 +10923,7 @@
         colorB = Math.random() * 255 % 255 >> 0;
         rotation = 0;
         test = { a: 1 };
+        ary = [1, 2, 3, 4, 56, 234, 23, 423, 4, 234, 234];
         //////////////////////////////////// computed
         get color() {
             console.log('computed......');
@@ -10021,7 +10931,7 @@
         }
         //////////////////////////////////// watch
         function(ov, nv, src) {
-            console.log('watch...', ov, nv, src);
+            // console.log('watch...', ov, nv, src)
         }
         //////////////////////////////////// styles
         //静态样式
@@ -10082,7 +10992,7 @@
         sloganIndex = 0;
         //////////////////////////////////// lifecycles
         updated(changed) {
-            console.log('updated......');
+            // console.log('updated......')
         }
         mounted() {
             console.warn('starting to change...');
@@ -10097,25 +11007,24 @@
                 console.log('nextTick......');
             });
             setInterval(() => {
-                this.rotation++;
-            }, 20);
+                // this.rotation++
+            }, 100);
             setInterval(() => {
-                this.test.a++;
+                // this.test.a++
             }, 1000);
             window.xx = this;
-            setInterval(() => {
-                this.text.classList.add('hide');
-                setTimeout(() => {
-                    this.text.innerHTML = Slogan[this.sloganIndex % 4];
-                    this.sloganIndex++;
-                    this.text.classList.remove('hide');
-                }, 500);
-            }, 5000);
+            // setInterval(() => {
+            //   this.text.classList.add('hide')
+            //   setTimeout(() => {
+            //     this.text.innerHTML = Slogan[this.sloganIndex % 4]
+            //     this.sloganIndex++
+            //     this.text.classList.remove('hide')
+            //   }, 500);
+            // }, 5000);
         }
         render() {
             console.log('render......');
             return html `<div>
-    ${JSON.stringify(this.test)}
             <i>Welcome to</i>
             <br>
             <h2>CompElem</h2>
@@ -10124,9 +11033,12 @@
             <br>
             <i>for building</i>
             <h3>Web Components</h3>
+            ${forEach(this.ary, (v, i) => html `<div key="${i}">第${i}行 value:${v} -- ${this.test.a}</div>`)}
             <p>
-              &lt;c-element&gt; <i name="text">...</i> &lt;/c-element&gt;
+              &lt;c-element&gt; <i ${bind({ a: 'a', x: this.test.a })} name="text">...</i> &lt;/c-element&gt;
             </p>
+            <input type="checkbox" ${model(this.test.a)}>
+            <input type="text" ${model(this.test.a)}>
             ${this.arg}
         </div>`;
         }
@@ -10147,8 +11059,11 @@
         state
     ], exports.PageTest.prototype, "rotation", void 0);
     __decorate([
-        state({ shallow: true })
+        state({ shallow: false })
     ], exports.PageTest.prototype, "test", void 0);
+    __decorate([
+        state
+    ], exports.PageTest.prototype, "ary", void 0);
     __decorate([
         computed
     ], exports.PageTest.prototype, "color", null);

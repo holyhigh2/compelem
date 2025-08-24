@@ -1,14 +1,13 @@
 import { get, isEqual, isObject, last, set, trim } from "myfx";
 import { CompElem } from "../CompElem";
-import { Directive } from "../directive/Directive";
-import { EnterPoint, EnterPointType, directive } from "../directive/index";
-import { DirectiveUpdateTag } from "../types";
+import { EnterPoint, directive } from "../directive/index";
+import { EnterPointType } from "../types";
 
 export const enum ModelTriggerType {
   CHANGE = 'change',
   INPUT = 'input',
 }
-
+const PathMap = new WeakMap
 /**
  * 实现双向绑定（仅支持静态路径，动态增加的属性路径无法识别）
  * 当用于组件时，监控 @update:value 事件
@@ -19,31 +18,70 @@ export const enum ModelTriggerType {
  * @param modelValue 双向绑定的组件变量
  * @param updateProp 绑定模型变更时的监控属性，默认 value
  */
-class Model extends Directive {
-  created(point: EnterPoint, modelValue: any, updateProp: string = 'value'): void {
+export const model = directive(function Model(modelValue: any, updateProp: string = 'value') {
+  return (point: EnterPoint, newArgs: any[], oldArgs: any[] | undefined, { varChain, renderComponent }: { renderComponent: CompElem; varChain: string[][] }) => {
+
     const node = point.startNode
-    if (get(node, '_model') === 'binded') return;
+    if (oldArgs) {
+      if (isEqual(newArgs, oldArgs)) return
 
-    let path: string[] = last(this.renderParams)
+      if (!isEqual(newArgs, oldArgs)) {
+        let newValue = newArgs[0]
+        if (node instanceof CompElem) {
+          node._updateProps({ [updateProp]: newValue })
+        } else if (node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) {
+          node.setAttribute(updateProp, newValue + '')
+        } else if (node instanceof HTMLInputElement) {
+          if (node.value == newValue) return
+          switch (node.type) {
+            case 'checkbox':
+            case 'radio':
+              if (!!newValue) {
+                node.setAttribute('checked', '')
+              } else {
+                node.removeAttribute('checked')
+              }
+              break;
+            case 'text':
+            case 'email':
+            case 'number':
+            case 'password':
+            case 'search':
+            case 'tel':
+            case 'url':
+              node.setAttribute(updateProp, newValue + '')
+              set(node, updateProp, newValue)
+              break;
 
-    this.updateProp = updateProp
-    this.modelPath = path
+            default:
+              node.setAttribute(updateProp, newValue + '')
+              break;
+          }
 
-    if (!isObject(modelValue) && !trim(modelValue))
-      modelValue = ''
+        }
+      }
+      return
+    }
+    if (get(node, '_model') === 'binded') return
+
+    let path: string[] = last(varChain)
+
+    PathMap.set(node, path)
+
+    if (!isObject(modelValue) && !trim(modelValue)) modelValue = ''
     if (node instanceof CompElem) {
-      node._initProps({ [this.updateProp]: modelValue })
+      node._initProps({ [updateProp]: modelValue })
       node.addEventListener('update:' + updateProp, (e: CustomEvent) => {
         console.debug('Model =>', path)
-        set(this.renderComponent, this.modelPath, e.detail.value)
+        set(renderComponent, path, e.detail.value)
       });
       set(node, '_model', 'binded')
     } else if (node instanceof HTMLTextAreaElement) {
-      node.setAttribute(this.updateProp, modelValue + '');
+      node.setAttribute(updateProp, modelValue + '');
       node.addEventListener('input', (e: Event) => {
         console.debug('Model =>', path)
         let t = e.target as any
-        set(this.renderComponent, this.modelPath, t.value)
+        set(renderComponent, path, t.value)
       });
       set(node, '_model', 'binded')
     } else if (node instanceof HTMLInputElement) {
@@ -72,66 +110,19 @@ class Model extends Directive {
       }
       node.setAttribute(updateProp ?? propName, modelValue + '');
       node.addEventListener(evName, (e: Event) => {
-        console.debug('Model =>', this.modelPath)
+        console.debug('Model =>', path)
         let t = e.target as any
-        set(this.renderComponent, this.modelPath, t.value)
+        set(renderComponent, path, t.value)
       });
       set(node, '_model', 'binded')
     } else if (node instanceof HTMLSelectElement) {
-      node.setAttribute(this.updateProp, modelValue + '');
+      node.setAttribute(updateProp, modelValue + '');
       node.addEventListener('change', (e: Event) => {
-        console.debug('Model =>', this.modelPath)
+        console.debug('Model =>', path)
         let t = e.target as any
-        set(this.renderComponent, this.modelPath, t.value)
+        set(renderComponent, path, t.value)
       });
       set(node, '_model', 'binded')
     }
-  }
-  update(point: EnterPoint, newArgs: any[], oldArgs: any[]): DirectiveUpdateTag {
-    if (!this.modelPath)
-      this.modelPath = last(this.renderParams)
-    if (!isEqual(newArgs, oldArgs)) {
-      const node = point.startNode
-      if (node instanceof CompElem) {
-        node._updateProps({ [this.updateProp]: newArgs[0] })
-      } else if (node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) {
-        node.setAttribute(this.updateProp, newArgs[0] + '')
-      } else if (node instanceof HTMLInputElement) {
-        switch (node.type) {
-          case 'checkbox':
-          case 'radio':
-            if (!!newArgs[0]) {
-              node.setAttribute('checked', '')
-            } else {
-              node.removeAttribute('checked')
-            }
-
-            break;
-          case 'text':
-          case 'email':
-          case 'number':
-          case 'password':
-          case 'search':
-          case 'tel':
-          case 'url':
-            node.setAttribute(this.updateProp, newArgs[0] + '')
-            break;
-
-          default:
-            node.setAttribute(this.updateProp, newArgs[0] + '')
-            break;
-        }
-
-      }
-    }
-    return DirectiveUpdateTag.NONE
-  }
-  static get scopes(): EnterPointType[] {
-    return [EnterPointType.TAG]
-  }
-  modelPath: string[]
-  render(modelValue: any, updateProp: string = 'value') {
-
-  }
-}
-export const model = directive<Parameters<typeof Model.prototype.render>>(Model);
+  };
+}, [EnterPointType.TAG])

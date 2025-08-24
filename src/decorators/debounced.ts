@@ -16,8 +16,9 @@ class DebouncedDecorator extends Decorator {
     return Number.MAX_VALUE
   }
   created(component: CompElem, classProto: CompElem, fieldName: string, ...args: any[]) {
-    let fn = component[fieldName]
-    component[fieldName] = debounce(fn, this.wait, this.immediate);
+    let fn = get(component, fieldName)
+    set(component, fieldName, debounce(fn as any, this.wait, this.immediate))
+
     let proto = Reflect.getPrototypeOf(component)
     if (proto && !get(proto, fieldName + '_$__')) {
       set(proto, fieldName + '_$__', fn)
