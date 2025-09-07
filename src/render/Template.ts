@@ -81,6 +81,6 @@ export class Template {
     getHTML(comp: CompElem) {
         let [html, vars] = buildHTML(comp, this);
         let nodes = buildTmplate([], html, vars, comp);
-        return reduce(nodes, (a, v: HTMLElement) => a + v.outerHTML, '')
+        return reduce(nodes, (a, v: HTMLElement) => a + (v.outerHTML ?? ''), '')
     }
 }

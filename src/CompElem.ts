@@ -277,7 +277,7 @@ export class CompElem extends HTMLElement implements IComponent {
     this.#initiating = true;
 
     /////////////////////////////////////////////////// slots
-    // this.#updateSlotsAry()
+    this.#updateSlotsAry()
 
     //1. Props & States
     const props = this.#initProps();
@@ -557,7 +557,7 @@ export class CompElem extends HTMLElement implements IComponent {
     let renderContextList: Set<CompElem | Node> = new Set()
 
     //1. filter context
-    each(changed, ({ value, chain, oldValue }, k: string) => {
+    each(changed, ({ value, chain, oldValue, end }, k: string) => {
       if (this.#renderContextList[k]) {
         this.#renderContextList[k].forEach(cx => {
           renderContextList.add(cx)

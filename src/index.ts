@@ -7,10 +7,12 @@ export * from "./decorator/index";
 export * from "./decorators/computed";
 export * from "./decorators/debounced";
 export * from "./decorators/event";
+export * from "./decorators/onced";
 export * from "./decorators/prop";
 export * from "./decorators/query";
 export * from "./decorators/state";
 export * from "./decorators/tag";
+export * from "./decorators/throttled";
 export * from "./decorators/watch";
 //directives
 export * from "./directive/index";

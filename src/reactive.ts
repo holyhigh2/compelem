@@ -117,8 +117,16 @@ export function reactive(obj: Record<string, any>, context: any) {
 
       let hasProp = prop in target
       if ((Collector.__renderCollecting || Collector.__collecting) && ((hasProp && target.hasOwnProperty(prop)) || !hasProp)) {
+
         let chain = OBJECT_VAR_PATH.get(receiver) ?? []
         let subChain = concat(chain, [prop])
+        if (subChain.length > 1) {
+          let sourceContext = OBJECT_META_DATA.get(receiver)!.from
+          let propDefs = get<Record<string, PropOption>>(sourceContext.constructor, DecoratorKey.PROPS)
+          let stateDefs = get<Record<string, StateOption>>(sourceContext.constructor, DecoratorKey.STATES)
+          let shallow = get<boolean>(propDefs, [subChain[0], 'shallow']) || get<boolean>(stateDefs, [subChain[0], 'shallow'])
+          if (shallow) return value
+        }
         let subChainStr = subChain.join('-')
         if (Collector.__renderCollecting) {
           Collector.collect(_toUpdatePath(subChain))
@@ -145,7 +153,6 @@ export function reactive(obj: Record<string, any>, context: any) {
           if (!list) list = collectVarMap![subChainStr] = []
           list.push(Collector.__updater!);
         }
-
       }
 
       return value;
