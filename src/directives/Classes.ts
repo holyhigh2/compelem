@@ -2,8 +2,6 @@ import { compact, concat, each, flatMap, isArray, isMatch, isObject, isString } 
 import { CompElem } from "../CompElem";
 import { EnterPoint, directive } from "../directive/index";
 import { EnterPointType } from "../types";
-let ClassSn = 0
-const ClassIdMap = new Map()
 const ClassLastMap = new Map()
 /**
  * 根据变量内容自动插入class，仅能用于class属性
@@ -26,24 +24,15 @@ export const classes = directive(function Classes(clazz: Record<string, boolean 
 
     if (ClassLastMap.get(el) && ClassLastMap.get(el).length === rs.length && isMatch(ClassLastMap.get(el), rs)) return
 
-    let classId = ClassIdMap.get(el)
-    if (!classId) {
-      classId = 'class_d' + ClassSn++
-      ClassIdMap.set(el, classId)
-    }
+    let lastCls = ClassLastMap.get(el)
+    each(lastCls, (cls: string) => {
+      el.classList.remove(cls)
+    })
+    each(rs, cls => {
+      el.classList.add(cls)
+    })
 
-    renderComponent.nextTick(() => {
-      let lastCls = ClassLastMap.get(el)
-      each(lastCls, (cls: string) => {
-        el.classList.remove(cls)
-      })
-      each(rs, cls => {
-        el.classList.add(cls)
-      })
-
-      lastCls = concat(rs);
-      ClassLastMap.set(el, lastCls)
-    }, classId)
-
+    lastCls = concat(rs);
+    ClassLastMap.set(el, lastCls)
   }
 }, [EnterPointType.CLASS])
