@@ -63,7 +63,7 @@ let DefaultGlobalProps = {}
 let DefaultComponentProps: Record<string, any> = {}
 let CompElemSn = 0
 const GlobalStyleMap = new Map<Function, HTMLStyleElement>()
-
+const HostStyleMap = new WeakMap<WeakKey, Constructor<any>[]>()
 /**
  * CompElem基类，意为组件元素。提供了基本内置属性及生命周期等必备接口
  * 每个组件都需要继承自该类
@@ -165,6 +165,9 @@ export class CompElem extends HTMLElement implements IComponent {
     return [];
   }
   static get globalStyles(): Array<string> {
+    return [];
+  }
+  static get hostStyles(): Array<string> {
     return [];
   }
   get styles(): Array<() => string> {
@@ -386,6 +389,25 @@ export class CompElem extends HTMLElement implements IComponent {
         return that.#reactiveData[key]
       })
     })
+
+    //host styles
+    let hostStyles = get<[]>(this.constructor, "hostStyles")
+    let styleRoot = this.#wrapperComponent?.shadowRoot ?? this.ownerDocument
+    let cls = HostStyleMap.get(styleRoot)
+    if (!cls?.includes(this.constructor as any) && hostStyles.length > 0) {
+      let styleSheets: CSSStyleSheet[] = [];
+      each(hostStyles, (st) => {
+        if (isString(st)) {
+          let sheet = new CSSStyleSheet();
+          sheet.replaceSync(st)
+          styleSheets.push(sheet);
+        } else {
+          styleSheets.push(st);
+        }
+      });
+      styleRoot.adoptedStyleSheets = [...styleRoot.adoptedStyleSheets, ...styleSheets]
+      cls?.push(this.constructor as any)
+    }
 
     this.beforeMount();
 
@@ -998,7 +1020,7 @@ export class CompElem extends HTMLElement implements IComponent {
   }
 
   #attrChanged(name: string, oldValue: string | null, newValue: string | null) {
-    if (!this.isMounted) return;
+    if (!this.#inited) return;
     let observedAttrs = _getObservedAttrs(this.constructor)
     if (observedAttrs.has(name)) {
       let camelName = camelCase(name)

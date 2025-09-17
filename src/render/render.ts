@@ -607,7 +607,8 @@ export function buildTmplate2(updatePoints: Array<UpdatePoint>, vars: any[], com
             if (!vp.value) {
               varIndex--
             }
-            addEvent(vp.name!, val.bind(component), currentNode, component)
+            if (vp.value)
+              addEvent(vp.name!, val.bind(component), currentNode, component)
             currentNode.removeAttribute(vp.attrName)
             break
           case VarType.AttrSlot:

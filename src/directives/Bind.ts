@@ -9,9 +9,14 @@ const Ignores = ['key']
  */
 export const bind = directive(function Bind(obj: Record<string, any>) {
   return (point: EnterPoint, [obj]: [Record<string, any>], oldArgs: any[] | undefined) => {
-    if (oldArgs) return;
-
     let el = point.startNode as HTMLElement
+    if (oldArgs) {
+      each(obj, (v, k: string) => {
+        el.setAttribute(k, v)
+      })
+      return;
+    }
+
     if (el instanceof CompElem) {
       //判断是否prop
       let props: Record<string, any> = {};
