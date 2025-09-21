@@ -870,7 +870,7 @@ export class CompElem extends HTMLElement implements IComponent {
   }
   _initProps(props: Record<string, any>, attrs?: Record<string, any>) {
     this.#props = merge(this.#props || {}, props);
-    this.#attrs = merge({}, attrs);
+    this.#attrs = merge(this.#attrs || {}, attrs);
   }
   /**
    * 绑定slot标签，render时调用

@@ -1,5 +1,6 @@
-import { each } from "myfx";
+import { camelCase, each, get } from "myfx";
 import { CompElem } from "../CompElem";
+import { DecoratorKey } from "../constants";
 import { EnterPoint, directive } from "../directive/index";
 import { EnterPointType } from "../types";
 const Ignores = ['key']
@@ -21,10 +22,17 @@ export const bind = directive(function Bind(obj: Record<string, any>) {
       //判断是否prop
       let props: Record<string, any> = {};
       let attrs: Record<string, string> = {}
+      let propDefs: Record<string, any> = get(
+        el.constructor,
+        DecoratorKey.PROPS
+      )
+
       each(obj, (v, k: string) => {
         if (Ignores.includes(k)) return;
 
-        if (k in el) {
+        let ck = camelCase(k)
+        let propDef = propDefs[ck]
+        if (propDef) {
           props[k] = v;
         } else {
           attrs[k] = v + '';
