@@ -23,12 +23,12 @@ export const forEach = directive(function ForEach(value: any[] | Record<string, 
   return (point: EnterPoint, newArgs: any[], oldArgs: any[] | undefined, { varChain }: { varChain: string[][] }) => {
     let el = point.startNode
     let lastRenderTmpl = comboTmpl(newArgs[0], cbk, el)
-    if (oldArgs) {
+    if (oldArgs && oldArgs[0]) {
       //更新
       const lastAry = LastValueMap.get(el)
       // const lastRenderTmpl = LastTmplMap.get(el)
       if (isEmpty(point.getNodes()) && (!newArgs || isEmpty(newArgs[0]))) return [DirectiveUpdateTag.NONE, lastRenderTmpl]
-      if (isMatch(lastAry, newArgs[0]) && lastAry.length === newArgs[0].length) return [DirectiveUpdateTag.NONE, lastRenderTmpl]
+      if (lastAry && isMatch(lastAry, newArgs[0]) && lastAry.length === newArgs[0].length) return [DirectiveUpdateTag.NONE, lastRenderTmpl]
     }
 
     LastValueMap.set(el, clone(newArgs[0]))

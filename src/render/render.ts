@@ -260,15 +260,16 @@ export function buildTmplate(
         if (name[0] === ATTR_PREFIX_EVENT) {
           let cbk: (ev: Event) => any = (e: Event) => {/* Do nothing */ }
 
-          let po = new UpdatePoint(varIndex, currentNode)
-          po.notUpdated = true;
-          if (keyNode && keyNode?.contains(currentNode)) {
-            po.key = keyVal
-          }
-          updatePoints.push(po)
-
+          let po = null
           let hasValue = false
           if (PLACEHOLDER_EXP.test(value)) {
+            po = new UpdatePoint(varIndex, currentNode)
+            po.notUpdated = true;
+            if (keyNode && keyNode?.contains(currentNode)) {
+              po.key = keyVal
+            }
+            updatePoints.push(po)
+
             let val = vars[varIndex];
             if (process.env.DEV && !isFunction(val)) {
               showTagError(currentNode.tagName,

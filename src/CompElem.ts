@@ -643,6 +643,8 @@ export class CompElem extends HTMLElement implements IComponent {
     let size = keys.length
     for (let i = 0; i < size; i++) {
       const key = keys[i]
+      const kbKey = kebabCase(key)
+      const hasAttr = this.hasAttribute(kbKey)
       let propDef = propDefs[key];
       let isInited = has(parentProps, key);
       let defaultVal = get(this, key);
@@ -666,8 +668,8 @@ export class CompElem extends HTMLElement implements IComponent {
       } else {
         val = defaultVal;
         let attr =
-          attrs.getNamedItem(kebabCase(key)) ||
-          attrs.getNamedItem(ATTR_PREFIX_PROP + kebabCase(key));
+          attrs.getNamedItem(kbKey) ||
+          attrs.getNamedItem(ATTR_PREFIX_PROP + kbKey);
         if (attr) {
           isInited = true;
           val = attr.value;
@@ -681,7 +683,7 @@ export class CompElem extends HTMLElement implements IComponent {
         break
       }
 
-      val = this.#propTypeCheck(propDefs, key, val)
+      val = this.#propTypeCheck(propDefs, key, val, hasAttr)
 
       let getter = get<() => any>(propDefs, [key, 'getter'])
       if (getter) getter = bind(getter, this);
@@ -738,7 +740,7 @@ export class CompElem extends HTMLElement implements IComponent {
     return val
   }
   //属性值检测
-  #propTypeCheck(propDefs: Record<string, PropOption>, propKey: string, newValue: string | null) {
+  #propTypeCheck(propDefs: Record<string, PropOption>, propKey: string, newValue: string | null, hasAttr?: boolean) {
     let propDef = propDefs[propKey]
     if (!propDef) return newValue
 
@@ -759,8 +761,12 @@ export class CompElem extends HTMLElement implements IComponent {
     for (let i = 0; i < expectTypeAry.length; i++) {
       const et = expectTypeAry[i];
       if (et.name === 'Boolean') {
-        val = getBooleanValue(val)
+        val = hasAttr === false && isBlank(val) ? false : getBooleanValue(val)
       }
+    }
+
+    if (isNil(val)) {
+      return val
     }
 
     let realType = typeof val;
