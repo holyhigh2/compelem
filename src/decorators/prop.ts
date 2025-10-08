@@ -13,10 +13,6 @@ export type PropOption = {
    */
   type: Constructor<any> | Array<Constructor<any>>,
   /**
-   * 是否浅层监控，默认false
-   */
-  shallow?: boolean,
-  /**
    * 是否必填，默认false
    */
   required?: boolean,
@@ -128,7 +124,6 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
     target.constructor.observedAttributes = []
   }
   target.constructor.observedAttributes = toArray(attrSet)
-  options.shallow = options.shallow || false;
   target.constructor[DecoratorKey.PROPS][propertyKey] = options
 }
 

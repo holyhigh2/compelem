@@ -1,5 +1,6 @@
 import { cloneDeep, has, isArray, isEmpty } from "myfx";
 import { DecoratorKey } from "../constants";
+import { PATH_SEPARATOR } from "../types";
 
 /**
  * 监控定义
@@ -26,7 +27,7 @@ export function watch(source: string | string[], options?: WatchOptions): (targe
 
     const sources = isArray(source) ? source : [source]
     sources.forEach(src => {
-      let watchKey = src.replaceAll('.', '-')
+      let watchKey = src.replaceAll('.', PATH_SEPARATOR)
       let srcList = target.constructor[DecoratorKey.WATCH][watchKey]
       if (!isArray(srcList)) {
         srcList = target.constructor[DecoratorKey.WATCH][watchKey] = []

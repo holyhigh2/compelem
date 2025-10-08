@@ -36,7 +36,7 @@ import {
   toArray,
   trim
 } from "myfx";
-import { ChangedMap, CollectorType, DecoratorKey } from "./constants";
+import { CollectorType, DecoratorKey } from "./constants";
 import { _DecoratorsKey, DecoratorWrapper } from "./decorator";
 import { _getObservedAttrs, PropOption } from "./decorators/prop";
 import { StateOption } from "./decorators/state";
@@ -44,7 +44,7 @@ import { IComponent } from "./IComponent";
 import { Collector, Queue, reactive } from "./reactive";
 import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildView, updateDirectiveView, updateView } from "./render/render";
 import { Template } from "./render/Template";
-import { Constructor, DefaultProps, Getter, SlotOptions, TmplFn } from "./types";
+import { Constructor, DefaultProps, Getter, PATH_SEPARATOR, SlotOptions, TmplFn } from "./types";
 import { _toUpdatePath, getBooleanValue, isBooleanProp, showTagError } from "./utils";
 const PropTypeMap: Record<string, Constructor<any>> = {
   boolean: Boolean,
@@ -64,6 +64,7 @@ let DefaultComponentProps: Record<string, any> = {}
 let CompElemSn = 0
 const GlobalStyleMap = new Map<Function, HTMLStyleElement>()
 const HostStyleMap = new WeakMap<WeakKey, Constructor<any>[]>()
+export const PROP_OBJECT_KEY_MAP_SYMBOL = Symbol.for('PROP_OBJECT_KEY_MAP_SYMBOL')
 /**
  * CompElem基类，意为组件元素。提供了基本内置属性及生命周期等必备接口
  * 每个组件都需要继承自该类
@@ -103,6 +104,10 @@ export class CompElem extends HTMLElement implements IComponent {
   #renderContextList: Record<string, Set<CompElem | Node>> = {};
   __events: Record<string, Array<Node | ((e: Event) => void)>[]> = {}
 
+  _propObjectKeyMap: Record<string, string> = {}
+  get [PROP_OBJECT_KEY_MAP_SYMBOL]() {
+    return this._propObjectKeyMap
+  }
   get [Symbol.toStringTag]() {
     return this.constructor.name;
   }
@@ -247,6 +252,16 @@ export class CompElem extends HTMLElement implements IComponent {
 
     this.#updatedD = this.#update.bind(this)
   }
+  /**
+   * Returns the root component in the parent chain, or itself if it's the top-level component.
+   */
+  get rootComponent(): CompElem {
+    let comp: CompElem = this;
+    while (comp.parentComponent) {
+      comp = comp.parentComponent;
+    }
+    return comp;
+  }
   #updatedD
 
   connectedCallback() {
@@ -348,7 +363,7 @@ export class CompElem extends HTMLElement implements IComponent {
           fn = once(fn)
         }
         const updater = (function (ov: any) {
-          let nv = get(this, source.replaceAll('-', '.'));
+          let nv = get(this, source.replaceAll(PATH_SEPARATOR, '.'));
           fn(nv, ov, source)
         }).bind(this)
         let deep = get(options, "deep", false);
@@ -358,7 +373,7 @@ export class CompElem extends HTMLElement implements IComponent {
         let immediate = get(options, "immediate", false);
         if (!immediate) return
 
-        let nv = get(this, source.replaceAll('-', '.'));
+        let nv = get(this, source.replaceAll(PATH_SEPARATOR, '.'));
         fn(nv, nv, source);
       })
     })
@@ -554,9 +569,6 @@ export class CompElem extends HTMLElement implements IComponent {
       let v = get(this, varPath);
       let pathStr = _toUpdatePath(varPath);
       this.#updateSources[pathStr] = { value: v, chain: pathStr === "slots" ? ['slots'] : varPath, oldValue: ov, end: varPath.length === chain.length };
-      if (isObject(v) && pathStr[0] != PrivatePreffix) {
-        ChangedMap.set(v, pathStr)
-      }
     }
 
     return this.#updatedD
@@ -566,6 +578,8 @@ export class CompElem extends HTMLElement implements IComponent {
 
     const changed = this.#updateSources
     this.#updateSources = {}
+    const changedKeys = Object.keys(changed)
+
 
     //update decorators
     let ary: DecoratorWrapper[] = get(this.constructor, _DecoratorsKey)
@@ -589,7 +603,7 @@ export class CompElem extends HTMLElement implements IComponent {
     //2. update context
     renderContextList.forEach(context => {
       if (context === this) {
-        updateView(this.render(), this);
+        updateView(this.render(), this, undefined, changedKeys);
       } else {
         //指令在这里仅更新视图
         updateDirectiveView(context, this)
@@ -602,12 +616,6 @@ export class CompElem extends HTMLElement implements IComponent {
     })
 
     this.updated(changed);
-
-    each(changed, ({ value, chain, oldValue }, k: string) => {
-      if (isObject(value) && ChangedMap.has(value)) {
-        ChangedMap.delete(value)
-      }
-    })
   }
 
   /**
@@ -1052,10 +1060,10 @@ export class CompElem extends HTMLElement implements IComponent {
     }
     list.add(renderContext)
 
-    let restPath = varPath.split('-')
+    let restPath = varPath.split(PATH_SEPARATOR)
     restPath.pop()
     if (restPath.length < 1) return;
-    let upperPath = restPath.join('-')
+    let upperPath = restPath.join(PATH_SEPARATOR)
 
     list = this.#renderContextList[upperPath]
     if (!list) {

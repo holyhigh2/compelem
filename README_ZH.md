@@ -234,6 +234,7 @@ export class PageTest extends CompElem {
     <div ref="${divRef}"></div>`;
   ```
 - ### 内置属性及函数
+  - `readonly` rootComponent 根组件引用
   - `readonly` parentComponent 父组件引用，可能为空
   - `readonly` wrapperComponent 包装(组件所在视图归属)组件引用，可能为空
   - `readonly` renderRoot/renderRoots 渲染根元素/渲染根元素列表

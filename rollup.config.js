@@ -19,7 +19,7 @@ export default [
       }),
       replace({
         preventAssignment: true,
-        'process.env.PROD': true
+        'process.env.DEV': false
       }),
       typescript(
         {

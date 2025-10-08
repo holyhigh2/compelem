@@ -16,6 +16,8 @@ export interface IComponent {
   get renderRoot(): HTMLElement;
   //所有渲染根元素
   get renderRoots(): HTMLElement[];
+  //根组件
+  get rootComponent(): HTMLElement;
   //父组件
   get parentComponent(): HTMLElement | null;
   //包装组件

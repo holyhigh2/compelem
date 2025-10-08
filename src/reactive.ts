@@ -3,12 +3,12 @@
  * @author holyhigh2
  */
 
-import { concat, get, initial, isArray, isEmpty, isFunction, isObject, last, startsWith } from "myfx";
+import { concat, get, initial, isArray, isEmpty, isFunction, isObject, isSymbol, last, startsWith } from "myfx";
 import { CompElem } from "./CompElem";
-import { ChangedMap, CollectorType, DecoratorKey } from "./constants";
+import { CollectorType, DecoratorKey } from "./constants";
 import { PropOption } from "./decorators/prop";
 import { StateOption } from "./decorators/state";
-import { Getter, Updater } from "./types";
+import { Getter, PATH_SEPARATOR, Updater } from "./types";
 import { _toUpdatePath, showWarn } from "./utils";
 
 const EVENT_UPDATE = 'update'
@@ -91,43 +91,37 @@ interface MetaData {
   pathMap: WeakMap<any, Array<string>>
 }
 const OBJECT_META_DATA = new WeakMap<any, MetaData>()
-const OBJECT_VAR_PATH = new WeakMap<any, Array<string>>()
+export const OBJECT_VAR_PATH = new WeakMap<any, Array<string>>()
+
+//存储每个组件的computed/css/watch依赖
 const COMPUTED_MAP = new WeakMap<CompElem, Record<string, Getter[] | null>>()
 const CSS_MAP = new WeakMap<CompElem, Record<string, Getter[] | null>>()
 const WATCH_MAP = new WeakMap<CompElem, Record<string, Getter[] | null>>()
-
-const PROXY_SET = new WeakSet<Record<string, any>>()
+//缓存已经创建的proxy对象，避免重复创建
+const PROXY_MAP = new WeakMap<Record<string, any>, ProxyConstructor>()
 
 /**
- * 1. 初始化时obj都是普通对象
- * 2. OBJECT_VAR_PATH 首次是普通对象
- * 3. OBJECT_META_DATA 直接绑定代理对象
  * @param obj 
  * @param context 
  * @returns 
  */
-export function reactive(obj: Record<string, any>, context: any) {
+export function reactive(obj: Record<string, any>, context: any): ProxyConstructor {
   if (!isObject(obj)) return obj;
+  if (PROXY_MAP.has(obj)) return PROXY_MAP.get(obj)!
+  if (OBJECT_META_DATA.has(obj)) return obj as ProxyConstructor
 
-  const proxyObject = PROXY_SET.has(obj) ? obj : new Proxy(obj, {
+  const proxyObject = new Proxy(obj, {
     get(target: any, prop: string, receiver: any): any {
       if (!prop) return undefined;
       const value = Reflect.get(target, prop, receiver);
-      if ((typeof prop !== 'string') && (typeof prop !== 'number')) return value
+      if (isSymbol(prop)) return value
+      if (prop === 'length' && isArray(target)) return value
 
+      let chain = OBJECT_VAR_PATH.get(receiver) ?? []
+      let subChain = concat(chain, [prop])
       let hasProp = prop in target
       if ((Collector.__renderCollecting || Collector.__collecting) && ((hasProp && target.hasOwnProperty(prop)) || !hasProp)) {
-
-        let chain = OBJECT_VAR_PATH.get(receiver) ?? []
-        let subChain = concat(chain, [prop])
-        if (subChain.length > 1) {
-          let sourceContext = OBJECT_META_DATA.get(receiver)!.from
-          let propDefs = get<Record<string, PropOption>>(sourceContext.constructor, DecoratorKey.PROPS)
-          let stateDefs = get<Record<string, StateOption>>(sourceContext.constructor, DecoratorKey.STATES)
-          let shallow = get<boolean>(propDefs, [subChain[0], 'shallow']) || get<boolean>(stateDefs, [subChain[0], 'shallow'])
-          if (shallow) return value
-        }
-        let subChainStr = subChain.join('-')
+        let subChainStr = subChain.join(PATH_SEPARATOR)
         if (Collector.__renderCollecting) {
           Collector.collect(_toUpdatePath(subChain))
           Collector.setDirectiveQ(subChain)
@@ -154,137 +148,69 @@ export function reactive(obj: Record<string, any>, context: any) {
           list.push(Collector.__updater!);
         }
       }
+      const meta = OBJECT_META_DATA.get(receiver)!
+      let sourceContext = meta.from
+      let stateDefs = get<Record<string, StateOption>>(sourceContext.constructor, DecoratorKey.STATES)
+      let shallow = get<boolean>(stateDefs, [prop, 'shallow'])
+      if (shallow) return value
 
-      return value;
+      let reactiveVal = value
+      if (isObject(value) && !isFunction(value) && !(value instanceof Node) && !Object.isFrozen(value)) {
+        let pathMap = meta.pathMap
+        let deps = meta.contextSet!
+
+        deps.forEach(dep => {
+          let pathAry = pathMap?.get(dep)
+          if (!pathAry) return
+
+          subChain = concat(pathAry, [prop])
+
+          reactiveVal = reactive(value, dep)
+
+          PROXY_MAP.set(value, reactiveVal)
+
+          if (!OBJECT_VAR_PATH.has(reactiveVal))
+            OBJECT_VAR_PATH.set(reactiveVal, subChain)
+        })
+      }
+
+      return reactiveVal;
     },
     set(target: any, prop: string, newValue: any, receiver: any) {
       if (!prop) return false;
 
       let ov = target[prop];
-      if (!isObject(ov) && ov === newValue) return true;
-      if (Number.isNaN(newValue) && Number.isNaN(ov)) return true;
 
       let chain = OBJECT_VAR_PATH.get(receiver) ?? []
       let subChain = concat(chain, [prop])
-
-      let sourceContext = OBJECT_META_DATA.get(receiver)!.from
-      let propDefs = get<Record<string, PropOption>>(sourceContext.constructor, DecoratorKey.PROPS)
-      let stateDefs = get<Record<string, StateOption>>(sourceContext.constructor, DecoratorKey.STATES)
+      let propDefs = get<Record<string, PropOption>>(context.constructor, DecoratorKey.PROPS)
+      let stateDefs = get<Record<string, StateOption>>(context.constructor, DecoratorKey.STATES)
       let hasChanged = get<Function>(propDefs, [subChain[0], 'hasChanged']) || get<Function>(stateDefs, [subChain[0], 'hasChanged'])
       if (hasChanged) {
-        if (!hasChanged.call(sourceContext, newValue, ov)) return true;
+        if (!hasChanged.call(context, newValue, ov)) return true;
       } else {
         //默认对比算法
-        if (ov === newValue && !ChangedMap.has(ov)) {
+        if (Object.is(ov, newValue)) {
           return true;
         }
       }
 
       if (propDefs && propDefs[prop] && target.__isData) {
         if (propDefs[prop].sync) {
-          sourceContext.emit(EVENT_UPDATE + ":" + prop, { value: newValue })
+          context.emit(EVENT_UPDATE + ":" + prop, { value: newValue })
         }
       }
-
-      let deps = OBJECT_META_DATA.get(receiver)?.contextSet!
 
       //get oldValue from sourceContext
       let nv: any = newValue;
 
-      if (isObject(newValue) && !isFunction(newValue) && !(newValue instanceof Node) && !Object.isFrozen(newValue)) {
-        deps.forEach(dep => {
-          let pathMap = OBJECT_META_DATA.get(receiver)?.pathMap
-          let pathAry = pathMap?.get(dep)
-          if (!pathAry) return
-
-          subChain = concat(pathAry, [prop])
-          OBJECT_VAR_PATH.set(nv, subChain)
-          nv = reactive(nv, dep)
-          PROXY_SET.add(nv)
-          OBJECT_VAR_PATH.set(nv, subChain)
-        })
-      }
-
       let rs = Reflect.set(target, prop, nv);
 
-      let pathMap = OBJECT_META_DATA.get(receiver)!.pathMap
-      deps.forEach(dep => {
-        //view update
-        let pathAry = pathMap.get(dep)
-        if (!pathAry) return
-        if (dep === sourceContext) {
-          //fix the index change of array item
-          if (chain.length > 1 && pathAry.length > 1 && chain[0] === pathAry[0]) {
-            pathAry = chain
-          }
-        }
-
-        //数组length属性变动直接通知为数组自身变动
-        subChain = concat(pathAry, prop == 'length' && isArray(receiver) ? [] : [prop])
-
-        //computed
-        let computedMap = COMPUTED_MAP.get(dep)!
-        //css
-        let cssMap = CSS_MAP.get(dep)!
-        //watch
-        let watchMap = WATCH_MAP.get(dep)
-
-        //recur path
-        if (computedMap || cssMap || watchMap) {
-          let i = subChain.length
-          while (i) {
-            let subPath = subChain.slice(0, i).join('-')
-            if (watchMap) {
-              const watchList = watchMap[subPath]
-              if (i === subChain.length) {
-                watchList?.forEach((wk) => {
-                  let updater = wk()
-                  updater.ov = ov
-                  Queue.pushWatch(updater)
-                })
-              } else {
-                watchList?.forEach((wk) => {
-                  let updater = wk()
-                  if (get(updater, 'deep')) {
-                    updater.ov = ov
-                    Queue.pushWatch(updater)
-                  }
-                })
-              }
-            }
-            if (computedMap) {
-              let computedList = computedMap[subPath]!
-              if (!isEmpty(computedList)) {
-                for (let l = 0; l < computedList.length; l++) {
-                  const updater = computedList[l];
-                  Queue.pushComputed(updater)
-                }
-              }
-            }
-            if (cssMap) {
-              let computedCssList = cssMap[subPath]!
-              if (!isEmpty(computedCssList)) {
-                for (let l = 0; l < computedCssList.length; l++) {
-                  const updater = computedCssList[l];
-                  Queue.pushCss(updater)
-                }
-              }
-            }
-
-            i--;
-          }
-        }
-
-        let updater = dep._notify(ov, subChain);
-        Queue.pushNext(updater, dep.cid)
-      });
+      notifyUpdate(context, ov, subChain)
 
       return rs;
     }
   });
-  if (!PROXY_SET.has(proxyObject)) {
-    PROXY_SET.add(proxyObject)
-  }
 
   let chain = OBJECT_VAR_PATH.get(obj) ?? []
   if (Object.isExtensible(obj) && !OBJECT_META_DATA.get(proxyObject)) {
@@ -317,23 +243,68 @@ export function reactive(obj: Record<string, any>, context: any) {
     }
   }
 
-  let propDefs = get<Record<string, PropOption>>(context.constructor, DecoratorKey.PROPS)
-  let stateDefs = get<Record<string, StateOption>>(context.constructor, DecoratorKey.STATES)
-  for (let k in obj) {
-    const v = obj[k];
-
-    let shallow = get<boolean>(propDefs, [k, 'shallow']) || get<boolean>(stateDefs, [k, 'shallow'])
-    if (isObject(v) && !PROXY_SET.has(v) && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v) && !shallow
-    ) {
-      OBJECT_VAR_PATH.set(v, concat(chain, [k]))
-      obj[k] = reactive(v, context);
-      PROXY_SET.add(obj[k])
-      OBJECT_VAR_PATH.set(obj[k], concat(chain, [k]))
-    }
-  }
+  PROXY_MAP.set(obj, proxyObject)
 
   return proxyObject
 }
+export function notifyUpdate(context: CompElem, ov: any, path: Array<string>) {
+  //computed
+  let computedMap = COMPUTED_MAP.get(context)!
+  //css
+  let cssMap = CSS_MAP.get(context)!
+  //watch
+  let watchMap = WATCH_MAP.get(context)
+
+  //recur path
+  if (computedMap || cssMap || watchMap) {
+    let i = path.length
+    while (i) {
+      let subPath = path.slice(0, i).join(PATH_SEPARATOR)
+      if (watchMap) {
+        const watchList = watchMap[subPath]
+        if (i === path.length) {
+          watchList?.forEach((wk) => {
+            let updater = wk()
+            updater.ov = ov
+            Queue.pushWatch(updater)
+          })
+        } else {
+          watchList?.forEach((wk) => {
+            let updater = wk()
+            if (get(updater, 'deep')) {
+              updater.ov = ov
+              Queue.pushWatch(updater)
+            }
+          })
+        }
+      }
+      if (computedMap) {
+        let computedList = computedMap[subPath]!
+        if (!isEmpty(computedList)) {
+          for (let l = 0; l < computedList.length; l++) {
+            const updater = computedList[l];
+            Queue.pushComputed(updater)
+          }
+        }
+      }
+      if (cssMap) {
+        let computedCssList = cssMap[subPath]!
+        if (!isEmpty(computedCssList)) {
+          for (let l = 0; l < computedCssList.length; l++) {
+            const updater = computedCssList[l];
+            Queue.pushCss(updater)
+          }
+        }
+      }
+
+      i--;
+    }
+  }
+
+  let updater = context._notify(ov, path);
+  Queue.pushNext(updater, context.cid)
+}
+
 const QMap = new Map()
 export class Queue {
   static watchSet = new Set<Updater>()

@@ -1,5 +1,5 @@
-/* compelem 0.6.7-b1 @holyhigh2 https://github.com/holyhigh2/compelem */
-(function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
+/* compelem 0.6.13-b1 @holyhigh2 https://github.com/holyhigh2/compelem */
+(function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35730/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
     typeof define === 'function' && define.amd ? define(['exports'], factory) :
@@ -34,7 +34,7 @@
     };
 
     /**
-       * myfx v1.13.0
+       * myfx v1.13.4
        * A modular utility library with more utils, higher performance and simpler declarations ...
        * https://github.com/holyhigh2/myfx
        * (c) 2021-2025 @holyhigh2 may be freely distributed under the MIT license
@@ -143,7 +143,7 @@
             return false;
         // 具有length属性
         const list = v;
-        if (list.length !== undefined) {
+        if ('length' in list) {
             const proto = Reflect.getPrototypeOf(list);
             // NodeList/HTMLCollection/CSSRuleList/...
             if (isFunction(proto?.item))
@@ -206,20 +206,6 @@
         return v instanceof Set || Object.prototype.toString.call(v) === '[object Set]';
     }
 
-    /**
-     * 返回对象/Map的所有key数组
-     *
-     * > 只返回对象的自身可枚举属性
-     *
-     * @example
-     * let f = new Function("this.a=1;this.b=2;");
-     * f.prototype.c = 3;
-     * //[a,b]
-     * console.log(_.keys(new f()))
-     *
-     * @param obj
-     * @returns key数组
-     */
     function keys(obj) {
         if (obj === null || obj === undefined)
             return [];
@@ -626,9 +612,7 @@
     }
 
     function eq$1(a, b) {
-        if (Number.isNaN(a) && Number.isNaN(b))
-            return true;
-        return a === b;
+        return Object.is(a, b);
     }
 
     /**
@@ -2855,7 +2839,7 @@
      * @returns 绑定thisArg的新函数
      * @since 0.17.0
      */
-    function bind$1(fn, thisArg, ...args) {
+    function bind(fn, thisArg, ...args) {
         return partial((fn || (() => { })).bind(thisArg), ...args);
     }
 
@@ -3195,7 +3179,7 @@
       __proto__: null,
       after: after,
       alt: alt,
-      bind: bind$1,
+      bind: bind,
       bindAll: bindAll,
       call: call,
       compose: compose,
@@ -4648,19 +4632,6 @@
         return obj && obj.hasOwnProperty && obj.hasOwnProperty(key);
     }
 
-    /**
-     * 返回对象/Map的所有key数组
-     * 包括对象原型链中的属性key
-     *
-     * @example
-     * let f = new Function("this.a=1;this.b=2;");
-     * f.prototype.c = 3;
-     * //[a,b,c]
-     * console.log(_.keysIn(new f()))
-     *
-     * @param obj
-     * @returns key数组
-     */
     function keysIn(obj) {
         if (isMap(obj)) {
             return Array.from(obj.keys());
@@ -7037,7 +7008,7 @@
     /* eslint-disable require-jsdoc */
     /* eslint-disable no-invalid-this */
     /* eslint-disable max-len */
-    const VERSION = "1.13.0"; //#ver
+    const VERSION = "1.13.4"; //#ver
     /**
     * 显式开启myfx的函数链，返回一个包裹了参数v的myfx链式对象。函数链可以链接Myfx提供的所有函数，如
      <p>
@@ -7138,7 +7109,6 @@
     /**
      * 共享内容
      */
-    const ChangedMap = new WeakMap;
     const EXP_KEY = /\s+\.?key\s*=/;
     var CollectorType;
     (function (CollectorType) {
@@ -7378,7 +7348,6 @@
             target.constructor.observedAttributes = [];
         }
         target.constructor.observedAttributes = toArray(attrSet);
-        options.shallow = options.shallow || false;
         target.constructor[DecoratorKey.PROPS][propertyKey] = options;
     }
     //内部接口
@@ -7386,6 +7355,68 @@
     function _getObservedAttrs(ctor) {
         return ObservedAttrsMap.get(ctor) ?? emptySet;
     }
+
+    /**
+     * 属性定义
+     */
+    var EnterPointType;
+    (function (EnterPointType) {
+        EnterPointType["ATTR"] = "attr";
+        EnterPointType["PROP"] = "prop";
+        EnterPointType["TEXT"] = "text";
+        EnterPointType["CLASS"] = "class";
+        EnterPointType["STYLE"] = "style";
+        EnterPointType["SLOT"] = "slot";
+        EnterPointType["TAG"] = "tag"; //在标签内但不是属性内
+    })(EnterPointType || (EnterPointType = {}));
+    var DirectiveUpdateTag;
+    (function (DirectiveUpdateTag) {
+        DirectiveUpdateTag["NONE"] = "NONE";
+        DirectiveUpdateTag["REMOVE"] = "REMOVE";
+        DirectiveUpdateTag["REPLACE"] = "REPLACE";
+        DirectiveUpdateTag["UPDATE"] = "UPDATE";
+        DirectiveUpdateTag["APPEND"] = "APPEND";
+    })(DirectiveUpdateTag || (DirectiveUpdateTag = {}));
+    /**
+     * 视图更新点
+     */
+    class UpdatePoint {
+        //在子视图中的平级key
+        key;
+        //表达式对应的vars位置
+        varIndex;
+        value;
+        isText = false;
+        //是否模板
+        // isTmpl: boolean = false;
+        isDirective = false;
+        //表达式所在节点，可能是元素/文本
+        node;
+        //如果是文本位置，与node一起构成插入范围
+        textNode;
+        //是否组件
+        isComponent = false;
+        //如果在属性中，属性名
+        attrName;
+        //属性值模板
+        attrTmpl;
+        //是否组件属性
+        isProp = false;
+        //是否布尔属性
+        isToggleProp = false;
+        //是否被更新，对于 key，event，ref等属性不需要更新，仅用于占位
+        notUpdated;
+        constructor(varIndex, node, attrName, attrTmpl) {
+            this.varIndex = varIndex;
+            this.node = node;
+            if (attrName)
+                this.attrName = attrName;
+            if (attrTmpl) {
+                this.attrTmpl = attrTmpl;
+            }
+        }
+    }
+    const PATH_SEPARATOR = '-';
 
     /**
      * 用于提供全局state状态管理
@@ -7462,14 +7493,13 @@
     };
     const OBJECT_META_DATA = new WeakMap();
     const OBJECT_VAR_PATH = new WeakMap();
+    //存储每个组件的computed/css/watch依赖
     const COMPUTED_MAP = new WeakMap();
     const CSS_MAP = new WeakMap();
     const WATCH_MAP = new WeakMap();
-    const PROXY_SET = new WeakSet();
+    //缓存已经创建的proxy对象，避免重复创建
+    const PROXY_MAP = new WeakMap();
     /**
-     * 1. 初始化时obj都是普通对象
-     * 2. OBJECT_VAR_PATH 首次是普通对象
-     * 3. OBJECT_META_DATA 直接绑定代理对象
      * @param obj
      * @param context
      * @returns
@@ -7477,18 +7507,24 @@
     function reactive(obj, context) {
         if (!isObject(obj))
             return obj;
-        const proxyObject = PROXY_SET.has(obj) ? obj : new Proxy(obj, {
+        if (PROXY_MAP.has(obj))
+            return PROXY_MAP.get(obj);
+        if (OBJECT_META_DATA.has(obj))
+            return obj;
+        const proxyObject = new Proxy(obj, {
             get(target, prop, receiver) {
                 if (!prop)
                     return undefined;
                 const value = Reflect.get(target, prop, receiver);
-                if ((typeof prop !== 'string') && (typeof prop !== 'number'))
+                if (isSymbol(prop))
                     return value;
+                if (prop === 'length' && isArray(target))
+                    return value;
+                let chain = OBJECT_VAR_PATH.get(receiver) ?? [];
+                let subChain = concat(chain, [prop]);
                 let hasProp = prop in target;
                 if ((Collector.__renderCollecting || Collector.__collecting) && ((hasProp && target.hasOwnProperty(prop)) || !hasProp)) {
-                    let chain = OBJECT_VAR_PATH.get(receiver) ?? [];
-                    let subChain = concat(chain, [prop]);
-                    let subChainStr = subChain.join('-');
+                    let subChainStr = subChain.join(PATH_SEPARATOR);
                     if (Collector.__renderCollecting) {
                         Collector.collect(_toUpdatePath(subChain));
                         Collector.setDirectiveQ(subChain);
@@ -7517,128 +7553,60 @@
                         list.push(Collector.__updater);
                     }
                 }
-                return value;
+                const meta = OBJECT_META_DATA.get(receiver);
+                let sourceContext = meta.from;
+                let stateDefs = get(sourceContext.constructor, DecoratorKey.STATES);
+                let shallow = get(stateDefs, [prop, 'shallow']);
+                if (shallow)
+                    return value;
+                let reactiveVal = value;
+                if (isObject(value) && !isFunction(value) && !(value instanceof Node) && !Object.isFrozen(value)) {
+                    let pathMap = meta.pathMap;
+                    let deps = meta.contextSet;
+                    deps.forEach(dep => {
+                        let pathAry = pathMap?.get(dep);
+                        if (!pathAry)
+                            return;
+                        subChain = concat(pathAry, [prop]);
+                        reactiveVal = reactive(value, dep);
+                        PROXY_MAP.set(value, reactiveVal);
+                        if (!OBJECT_VAR_PATH.has(reactiveVal))
+                            OBJECT_VAR_PATH.set(reactiveVal, subChain);
+                    });
+                }
+                return reactiveVal;
             },
             set(target, prop, newValue, receiver) {
                 if (!prop)
                     return false;
                 let ov = target[prop];
-                if (!isObject(ov) && ov === newValue)
-                    return true;
-                if (Number.isNaN(newValue) && Number.isNaN(ov))
-                    return true;
                 let chain = OBJECT_VAR_PATH.get(receiver) ?? [];
                 let subChain = concat(chain, [prop]);
-                let sourceContext = OBJECT_META_DATA.get(receiver).from;
-                let propDefs = get(sourceContext.constructor, DecoratorKey.PROPS);
-                let stateDefs = get(sourceContext.constructor, DecoratorKey.STATES);
+                let propDefs = get(context.constructor, DecoratorKey.PROPS);
+                let stateDefs = get(context.constructor, DecoratorKey.STATES);
                 let hasChanged = get(propDefs, [subChain[0], 'hasChanged']) || get(stateDefs, [subChain[0], 'hasChanged']);
                 if (hasChanged) {
-                    if (!hasChanged.call(sourceContext, newValue, ov))
+                    if (!hasChanged.call(context, newValue, ov))
                         return true;
                 }
                 else {
                     //默认对比算法
-                    if (ov === newValue && !ChangedMap.has(ov)) {
+                    if (Object.is(ov, newValue)) {
                         return true;
                     }
                 }
                 if (propDefs && propDefs[prop] && target.__isData) {
                     if (propDefs[prop].sync) {
-                        sourceContext.emit(EVENT_UPDATE + ":" + prop, { value: newValue });
+                        context.emit(EVENT_UPDATE + ":" + prop, { value: newValue });
                     }
                 }
-                let deps = OBJECT_META_DATA.get(receiver)?.contextSet;
                 //get oldValue from sourceContext
                 let nv = newValue;
-                if (isObject(newValue) && !isFunction(newValue) && !(newValue instanceof Node) && !Object.isFrozen(newValue)) {
-                    deps.forEach(dep => {
-                        let pathMap = OBJECT_META_DATA.get(receiver)?.pathMap;
-                        let pathAry = pathMap?.get(dep);
-                        if (!pathAry)
-                            return;
-                        subChain = concat(pathAry, [prop]);
-                        OBJECT_VAR_PATH.set(nv, subChain);
-                        nv = reactive(nv, dep);
-                        PROXY_SET.add(nv);
-                        OBJECT_VAR_PATH.set(nv, subChain);
-                    });
-                }
                 let rs = Reflect.set(target, prop, nv);
-                let pathMap = OBJECT_META_DATA.get(receiver).pathMap;
-                deps.forEach(dep => {
-                    //view update
-                    let pathAry = pathMap.get(dep);
-                    if (!pathAry)
-                        return;
-                    if (dep === sourceContext) {
-                        //fix the index change of array item
-                        if (chain.length > 1 && pathAry.length > 1 && chain[0] === pathAry[0]) {
-                            pathAry = chain;
-                        }
-                    }
-                    //数组length属性变动直接通知为数组自身变动
-                    subChain = concat(pathAry, prop == 'length' && isArray(receiver) ? [] : [prop]);
-                    //computed
-                    let computedMap = COMPUTED_MAP.get(dep);
-                    //css
-                    let cssMap = CSS_MAP.get(dep);
-                    //watch
-                    let watchMap = WATCH_MAP.get(dep);
-                    //recur path
-                    if (computedMap || cssMap || watchMap) {
-                        let i = subChain.length;
-                        while (i) {
-                            let subPath = subChain.slice(0, i).join('-');
-                            if (watchMap) {
-                                const watchList = watchMap[subPath];
-                                if (i === subChain.length) {
-                                    watchList?.forEach((wk) => {
-                                        let updater = wk();
-                                        updater.ov = ov;
-                                        Queue.pushWatch(updater);
-                                    });
-                                }
-                                else {
-                                    watchList?.forEach((wk) => {
-                                        let updater = wk();
-                                        if (get(updater, 'deep')) {
-                                            updater.ov = ov;
-                                            Queue.pushWatch(updater);
-                                        }
-                                    });
-                                }
-                            }
-                            if (computedMap) {
-                                let computedList = computedMap[subPath];
-                                if (!isEmpty(computedList)) {
-                                    for (let l = 0; l < computedList.length; l++) {
-                                        const updater = computedList[l];
-                                        Queue.pushComputed(updater);
-                                    }
-                                }
-                            }
-                            if (cssMap) {
-                                let computedCssList = cssMap[subPath];
-                                if (!isEmpty(computedCssList)) {
-                                    for (let l = 0; l < computedCssList.length; l++) {
-                                        const updater = computedCssList[l];
-                                        Queue.pushCss(updater);
-                                    }
-                                }
-                            }
-                            i--;
-                        }
-                    }
-                    let updater = dep._notify(ov, subChain);
-                    Queue.pushNext(updater, dep.cid);
-                });
+                notifyUpdate(context, ov, subChain);
                 return rs;
             }
         });
-        if (!PROXY_SET.has(proxyObject)) {
-            PROXY_SET.add(proxyObject);
-        }
         let chain = OBJECT_VAR_PATH.get(obj) ?? [];
         if (Object.isExtensible(obj) && !OBJECT_META_DATA.get(proxyObject)) {
             let contextSet = new Set();
@@ -7670,19 +7638,63 @@
                 pathMap.set(context, subChain);
             }
         }
-        let propDefs = get(context.constructor, DecoratorKey.PROPS);
-        let stateDefs = get(context.constructor, DecoratorKey.STATES);
-        for (let k in obj) {
-            const v = obj[k];
-            let shallow = get(propDefs, [k, 'shallow']) || get(stateDefs, [k, 'shallow']);
-            if (isObject(v) && !PROXY_SET.has(v) && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v) && !shallow) {
-                OBJECT_VAR_PATH.set(v, concat(chain, [k]));
-                obj[k] = reactive(v, context);
-                PROXY_SET.add(obj[k]);
-                OBJECT_VAR_PATH.set(obj[k], concat(chain, [k]));
+        PROXY_MAP.set(obj, proxyObject);
+        return proxyObject;
+    }
+    function notifyUpdate(context, ov, path) {
+        //computed
+        let computedMap = COMPUTED_MAP.get(context);
+        //css
+        let cssMap = CSS_MAP.get(context);
+        //watch
+        let watchMap = WATCH_MAP.get(context);
+        //recur path
+        if (computedMap || cssMap || watchMap) {
+            let i = path.length;
+            while (i) {
+                let subPath = path.slice(0, i).join(PATH_SEPARATOR);
+                if (watchMap) {
+                    const watchList = watchMap[subPath];
+                    if (i === path.length) {
+                        watchList?.forEach((wk) => {
+                            let updater = wk();
+                            updater.ov = ov;
+                            Queue.pushWatch(updater);
+                        });
+                    }
+                    else {
+                        watchList?.forEach((wk) => {
+                            let updater = wk();
+                            if (get(updater, 'deep')) {
+                                updater.ov = ov;
+                                Queue.pushWatch(updater);
+                            }
+                        });
+                    }
+                }
+                if (computedMap) {
+                    let computedList = computedMap[subPath];
+                    if (!isEmpty(computedList)) {
+                        for (let l = 0; l < computedList.length; l++) {
+                            const updater = computedList[l];
+                            Queue.pushComputed(updater);
+                        }
+                    }
+                }
+                if (cssMap) {
+                    let computedCssList = cssMap[subPath];
+                    if (!isEmpty(computedCssList)) {
+                        for (let l = 0; l < computedCssList.length; l++) {
+                            const updater = computedCssList[l];
+                            Queue.pushCss(updater);
+                        }
+                    }
+                }
+                i--;
             }
         }
-        return proxyObject;
+        let updater = context._notify(ov, path);
+        Queue.pushNext(updater, context.cid);
     }
     const QMap = new Map();
     class Queue {
@@ -7749,12 +7761,13 @@
         function: Function,
         undefined: Object
     };
-    const PrivatePreffix = '#';
     //组件静态样式
     const ComponentStyleMap = new WeakMap();
     let DefaultCss = [];
     let CompElemSn = 0;
     const GlobalStyleMap = new Map();
+    const HostStyleMap = new WeakMap();
+    const PROP_OBJECT_KEY_MAP_SYMBOL = Symbol.for('PROP_OBJECT_KEY_MAP_SYMBOL');
     /**
      * CompElem基类，意为组件元素。提供了基本内置属性及生命周期等必备接口
      * 每个组件都需要继承自该类
@@ -7791,6 +7804,10 @@
         //保存所有渲染上下文 {CompElem/Directive}
         #renderContextList = {};
         __events = {};
+        _propObjectKeyMap = {};
+        get [PROP_OBJECT_KEY_MAP_SYMBOL]() {
+            return this._propObjectKeyMap;
+        }
         get [Symbol.toStringTag]() {
             return this.constructor.name;
         }
@@ -7852,6 +7869,9 @@
             return [];
         }
         static get globalStyles() {
+            return [];
+        }
+        static get hostStyles() {
             return [];
         }
         get styles() {
@@ -7923,6 +7943,16 @@
             ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => dw.create(this));
             this.#updatedD = this.#update.bind(this);
         }
+        /**
+         * Returns the root component in the parent chain, or itself if it's the top-level component.
+         */
+        get rootComponent() {
+            let comp = this;
+            while (comp.parentComponent) {
+                comp = comp.parentComponent;
+            }
+            return comp;
+        }
         #updatedD;
         connectedCallback() {
             //parent
@@ -7947,7 +7977,7 @@
                 return;
             this.#initiating = true;
             /////////////////////////////////////////////////// slots
-            // this.#updateSlotsAry()
+            this.#updateSlotsAry();
             //1. Props & States
             const props = this.#initProps();
             this.propsReady(props);
@@ -8008,7 +8038,7 @@
                         fn = once(fn);
                     }
                     const updater = (function (ov) {
-                        let nv = get(this, source.replaceAll('-', '.'));
+                        let nv = get(this, source.replaceAll(PATH_SEPARATOR, '.'));
                         fn(nv, ov, source);
                     }).bind(this);
                     let deep = get(options, "deep", false);
@@ -8017,7 +8047,7 @@
                     let immediate = get(options, "immediate", false);
                     if (!immediate)
                         return;
-                    let nv = get(this, source.replaceAll('-', '.'));
+                    let nv = get(this, source.replaceAll(PATH_SEPARATOR, '.'));
                     fn(nv, nv, source);
                 });
             });
@@ -8042,13 +8072,32 @@
                     return that.#reactiveData[key];
                 });
             });
+            //host styles
+            let hostStyles = get(this.constructor, "hostStyles");
+            let styleRoot = this.#wrapperComponent?.shadowRoot ?? this.ownerDocument;
+            let cls = HostStyleMap.get(styleRoot);
+            if (!cls?.includes(this.constructor) && hostStyles.length > 0) {
+                let styleSheets = [];
+                each(hostStyles, (st) => {
+                    if (isString(st)) {
+                        let sheet = new CSSStyleSheet();
+                        sheet.replaceSync(st);
+                        styleSheets.push(sheet);
+                    }
+                    else {
+                        styleSheets.push(st);
+                    }
+                });
+                styleRoot.adoptedStyleSheets = [...styleRoot.adoptedStyleSheets, ...styleSheets];
+                cls?.push(this.constructor);
+            }
             this.beforeMount();
             //events
             let eventList = get(this.constructor, DecoratorKey.EVENTS);
             eventList && eventList.forEach(async (ev) => {
                 let name = ev.name;
                 let options = assign({ target: document, once: false, passive: false, capture: false }, ev.options);
-                let listener = bind$1(ev.fn, this);
+                let listener = bind(ev.fn, this);
                 let target = options.target;
                 if (isFunction(target)) {
                     target = await target.call(this, this);
@@ -8174,9 +8223,6 @@
                 let v = get(this, varPath);
                 let pathStr = _toUpdatePath(varPath);
                 this.#updateSources[pathStr] = { value: v, chain: pathStr === "slots" ? ['slots'] : varPath, oldValue: ov, end: varPath.length === chain.length };
-                if (isObject(v) && pathStr[0] != PrivatePreffix) {
-                    ChangedMap.set(v, pathStr);
-                }
             }
             return this.#updatedD;
         }
@@ -8185,6 +8231,7 @@
                 return;
             const changed = this.#updateSources;
             this.#updateSources = {};
+            const changedKeys = Object.keys(changed);
             //update decorators
             let ary = get(this.constructor, _DecoratorsKey);
             ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
@@ -8195,7 +8242,7 @@
                 return;
             let renderContextList = new Set();
             //1. filter context
-            each(changed, ({ value, chain, oldValue }, k) => {
+            each(changed, ({ value, chain, oldValue, end }, k) => {
                 if (this.#renderContextList[k]) {
                     this.#renderContextList[k].forEach(cx => {
                         renderContextList.add(cx);
@@ -8205,7 +8252,7 @@
             //2. update context
             renderContextList.forEach(context => {
                 if (context === this) {
-                    updateView(this.render(), this);
+                    updateView(this.render(), this, undefined, changedKeys);
                 }
                 else {
                     //指令在这里仅更新视图
@@ -8217,11 +8264,6 @@
                 this.#updateSlot(v);
             });
             this.updated(changed);
-            each(changed, ({ value, chain, oldValue }, k) => {
-                if (isObject(value) && ChangedMap.has(value)) {
-                    ChangedMap.delete(value);
-                }
-            });
         }
         /**
          * 1. 初始props中并未包含的属性，可从attributes取，且定义类型不是string时自动转换
@@ -8254,6 +8296,8 @@
             let size = keys.length;
             for (let i = 0; i < size; i++) {
                 const key = keys[i];
+                const kbKey = kebabCase(key);
+                const hasAttr = this.hasAttribute(kbKey);
                 let propDef = propDefs[key];
                 let isInited = has(parentProps, key);
                 let defaultVal = get(this, key);
@@ -8277,8 +8321,8 @@
                 }
                 else {
                     val = defaultVal;
-                    let attr = attrs.getNamedItem(kebabCase(key)) ||
-                        attrs.getNamedItem(ATTR_PREFIX_PROP + kebabCase(key));
+                    let attr = attrs.getNamedItem(kbKey) ||
+                        attrs.getNamedItem(ATTR_PREFIX_PROP + kbKey);
                     if (attr) {
                         isInited = true;
                         val = attr.value;
@@ -8290,13 +8334,13 @@
                     showTagError(tagName, "Prop '" + key + "' is required");
                     break;
                 }
-                val = this.#propTypeCheck(propDefs, key, val);
+                val = this.#propTypeCheck(propDefs, key, val, hasAttr);
                 let getter = get(propDefs, [key, 'getter']);
                 if (getter)
-                    getter = bind$1(getter, this);
+                    getter = bind(getter, this);
                 let setter = get(propDefs, [key, 'setter']);
                 if (setter)
-                    setter = bind$1(setter, this);
+                    setter = bind(setter, this);
                 if (getter || setter) {
                     Reflect.defineProperty(this.#data, key, {
                         set: setter || function (v) { },
@@ -8355,7 +8399,7 @@
             return val;
         }
         //属性值检测
-        #propTypeCheck(propDefs, propKey, newValue) {
+        #propTypeCheck(propDefs, propKey, newValue, hasAttr) {
             let propDef = propDefs[propKey];
             if (!propDef)
                 return newValue;
@@ -8376,8 +8420,11 @@
             for (let i = 0; i < expectTypeAry.length; i++) {
                 const et = expectTypeAry[i];
                 if (et.name === 'Boolean') {
-                    val = getBooleanValue(val);
+                    val = hasAttr === false && isBlank(val) ? false : getBooleanValue(val);
                 }
+            }
+            if (isNil(val)) {
+                return val;
             }
             let realType = typeof val;
             let matched = isDefined(val) ? false : true;
@@ -8463,7 +8510,7 @@
         }
         _initProps(props, attrs) {
             this.#props = merge(this.#props || {}, props);
-            this.#attrs = merge({}, attrs);
+            this.#attrs = merge(this.#attrs || {}, attrs);
         }
         /**
          * 绑定slot标签，render时调用
@@ -8602,7 +8649,7 @@
         renderAsync(cbk, ...args) {
         }
         #attrChanged(name, oldValue, newValue) {
-            if (!this.isMounted)
+            if (!this.#inited)
                 return;
             let observedAttrs = _getObservedAttrs(this.constructor);
             if (observedAttrs.has(name)) {
@@ -8625,11 +8672,11 @@
                 list = this.#renderContextList[varPath] = new Set();
             }
             list.add(renderContext);
-            let restPath = varPath.split('-');
+            let restPath = varPath.split(PATH_SEPARATOR);
             restPath.pop();
             if (restPath.length < 1)
                 return;
-            let upperPath = restPath.join('-');
+            let upperPath = restPath.join(PATH_SEPARATOR);
             list = this.#renderContextList[upperPath];
             if (!list) {
                 list = this.#renderContextList[upperPath] = new Set();
@@ -8688,67 +8735,6 @@
                 };
             });
             this.#update();
-        }
-    }
-
-    /**
-     * 属性定义
-     */
-    var EnterPointType;
-    (function (EnterPointType) {
-        EnterPointType["ATTR"] = "attr";
-        EnterPointType["PROP"] = "prop";
-        EnterPointType["TEXT"] = "text";
-        EnterPointType["CLASS"] = "class";
-        EnterPointType["STYLE"] = "style";
-        EnterPointType["SLOT"] = "slot";
-        EnterPointType["TAG"] = "tag"; //在标签内但不是属性内
-    })(EnterPointType || (EnterPointType = {}));
-    var DirectiveUpdateTag;
-    (function (DirectiveUpdateTag) {
-        DirectiveUpdateTag["NONE"] = "NONE";
-        DirectiveUpdateTag["REMOVE"] = "REMOVE";
-        DirectiveUpdateTag["REPLACE"] = "REPLACE";
-        DirectiveUpdateTag["UPDATE"] = "UPDATE";
-        DirectiveUpdateTag["APPEND"] = "APPEND";
-    })(DirectiveUpdateTag || (DirectiveUpdateTag = {}));
-    /**
-     * 视图更新点
-     */
-    class UpdatePoint {
-        //在子视图中的平级key
-        key;
-        //表达式对应的vars位置
-        varIndex;
-        value;
-        isText = false;
-        //是否模板
-        isTmpl = false;
-        isDirective = false;
-        //表达式所在节点，可能是元素/文本
-        node;
-        //如果是文本位置，与node一起构成插入范围
-        textNode;
-        //是否组件
-        isComponent = false;
-        //如果在属性中，属性名
-        attrName;
-        //属性值模板
-        attrTmpl;
-        //是否组件属性
-        isProp = false;
-        //是否布尔属性
-        isToggleProp = false;
-        //是否事件
-        isEvent;
-        constructor(varIndex, node, attrName, attrTmpl) {
-            this.varIndex = varIndex;
-            this.node = node;
-            if (attrName)
-                this.attrName = attrName;
-            if (attrTmpl) {
-                this.attrTmpl = attrTmpl;
-            }
         }
     }
 
@@ -9062,33 +9048,14 @@
             }
             //移动顺序
             if (moved || dels.length > 0 || addGroup) {
-                const groupOffset = [];
                 const upGroup = groupBy(updatePoints, up => up.key);
-                const upValues = values(upGroup);
-                let groupVarIndexOffset = 0;
-                if (oldSeq.length > 1) {
-                    groupVarIndexOffset = Math.abs(upGroup[oldSeq[1]][0].varIndex - upGroup[oldSeq[0]][0].varIndex);
-                }
-                else if (newSeq.length > 1) {
-                    groupVarIndexOffset = Math.abs(upGroup[newSeq[1]][0].varIndex - upGroup[newSeq[0]][0].varIndex);
-                }
-                let startVarIndex = min(map(upValues, uv => uv[0].varIndex));
-                let lastVarIndex = -1;
-                each(upValues[0], (up) => {
-                    if (lastVarIndex < 0) {
-                        lastVarIndex = up.varIndex;
-                        groupOffset.push(0);
-                        return;
-                    }
-                    groupOffset.push(up.varIndex - lastVarIndex);
-                });
                 let movedUpAry = [];
+                let i = 0;
                 newSeq.forEach(nk => {
-                    upGroup[nk].forEach((up, i) => {
-                        up.varIndex = startVarIndex + groupOffset[i];
+                    upGroup[nk].forEach((up) => {
+                        up.varIndex = i++;
                         movedUpAry.push(up);
                     });
-                    startVarIndex = startVarIndex + groupVarIndexOffset;
                 });
                 updatePoints = movedUpAry;
             }
@@ -9530,14 +9497,12 @@
         while ((currentNode = nodeIterator.nextNode())) {
             NodeSn++;
             let varCacheQueue = hasVarChache ? undefined : [];
+            if (slotComponent && !slotComponent.contains(currentNode)) {
+                slotComponent = undefined;
+            }
             if (currentNode instanceof HTMLElement || currentNode instanceof SVGElement) {
                 if (currentNode instanceof CompElem) {
                     slotComponent = currentNode;
-                }
-                else {
-                    if (!slotComponent?.contains(currentNode)) {
-                        slotComponent = undefined;
-                    }
                 }
                 let props = {};
                 let attrs = toArray(currentNode.attributes);
@@ -9573,7 +9538,7 @@
                             }
                             varIndex++;
                             executor(point, args, undefined, { renderComponent, slotComponent, varChain });
-                            varCacheQueue && varCacheQueue.push({ type: VarType.DirectiveTag, point, up: po });
+                            varCacheQueue && varCacheQueue.push({ type: VarType.DirectiveTag, point, up: po, name });
                         }
                         currentNode.removeAttribute(name);
                         continue;
@@ -9581,8 +9546,15 @@
                     //@event.stop.prevent.debounce
                     if (name[0] === ATTR_PREFIX_EVENT) {
                         let cbk = (e) => { };
+                        let po = null;
                         let hasValue = false;
                         if (PLACEHOLDER_EXP.test(value)) {
+                            po = new UpdatePoint(varIndex, currentNode);
+                            po.notUpdated = true;
+                            if (keyNode && keyNode?.contains(currentNode)) {
+                                po.key = keyVal;
+                            }
+                            updatePoints.push(po);
                             let val = vars[varIndex];
                             if (!isFunction(val)) {
                                 showTagError(currentNode.tagName, `Event '${name}' must be a function`);
@@ -9595,7 +9567,7 @@
                         let evName = name.substring(1);
                         addEvent(evName, cbk, currentNode, renderComponent);
                         currentNode.removeAttribute(name);
-                        varCacheQueue && varCacheQueue.push({ type: VarType.Event, name: evName, attrName: name, value: hasValue });
+                        varCacheQueue && varCacheQueue.push({ type: VarType.Event, up: po, name: evName, attrName: name, value: hasValue });
                         continue;
                     } //endif
                     if (name === ATTR_REF) {
@@ -9605,9 +9577,15 @@
                                 showTagError(currentNode.tagName, `Ref must be a RefObject`);
                                 continue;
                             }
+                            let po = new UpdatePoint(varIndex, currentNode);
+                            po.notUpdated = true;
+                            if (keyNode && keyNode?.contains(currentNode)) {
+                                po.key = keyVal;
+                            }
+                            updatePoints.push(po);
                             varIndex++;
                             val.current = currentNode;
-                            varCacheQueue && varCacheQueue.push({ type: VarType.Ref, attrName: name });
+                            varCacheQueue && varCacheQueue.push({ type: VarType.Ref, up: po, attrName: name });
                         }
                         currentNode.removeAttribute(name);
                         continue;
@@ -9615,10 +9593,16 @@
                     if (name === ATTR_KEY) {
                         let val = vars[varIndex];
                         currentNode.setAttribute(name, val);
+                        let po = new UpdatePoint(varIndex, currentNode);
+                        po.notUpdated = true;
+                        if (keyNode && keyNode?.contains(currentNode)) {
+                            po.key = keyVal;
+                        }
+                        updatePoints.push(po);
                         varIndex++;
                         keyNode = currentNode;
                         keyVal = val;
-                        varCacheQueue && varCacheQueue.push({ type: VarType.AttrKey });
+                        varCacheQueue && varCacheQueue.push({ up: po, type: VarType.AttrKey });
                         if (updatePoints.length > 0) {
                             updatePoints.forEach(up => {
                                 up.key = up.key ?? val;
@@ -9655,7 +9639,7 @@
                                 executor(point, args, undefined, { renderComponent, slotComponent });
                                 po.value = val;
                                 po.isDirective = true;
-                                varCacheQueue && varCacheQueue.push({ type: VarType.DirectiveProp, up: po, point });
+                                varCacheQueue && varCacheQueue.push({ type: VarType.DirectiveProp, up: po, point, name, attrName });
                             }
                             else if (name[0] === ATTR_PREFIX_BOOLEAN) {
                                 po.isToggleProp = true;
@@ -9683,7 +9667,7 @@
                                 }
                                 po.attrName = refName;
                                 currentNode.setAttribute(refName, val);
-                                varCacheQueue && varCacheQueue.push({ type: VarType.AttrRef, up: po, name: refName, attrName: name });
+                                varCacheQueue && varCacheQueue.push({ type: VarType.AttrRef, up: po, name, attrName: refName });
                             }
                             else {
                                 if (!(currentNode instanceof CompElem) && currentNode.tagName !== 'SLOT') {
@@ -9693,6 +9677,10 @@
                                     let propName = camelCase(name.substring(1));
                                     if (!(propName in currentNode) && currentNode.tagName !== 'SLOT') {
                                         showTagError(currentNode.tagName, `Prop '${name}' is not defined in ${currentNode.tagName}`);
+                                    }
+                                    let fromPath = OBJECT_VAR_PATH.get(val);
+                                    if (fromPath) {
+                                        currentNode._propObjectKeyMap[fromPath.join(PATH_SEPARATOR)] = propName;
                                     }
                                     po.value = val;
                                     po.isProp = true;
@@ -9707,7 +9695,7 @@
                             po.value = val;
                             let executor;
                             let args;
-                            let cache = { type: VarType.Attr, up: po, name, attrName: name };
+                            let cache = { type: VarType.Attr, up: po, attrName: name };
                             if (isArray(val) && isSymbol(val[0])) {
                                 let type = EnterPointType.ATTR;
                                 if (name === "class") {
@@ -9788,9 +9776,11 @@
                     let tmpl = executor(point, args, undefined, { renderComponent, slotComponent, varChain });
                     Collector.endRender(renderComponent);
                     //render
-                    let nodes = buildDirectiveView(comment, tmpl[1], renderComponent);
-                    if (nodes && nodes.length > 0) {
-                        DomUtil.insertBefore(comment, Array.from(nodes));
+                    if (tmpl) {
+                        let nodes = buildDirectiveView(comment, tmpl[1], renderComponent);
+                        if (nodes && nodes.length > 0) {
+                            DomUtil.insertBefore(comment, Array.from(nodes));
+                        }
                     }
                     val = undefined;
                     varCacheQueue && varCacheQueue.push({ type: pType === EnterPointType.SLOT ? VarType.DirectiveSlot : VarType.DirectiveText, up: po, point });
@@ -9828,14 +9818,12 @@
         while ((currentNode = nodeIterator.nextNode())) {
             NodeSn++;
             let po;
+            if (slotComponent && !slotComponent.contains(currentNode)) {
+                slotComponent = undefined;
+            }
             if (currentNode instanceof HTMLElement || currentNode instanceof SVGElement) {
                 if (currentNode instanceof CompElem) {
                     slotComponent = currentNode;
-                }
-                else {
-                    if (!slotComponent?.contains(currentNode)) {
-                        slotComponent = undefined;
-                    }
                 }
                 let props = {};
                 let varCacheQueue = varMap[NodeSn];
@@ -9843,10 +9831,12 @@
                     let val = vars[varIndex++];
                     switch (vp.type) {
                         case VarType.Event:
+                            po = clone(vp.up);
                             if (!vp.value) {
                                 varIndex--;
                             }
-                            addEvent(vp.name, val.bind(component), currentNode, component);
+                            if (vp.value)
+                                addEvent(vp.name, val.bind(component), currentNode, component);
                             currentNode.removeAttribute(vp.attrName);
                             break;
                         case VarType.AttrSlot:
@@ -9854,15 +9844,18 @@
                             currentNode.removeAttribute(vp.attrName);
                             break;
                         case VarType.Ref:
+                            po = clone(vp.up);
                             val.current = currentNode;
                             currentNode.removeAttribute(vp.attrName);
                             break;
                         case VarType.AttrKey:
+                            po = clone(vp.up);
                             currentNode.setAttribute(ATTR_KEY, val);
                             break;
                         case VarType.AttrBool:
                             po = clone(vp.up);
                             po.value = !!val;
+                            po.node = currentNode;
                             if (po.value)
                                 currentNode.setAttribute(vp.name, '');
                             currentNode.removeAttribute(vp.attrName);
@@ -9870,31 +9863,43 @@
                         case VarType.AttrProp:
                             po = clone(vp.up);
                             po.value = val;
+                            po.node = currentNode;
                             props[vp.name] = val;
+                            if (vp.attrName)
+                                currentNode.removeAttribute(vp.attrName);
                             break;
                         case VarType.AttrRef:
                         case VarType.Attr:
                             po = clone(vp.up);
                             po.value = val;
-                            currentNode.setAttribute(vp.name, val);
-                            currentNode.removeAttribute(vp.attrName);
+                            po.node = currentNode;
+                            currentNode.setAttribute(vp.attrName, val);
+                            if (VarType.AttrRef === vp.type)
+                                currentNode.removeAttribute(vp.name);
                             break;
                         case VarType.DirectiveAttr:
                         case VarType.DirectiveTag:
                         case VarType.DirectiveProp:
                             po = clone(vp.up);
                             po.value = val;
+                            po.node = currentNode;
                             let point = clone(vp.point);
                             point.startNode = currentNode;
-                            val.point = point;
-                            val.di.slotComponent = slotComponent;
-                            val.di.renderComponent = component;
-                            val.di.created(val.point, ...val.args);
-                            if (VarType.DirectiveAttr === vp.type) {
-                                let attrValue = currentNode.getAttribute(vp.name);
-                                attrValue = replace(attrValue, PLACEHOLDER_EXP, '');
-                                currentNode.setAttribute(vp.name, attrValue);
+                            let [sym, args, executor, checker, varChain] = val;
+                            let attrMap = DirectiveArgsMap.get(currentNode);
+                            if (!attrMap) {
+                                attrMap = {};
+                                DirectiveArgsMap.set(currentNode, attrMap);
                             }
+                            attrMap[vp.attrName ?? Symbol.keyFor(sym)] = [point, component, slotComponent];
+                            executor(point, args, undefined, { renderComponent: component, slotComponent, varChain });
+                            if (VarType.DirectiveAttr === vp.type) {
+                                let attrValue = currentNode.getAttribute(vp.attrName);
+                                attrValue = replace(attrValue, PLACEHOLDER_EXP, '');
+                                currentNode.setAttribute(vp.attrName, attrValue);
+                            }
+                            if (vp.name)
+                                currentNode.removeAttribute(vp.name);
                             break;
                     }
                     if (po)
@@ -9913,27 +9918,35 @@
                 varCacheQueue.forEach(vp => {
                     let val = vars[varIndex++];
                     switch (vp.type) {
+                        case VarType.DirectiveSlot:
                         case VarType.DirectiveText:
                             po = clone(vp.up);
                             po.value = val;
-                            let startComment = document.createComment(`compelem-${val.diClass.name}-start`);
+                            po.node = currentNode;
+                            let [sym, args, executor, checker, varChain] = val;
+                            let diName = Symbol.keyFor(sym);
+                            let startComment = document.createComment(`compelem-${component.tagName}-${diName}-start`);
                             po.textNode = startComment;
                             currentNode.parentNode.insertBefore(startComment, currentNode);
-                            currentNode.nodeValue = `compelem-${val.diClass.name}-end`;
+                            currentNode.nodeValue = `compelem-${component.tagName}-${diName}-end`;
                             let point = clone(vp.point);
                             point.startNode = startComment;
                             point.endNode = currentNode;
-                            val.point = point;
-                            val.di.slotComponent = slotComponent;
-                            val.di.renderComponent = component;
-                            val.di.created(val.point, ...val.args);
-                            let nodes = buildDirectiveView(currentNode, val, component);
-                            if (nodes) {
+                            TextOrSlotDirectiveArgsMap.set(currentNode, [point, component, slotComponent, args, varChain]);
+                            TextOrSlotDirectiveExecutorMap.set(currentNode, executor);
+                            TextOrSlotDirectiveUpdatePointMap.set(currentNode, po);
+                            Collector.startRender(currentNode);
+                            let tmpl = executor(point, args, undefined, { renderComponent: component, slotComponent, varChain });
+                            Collector.endRender(component);
+                            //render
+                            let nodes = buildDirectiveView(currentNode, tmpl[1], component);
+                            if (nodes && nodes.length > 0) {
                                 DomUtil.insertBefore(currentNode, Array.from(nodes));
                             }
                             break;
                         case VarType.Text:
                             po = clone(vp.up);
+                            po.node = currentNode;
                             let text = toString(val ?? '');
                             let textDom = document.createTextNode(text);
                             currentNode.replaceWith(textDom);
@@ -9949,11 +9962,8 @@
         }
         return container.childNodes;
     }
-    self.viewTime = 0;
     function buildView(tmpl, component) {
         let updatePoints = [];
-        console.time(component.tagName);
-        let st = Date.now();
         let nodes;
         if (HTML_CACHE.has(component.constructor)) {
             let htmlTmpl = HTML_CACHE.get(component.constructor);
@@ -9970,8 +9980,6 @@
             HTML_CACHE.set(component.constructor, html);
             nodes = buildTmplate(updatePoints, html, vars, component);
         }
-        self.viewTime += Date.now() - st;
-        console.timeEnd(component.tagName);
         ComponentUpdatePointsMap.set(component, updatePoints);
         return nodes;
     }
@@ -9982,22 +9990,24 @@
         DirectiveUpdatePointsMap.set(pointNode, updatePoints);
         return nodes;
     }
-    function updateView(tmpl, comp, updatePoints) {
+    function updateView(tmpl, comp, updatePoints, changedKeys) {
         if (isBlank(join(tmpl.strings)))
             return;
         if (!ComponentUpdatePointsMap.has(comp))
             return;
-        let { vars } = tmpl;
+        let vars = tmpl.flatVars(comp);
         updatePoints = updatePoints ?? ComponentUpdatePointsMap.get(comp);
         for (let i = 0; i < updatePoints.length; i++) {
             const up = updatePoints[i];
             let varIndex = up.varIndex;
             if (varIndex < 0)
                 continue;
+            if (up.notUpdated)
+                continue;
             let oldValue = up.value;
             let newValue = vars;
             let node = up.node;
-            let indexSegs = split(varIndex, '-');
+            let indexSegs = split(varIndex, PATH_SEPARATOR);
             for (let l = 0; l < indexSegs.length; l++) {
                 const seg = indexSegs[l];
                 newValue = get(newValue, seg);
@@ -10015,12 +10025,7 @@
                 let args = TextOrSlotDirectiveArgsMap.get(node);
                 if (!args) {
                     const argsMap = DirectiveArgsMap.get(node);
-                    if (up.attrName) {
-                        args = argsMap[up.attrName];
-                    }
-                    else {
-                        args = argsMap[Symbol.keyFor(sym)];
-                    }
+                    args = argsMap[up.attrName] || argsMap[Symbol.keyFor(sym)];
                 }
                 let [point, renderComponent, slotComponent] = args;
                 let [, newArgs] = newValue;
@@ -10045,13 +10050,30 @@
                     continue;
                 //如果node是slot则触发组件的slot更新
                 if (node instanceof CompElem) {
-                    node._updateProps({ [up.attrName]: newValue });
+                    if (isObject(newValue) && Object.is(newValue, oldValue)) {
+                        let targetVarName = camelCase(up.attrName);
+                        let path = [targetVarName];
+                        if (changedKeys && changedKeys.length > 0) {
+                            let kStr = '';
+                            let fromVarName = join(OBJECT_VAR_PATH.get(up.value), PATH_SEPARATOR);
+                            changedKeys.forEach(k => {
+                                if (k.startsWith(fromVarName) && k.length > kStr.length) {
+                                    kStr = k;
+                                }
+                            });
+                            path = concat(split(kStr.replace(fromVarName, targetVarName), PATH_SEPARATOR));
+                        }
+                        notifyUpdate(node, oldValue, path);
+                    }
+                    else {
+                        node._updateProps({ [up.attrName]: newValue });
+                    }
                 }
                 else if (node instanceof HTMLSlotElement) {
                     comp._updateSlot(node.getAttribute('name') || 'default', up.attrName, newValue);
                 }
             }
-            else if (up.attrName && !up.isEvent) {
+            else if (up.attrName) {
                 //特性
                 if (!isEqual(oldValue, newValue)) {
                     switch (up.attrName) {
@@ -10206,7 +10228,26 @@
         getHTML(comp) {
             let [html, vars] = buildHTML(comp, this);
             let nodes = buildTmplate([], html, vars, comp);
-            return reduce(nodes, (a, v) => a + v.outerHTML, '');
+            return reduce(nodes, (a, v) => a + (v.outerHTML ?? ''), '');
+        }
+        /**
+         * 对var中的Template类型进行合并
+         */
+        flatVars(comp) {
+            let vars = concat(this.vars);
+            let l = this.strings.length - 1;
+            let varIndex = 0;
+            for (let i = 0; i <= l; i++) {
+                let val = get(vars, varIndex, '');
+                if (val instanceof Template && val.vars.length > 0) {
+                    let [h, v] = buildHTML(comp, val);
+                    val = h;
+                    vars.splice(varIndex, 1, ...v);
+                    varIndex += v.length - 1;
+                }
+                varIndex++;
+            }
+            return vars;
         }
     }
 
@@ -10259,6 +10300,43 @@
         }
     }
     decorator(DebouncedDecorator);
+
+    /**
+     * 定义一次性函数
+     * 同时会创建一个以 _$__ 结尾的非一次性版本
+     * @example
+     *  @onced
+     *
+     * @param wait 抖动间隔，单位ms
+     */
+    class OncedDecorator extends Decorator {
+        static get priority() {
+            return Number.MAX_VALUE;
+        }
+        created(component, classProto, fieldName, ...args) {
+            let fn = bind(get(component, fieldName), component);
+            set(component, fieldName, once(fn));
+            let proto = Reflect.getPrototypeOf(component);
+            if (proto && !get(proto, fieldName + '_$__')) {
+                set(proto, fieldName + '_$__', fn);
+            }
+        }
+        beforeMount(component, setReactive, ...args) {
+        }
+        mounted(component, setReactive, ...args) {
+        }
+        updated(component, changed) {
+        }
+        get targets() {
+            return [DecoratorType.METHOD];
+        }
+        wait;
+        result;
+        constructor() {
+            super();
+        }
+    }
+    decorator(OncedDecorator);
 
     /**
      * 缓存策略
@@ -10386,6 +10464,44 @@
         };
     }
 
+    /**
+     * 定义节流函数
+     * 同时会创建一个以 _$__ 结尾的非节流版本
+     * @example
+     *  @throttled(50, true)
+     *
+     * @param wait 抖动间隔，单位ms
+     */
+    class ThrottledDecorator extends Decorator {
+        static get priority() {
+            return Number.MAX_VALUE;
+        }
+        created(component, classProto, fieldName, ...args) {
+            let fn = get(component, fieldName);
+            set(component, fieldName, throttle(fn, this.wait));
+            let proto = Reflect.getPrototypeOf(component);
+            if (proto && !get(proto, fieldName + '_$__')) {
+                set(proto, fieldName + '_$__', fn);
+            }
+        }
+        beforeMount(component, setReactive, ...args) {
+        }
+        mounted(component, setReactive, ...args) {
+        }
+        updated(component, changed) {
+        }
+        get targets() {
+            return [DecoratorType.METHOD];
+        }
+        wait;
+        result;
+        constructor(wait) {
+            super();
+            this.wait = wait;
+        }
+    }
+    decorator(ThrottledDecorator);
+
     function watch(source, options) {
         return (target, name) => {
             if (!has(target.constructor, DecoratorKey.WATCH)) {
@@ -10393,7 +10509,7 @@
             }
             const sources = isArray(source) ? source : [source];
             sources.forEach(src => {
-                let watchKey = src.replaceAll('.', '-');
+                let watchKey = src.replaceAll('.', PATH_SEPARATOR);
                 let srcList = target.constructor[DecoratorKey.WATCH][watchKey];
                 if (!isArray(srcList)) {
                     srcList = target.constructor[DecoratorKey.WATCH][watchKey] = [];
@@ -10408,19 +10524,26 @@
      * 绑定属性到节点上，如果节点是组件会使用in操作符判断是否props
      * @param styles 对象/数组/字符串
      */
-    const bind = directive(function Bind(obj) {
+    directive(function Bind(obj) {
         return (point, [obj], oldArgs) => {
-            if (oldArgs)
-                return;
             let el = point.startNode;
+            if (oldArgs) {
+                each(obj, (v, k) => {
+                    el.setAttribute(k, v);
+                });
+                return;
+            }
             if (el instanceof CompElem) {
                 //判断是否prop
                 let props = {};
                 let attrs = {};
+                let propDefs = get(el.constructor, DecoratorKey.PROPS);
                 each(obj, (v, k) => {
                     if (Ignores.includes(k))
                         return;
-                    if (k in el) {
+                    let ck = camelCase(k);
+                    let propDef = propDefs[ck];
+                    if (propDef) {
                         props[k] = v;
                     }
                     else {
@@ -10437,8 +10560,6 @@
         };
     }, [EnterPointType.TAG]);
 
-    let ClassSn = 0;
-    const ClassIdMap = new Map();
     const ClassLastMap = new Map();
     /**
      * 根据变量内容自动插入class，仅能用于class属性
@@ -10459,24 +10580,17 @@
             if (rs.length < 1 && !oldArgs)
                 return;
             let el = point.startNode;
-            if (isMatch(ClassLastMap.get(el), rs))
+            if (ClassLastMap.get(el) && ClassLastMap.get(el).length === rs.length && isMatch(ClassLastMap.get(el), rs))
                 return;
-            let classId = ClassIdMap.get(el);
-            if (!classId) {
-                classId = 'class_d' + ClassSn++;
-                ClassIdMap.set(el, classId);
-            }
-            renderComponent.nextTick(() => {
-                let lastCls = ClassLastMap.get(el);
-                each(lastCls, (cls) => {
-                    el.classList.remove(cls);
-                });
-                each(rs, cls => {
-                    el.classList.add(cls);
-                });
-                lastCls = concat(rs);
-                ClassLastMap.set(el, lastCls);
-            }, classId);
+            let lastCls = ClassLastMap.get(el);
+            each(lastCls, (cls) => {
+                el.classList.remove(cls);
+            });
+            each(rs, cls => {
+                el.classList.add(cls);
+            });
+            lastCls = concat(rs);
+            ClassLastMap.set(el, lastCls);
         };
     }, [EnterPointType.CLASS]);
 
@@ -10491,13 +10605,13 @@
         return (point, newArgs, oldArgs, { varChain }) => {
             let el = point.startNode;
             let lastRenderTmpl = comboTmpl(newArgs[0], cbk, el);
-            if (oldArgs) {
+            if (oldArgs && oldArgs[0]) {
                 //更新
                 const lastAry = LastValueMap.get(el);
                 // const lastRenderTmpl = LastTmplMap.get(el)
                 if (isEmpty(point.getNodes()) && (!newArgs || isEmpty(newArgs[0])))
                     return [DirectiveUpdateTag.NONE, lastRenderTmpl];
-                if (isMatch(lastAry, newArgs[0]) && lastAry.length === newArgs[0].length)
+                if (lastAry && isMatch(lastAry, newArgs[0]) && lastAry.length === newArgs[0].length)
                     return [DirectiveUpdateTag.NONE, lastRenderTmpl];
             }
             LastValueMap.set(el, clone(newArgs[0]));
@@ -10569,22 +10683,22 @@
      * @param tmpl 模板
      */
     directive(function IfElse(condition, ifTmpl, elseTmpl) {
-        return (point, [condi, render], oldArgs) => {
+        return (point, [condi, render], oldArgs, { renderComponent }) => {
             let el = point.endNode;
             if (oldArgs) {
                 //更新
                 if (!!condi === !!oldArgs[0]) {
                     let tmpl = LastTmplMap.get(el);
-                    return [DirectiveUpdateTag.NONE, tmpl(condi)];
+                    return [DirectiveUpdateTag.NONE, tmpl.call(renderComponent, condi)];
                 }
                 let tmpl = condi ? ifTmpl : elseTmpl;
                 LastTmplMap.set(el, tmpl);
-                return [DirectiveUpdateTag.REPLACE, tmpl(condi)];
+                return [DirectiveUpdateTag.REPLACE, tmpl.call(renderComponent, condi)];
             }
             else {
                 let tmpl = condi ? ifTmpl : elseTmpl;
                 LastTmplMap.set(el, tmpl);
-                return [DirectiveUpdateTag.APPEND, tmpl(condition)];
+                return [DirectiveUpdateTag.APPEND, tmpl.call(renderComponent, condition)];
             }
         };
     }, [EnterPointType.TEXT, EnterPointType.SLOT]);
@@ -10599,7 +10713,7 @@
             if (oldArgs) {
                 //更新
                 if (condi === oldArgs[0])
-                    return;
+                    return [DirectiveUpdateTag.NONE, condi ? render() : html ``];
                 if (condi) {
                     return [DirectiveUpdateTag.REPLACE, condi ? render() : html ``];
                 }
@@ -10640,6 +10754,12 @@
                     }
                     else if (node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) {
                         node.setAttribute(updateProp, newValue + '');
+                        if (node instanceof HTMLSelectElement) {
+                            let opt = find(node.querySelectorAll('option'), n => n.value == newValue);
+                            if (opt) {
+                                opt.selected = true;
+                            }
+                        }
                     }
                     else if (node instanceof HTMLInputElement) {
                         if (node.value == newValue)
@@ -10675,6 +10795,18 @@
             if (get(node, '_model') === 'binded')
                 return;
             let path = last(varChain);
+            let joinedPath = path.join(PATH_SEPARATOR);
+            let propFromPathKeys = Object.keys(renderComponent._propObjectKeyMap);
+            if (propFromPathKeys.length > 0) {
+                each(propFromPathKeys, k => {
+                    if (joinedPath.startsWith(k)) {
+                        let newPath = joinedPath.replace(k, renderComponent._propObjectKeyMap[k]);
+                        path = newPath.split(PATH_SEPARATOR);
+                        return false;
+                    }
+                });
+                console.log(joinedPath);
+            }
             PathMap.set(node, path);
             if (!isObject(modelValue) && !trim(modelValue))
                 modelValue = '';
@@ -10768,7 +10900,7 @@
      * @param slotName 插槽名词，默认default
      */
     directive(function Slot(cbk, slotName) {
-        return (point, [condi], oldArgs, { renderComponent, slotComponent }) => {
+        return (point, newArgs, oldArgs, { renderComponent, slotComponent }) => {
             if (oldArgs)
                 return;
             cbk = cbk.bind(renderComponent);
@@ -10915,6 +11047,44 @@
         };
     }, [EnterPointType.TEXT, EnterPointType.SLOT]);
 
+    let TestComp = class TestComp extends CompElem {
+        //////////////////////////////////// props
+        childData = {};
+        //////////////////////////////////// watch
+        function(nv) {
+            console.log('子组件变更...', nv);
+        }
+        watchCa(nv) {
+            console.log('子组件变更222...', nv);
+        }
+        //////////////////////////////////// styles
+        mounted() {
+        }
+        render() {
+            console.log('子组件视图......');
+            return html `<div>${JSON.stringify(this.childData)} <button @click="${this.changeTest}">修改子组件并更新父组件</button><select ${model(this.childData.a)}>
+      <option value="123">123</option>
+      <option value="234">234</option>
+      <option value="345">345</option>
+    </select></div>`;
+        }
+        changeTest() {
+            this.childData.a = Math.random() * 100 >> 0;
+        }
+    };
+    __decorate([
+        prop
+    ], TestComp.prototype, "childData", void 0);
+    __decorate([
+        watch('childData', { deep: true })
+    ], TestComp.prototype, "function", null);
+    __decorate([
+        watch('childData.a')
+    ], TestComp.prototype, "watchCa", null);
+    TestComp = __decorate([
+        tag("test-comp")
+    ], TestComp);
+
     exports.PageTest = class PageTest extends CompElem {
         //////////////////////////////////// props
         arg = '';
@@ -10923,15 +11093,15 @@
         colorB = Math.random() * 255 % 255 >> 0;
         rotation = 0;
         test = { a: 1 };
-        ary = [1, 2, 3, 4, 56, 234, 23, 423, 4, 234, 234];
+        ary = [1, 2, 3, 4, 56, 34, 323, 88, 23, 45, 67, 89, 12, 78, 90];
         //////////////////////////////////// computed
         get color() {
             console.log('computed......');
             return `linear-gradient(90deg,rgb(${this.colorR},${this.colorG},${this.colorB}), rgb(${255 - this.colorR},${255 - this.colorG},${255 - this.colorB}));`;
         }
         //////////////////////////////////// watch
-        function(ov, nv, src) {
-            // console.log('watch...', ov, nv, src)
+        function(nv) {
+            console.log('父组件变更...', nv);
         }
         //////////////////////////////////// styles
         //静态样式
@@ -10988,7 +11158,7 @@
                 },
             ];
         }
-        text;
+        text = null;
         sloganIndex = 0;
         //////////////////////////////////// lifecycles
         updated(changed) {
@@ -11023,24 +11193,32 @@
             // }, 5000);
         }
         render() {
-            console.log('render......');
+            console.log('父组件视图......');
             return html `<div>
-            <i>Welcome to</i>
-            <br>
-            <h2>CompElem</h2>
-            <br>
-            <i>A modern, reactive, fast and lightweight library</i>
-            <br>
-            <i>for building</i>
-            <h3>Web Components</h3>
-            ${forEach(this.ary, (v, i) => html `<div key="${i}">第${i}行 value:${v} -- ${this.test.a}</div>`)}
-            <p>
-              &lt;c-element&gt; <i ${bind({ a: 'a', x: this.test.a })} name="text">...</i> &lt;/c-element&gt;
-            </p>
-            <input type="checkbox" ${model(this.test.a)}>
-            <input type="text" ${model(this.test.a)}>
-            ${this.arg}
+            <h2>父组件 ${JSON.stringify(this.test)}</h2>
+            <test-comp .child-data="${this.test}"></test-comp>
+            <button @click="${this.changeTest}">修改父组件并更新子组件</button>
+            <button @click="${this.changeTest2}">新增属性父组件并更新子组件</button>
+<button @click="${this.changeFor}">更新for</button>
+            ${forEach(this.ary, (item) => html `<span key="${item}">${item}, </span>`)}
         </div>`;
+        }
+        changeTest() {
+            this.test.a = Math.random() * 100 >> 0;
+        }
+        changeTest2() {
+            this.test.b = Math.random() * 100 >> 0;
+        }
+        changeFor() {
+            this.ary = [];
+            setTimeout(() => {
+                this.ary.push(1);
+                this.ary.push(2);
+                this.ary.push(3);
+                this.ary.push(4);
+                this.ary.push(5);
+            }, 100);
+            // this.ary = [1, 2, 3, 4, 5]
         }
     };
     __decorate([
@@ -11068,7 +11246,7 @@
         computed
     ], exports.PageTest.prototype, "color", null);
     __decorate([
-        watch('rotation')
+        watch('test', { deep: true })
     ], exports.PageTest.prototype, "function", null);
     __decorate([
         query('i[name="text"]')

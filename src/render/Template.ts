@@ -1,4 +1,4 @@
-import { concat, each, isEmpty, last, reduce, toString } from "myfx";
+import { concat, each, get, isEmpty, last, reduce, toString } from "myfx";
 import { CompElem } from "../CompElem";
 import { EXP_KEY } from "../constants";
 import { buildHTML, buildTmplate } from "./render";
@@ -82,5 +82,26 @@ export class Template {
         let [html, vars] = buildHTML(comp, this);
         let nodes = buildTmplate([], html, vars, comp);
         return reduce(nodes, (a, v: HTMLElement) => a + (v.outerHTML ?? ''), '')
+    }
+    /**
+     * 对var中的Template类型进行合并
+     */
+    flatVars(comp: CompElem) {
+        let vars = concat(this.vars)
+        let l = this.strings.length - 1;
+        let varIndex = 0
+        for (let i = 0; i <= l; i++) {
+            let val = get<any>(vars, varIndex, '');
+
+            if (val instanceof Template && val.vars.length > 0) {
+                let [h, v] = buildHTML(comp, val)
+                val = h
+
+                vars.splice(varIndex, 1, ...v)
+                varIndex += v.length - 1
+            }
+            varIndex++
+        }
+        return vars
     }
 }

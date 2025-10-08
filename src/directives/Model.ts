@@ -1,7 +1,7 @@
-import { get, isEqual, isObject, last, set, trim } from "myfx";
+import { each, find, get, isEqual, isObject, last, set, trim } from "myfx";
 import { CompElem } from "../CompElem";
 import { EnterPoint, directive } from "../directive/index";
-import { EnterPointType } from "../types";
+import { EnterPointType, PATH_SEPARATOR } from "../types";
 
 export const enum ModelTriggerType {
   CHANGE = 'change',
@@ -31,6 +31,12 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
           node._updateProps({ [updateProp]: newValue })
         } else if (node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) {
           node.setAttribute(updateProp, newValue + '')
+          if (node instanceof HTMLSelectElement) {
+            let opt = find(node.querySelectorAll('option'), n => n.value == newValue)
+            if (opt) {
+              opt.selected = true
+            }
+          }
         } else if (node instanceof HTMLInputElement) {
           if (node.value == newValue) return
           switch (node.type) {
@@ -65,6 +71,17 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
     if (get(node, '_model') === 'binded') return
 
     let path: string[] = last(varChain)
+    let joinedPath = path.join(PATH_SEPARATOR)
+    let propFromPathKeys = Object.keys(renderComponent._propObjectKeyMap)
+    if (propFromPathKeys.length > 0) {
+      each(propFromPathKeys, k => {
+        if (joinedPath.startsWith(k)) {
+          let newPath = joinedPath.replace(k, renderComponent._propObjectKeyMap[k])
+          path = newPath.split(PATH_SEPARATOR)
+          return false
+        }
+      })
+    }
 
     PathMap.set(node, path)
 

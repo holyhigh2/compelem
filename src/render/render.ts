@@ -30,8 +30,8 @@ import {
   updateDirective
 } from "../directive/index";
 import { addEvent } from "../events/event";
-import { Collector } from "../reactive";
-import { DirectiveExecutor, DirectiveInstance, EnterPointType, UpdatePoint } from "../types";
+import { Collector, notifyUpdate, OBJECT_VAR_PATH } from "../reactive";
+import { DirectiveExecutor, DirectiveInstance, EnterPointType, PATH_SEPARATOR, UpdatePoint } from "../types";
 import { showError, showTagError } from "../utils";
 import { Template } from "./Template";
 
@@ -123,7 +123,7 @@ export function buildHTML(
     //attr check
     let rs = html.match(EXP_ATTR_CHECK)
     if (rs) {
-      let errorMsg = replaceAll(rs[0], PLACEHOLDER, '${...}')
+      let errorMsg = replaceAll(rs![0], PLACEHOLDER, '${...}')
       showError(`Parse error: attribute value can be set only one interpolation —— \n ${errorMsg}`)
       return ['', vars];
     }
@@ -420,6 +420,11 @@ export function buildTmplate(
                   showTagError(currentNode.tagName, `Prop '${name}' is not defined in ${currentNode.tagName}`)
                 }
 
+                let fromPath = OBJECT_VAR_PATH.get(val)
+                if (fromPath) {
+                  (currentNode as CompElem)._propObjectKeyMap[fromPath.join(PATH_SEPARATOR)] = propName
+                }
+
                 po.value = val;
                 po.isProp = true;
                 props[propName] = val;
@@ -644,6 +649,8 @@ export function buildTmplate2(updatePoints: Array<UpdatePoint>, vars: any[], com
             po.value = val
             po.node = currentNode
             props[vp.name!] = val
+            if (vp.attrName)
+              currentNode.removeAttribute(vp.attrName)
             break
           case VarType.AttrRef:
           case VarType.Attr:
@@ -781,10 +788,10 @@ export function buildDirectiveView(pointNode: Node, tmpl: Template, component: C
   return nodes
 }
 
-export function updateView(tmpl: Template, comp: CompElem, updatePoints?: UpdatePoint[]): void {
+export function updateView(tmpl: Template, comp: CompElem, updatePoints?: UpdatePoint[], changedKeys?: string[]): void {
   if (isBlank(join(tmpl.strings))) return;
   if (!ComponentUpdatePointsMap.has(comp)) return;
-  let { vars } = tmpl;
+  let vars = tmpl.flatVars(comp)
   updatePoints = updatePoints ?? ComponentUpdatePointsMap.get(comp)!
   for (let i = 0; i < updatePoints.length; i++) {
     const up = updatePoints[i];
@@ -794,7 +801,7 @@ export function updateView(tmpl: Template, comp: CompElem, updatePoints?: Update
     let oldValue = up.value;
     let newValue: any = vars;
     let node = up.node;
-    let indexSegs = split(varIndex, '-')
+    let indexSegs = split(varIndex, PATH_SEPARATOR)
     for (let l = 0; l < indexSegs.length; l++) {
       const seg = indexSegs[l];
       newValue = get(newValue, seg)
@@ -805,7 +812,6 @@ export function updateView(tmpl: Template, comp: CompElem, updatePoints?: Update
 
     //check
     if (!isObject(oldValue) && oldValue === newValue) continue;
-
 
     let elNode = node as HTMLElement
     if (up.isDirective) {
@@ -840,7 +846,23 @@ export function updateView(tmpl: Template, comp: CompElem, updatePoints?: Update
       if (!isObject(newValue) && newValue === oldValue) continue;
       //如果node是slot则触发组件的slot更新
       if (node instanceof CompElem) {
-        node._updateProps({ [up.attrName]: newValue });
+        if (isObject(newValue) && Object.is(newValue, oldValue)) {
+          let targetVarName = camelCase(up.attrName)
+          let path = [targetVarName]
+          if (changedKeys && changedKeys.length > 0) {
+            let kStr = ''
+            let fromVarName = join(OBJECT_VAR_PATH.get(up.value)!, PATH_SEPARATOR)
+            changedKeys.forEach(k => {
+              if (k.startsWith(fromVarName) && k.length > kStr.length) {
+                kStr = k
+              }
+            })
+            path = concat(split(kStr.replace(fromVarName, targetVarName), PATH_SEPARATOR))
+          }
+          notifyUpdate(node, oldValue, path)
+        } else {
+          node._updateProps({ [up.attrName]: newValue });
+        }
       } else if (node instanceof HTMLSlotElement) {
         comp._updateSlot(node.getAttribute('name') || 'default', up.attrName, newValue)
       }
@@ -851,7 +873,6 @@ export function updateView(tmpl: Template, comp: CompElem, updatePoints?: Update
           case 'value':
             if (node instanceof HTMLInputElement) {
               node.value = newValue
-
               break;
             }
 

@@ -1,11 +1,7 @@
-import { CompElem, Template, bind, computed, forEach, html, model, prop, query, state, tag, watch } from '../src/index';
+import { CompElem, Template, computed, forEach, html, prop, query, state, tag, watch } from '../src/index';
 
-const Slogan = ['complete', 'componentize', 'compact', 'companion']
 
-class A {
-
-}
-
+import './testComp';
 @tag("page-test")
 export class PageTest extends CompElem {
   //////////////////////////////////// props
@@ -15,8 +11,8 @@ export class PageTest extends CompElem {
   @state colorG = Math.random() * 255 % 255 >> 0;
   @state colorB = Math.random() * 255 % 255 >> 0;
   @state rotation = 0
-  @state({ shallow: false }) test = { a: 1 }
-  @state ary = [1, 2, 3, 4, 56, 234, 23, 423, 4, 234, 234]
+  @state({ shallow: false }) test: Record<string, any> = { a: 1 }
+  @state ary = [1, 2, 3, 4, 56, 34, 323, 88, 23, 45, 67, 89, 12, 78, 90]
 
   //////////////////////////////////// computed
   @computed
@@ -26,9 +22,9 @@ export class PageTest extends CompElem {
   }
 
   //////////////////////////////////// watch
-  @watch('rotation')
-  function(ov: number, nv: number, src: string) {
-    // console.log('watch...', ov, nv, src)
+  @watch('test', { deep: true })
+  function(nv: Record<string, any>) {
+    console.log('父组件变更...', nv)
   }
 
   //////////////////////////////////// styles
@@ -88,7 +84,7 @@ export class PageTest extends CompElem {
   }
 
   @query('i[name="text"]')
-  text: HTMLElement
+  text: HTMLElement = null!
   sloganIndex = 0
 
   //////////////////////////////////// lifecycles
@@ -129,23 +125,31 @@ export class PageTest extends CompElem {
     // }, 5000);
   }
   render(): Template {
-    console.log('render......')
+    console.log('父组件视图......')
     return html`<div>
-            <i>Welcome to</i>
-            <br>
-            <h2>CompElem</h2>
-            <br>
-            <i>A modern, reactive, fast and lightweight library</i>
-            <br>
-            <i>for building</i>
-            <h3>Web Components</h3>
-            ${forEach(this.ary, (v, i) => html`<div key="${i}">第${i}行 value:${v} -- ${this.test.a}</div>`)}
-            <p>
-              &lt;c-element&gt; <i ${bind({ a: 'a', x: this.test.a })} name="text">...</i> &lt;/c-element&gt;
-            </p>
-            <input type="checkbox" ${model(this.test.a)}>
-            <input type="text" ${model(this.test.a)}>
-            ${this.arg}
+            <h2>父组件 ${JSON.stringify(this.test)}</h2>
+            <test-comp .child-data="${this.test}"></test-comp>
+            <button @click="${this.changeTest}">修改父组件并更新子组件</button>
+            <button @click="${this.changeTest2}">新增属性父组件并更新子组件</button>
+<button @click="${this.changeFor}">更新for</button>
+            ${forEach(this.ary, (item: any) => html`<span key="${item}">${item}, </span>`)}
         </div>`
+  }
+  changeTest() {
+    this.test.a = Math.random() * 100 >> 0
+  }
+  changeTest2() {
+    this.test.b = Math.random() * 100 >> 0
+  }
+  changeFor() {
+    this.ary = []
+    setTimeout(() => {
+      this.ary.push(1)
+      this.ary.push(2)
+      this.ary.push(3)
+      this.ary.push(4)
+      this.ary.push(5)
+    }, 100);
+    // this.ary = [1, 2, 3, 4, 5]
   }
 }

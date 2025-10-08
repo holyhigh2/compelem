@@ -99,3 +99,6 @@ export class UpdatePoint {
         }
     }
 }
+
+
+export const PATH_SEPARATOR = '-'
