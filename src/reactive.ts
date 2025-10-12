@@ -163,8 +163,6 @@ export function reactive(obj: Record<string, any>, context: any): ProxyConstruct
           let pathAry = pathMap?.get(dep)
           if (!pathAry) return
 
-          subChain = concat(pathAry, [prop])
-
           reactiveVal = reactive(value, dep)
 
           PROXY_MAP.set(value, reactiveVal)
@@ -187,7 +185,13 @@ export function reactive(obj: Record<string, any>, context: any): ProxyConstruct
       let stateDefs = get<Record<string, StateOption>>(context.constructor, DecoratorKey.STATES)
       let hasChanged = get<Function>(propDefs, [subChain[0], 'hasChanged']) || get<Function>(stateDefs, [subChain[0], 'hasChanged'])
       if (hasChanged) {
-        if (!hasChanged.call(context, newValue, ov)) return true;
+        let moreThan1 = subChain.length > 1
+        let rootObjNew = newValue
+        let rootObjOld = ov
+        if (moreThan1) {
+          rootObjOld = rootObjNew = context._getPrivateData()[subChain[0]]
+        }
+        if (!hasChanged.call(context, rootObjNew, rootObjOld, subChain, newValue, ov)) return true;
       } else {
         //默认对比算法
         if (Object.is(ov, newValue)) {
@@ -325,12 +329,12 @@ export class Queue {
     let nq = Array.from(Queue.nextSet)
     Queue.nextSet.clear()
 
+    QMap.clear()
+
     wq.forEach(u => u(get(u, 'ov')))
     cq.forEach(u => u())
     sq.forEach(u => u())
     nq.forEach(u => u())
-
-    QMap.clear()
   }
 
   static pushWatch(updater: Getter) {

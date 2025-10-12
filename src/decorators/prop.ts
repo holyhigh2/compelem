@@ -30,7 +30,7 @@ export type PropOption = {
    * @param oldValue 
    * @returns 
    */
-  hasChanged?: (newValue: any, oldValue: any) => boolean,
+  hasChanged?: (newValue: any, oldValue: any, changeChain: string[], subNewValue: any, subOldValue: any) => boolean,
   /**
    * 设置属性getter，可以通过 get 函数方式设置
    * @returns 

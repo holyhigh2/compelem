@@ -497,7 +497,6 @@ export class CompElem extends HTMLElement implements IComponent {
       each(this.slots, (nodeAry, k: string) => {
         nodeAry.filter(node => node.nodeType === Node.ELEMENT_NODE).forEach((node: Element) => {
           if (node instanceof CompElem) {
-            // node._setParentProps(props)
             node._updateProps(props)
             return;
           }
@@ -532,6 +531,16 @@ export class CompElem extends HTMLElement implements IComponent {
   }
   slotChange(slot: HTMLSlotElement, name: string) { }
   attributeChangedCallback(attributeName: string, oldValue: string | null, newValue: string | null) {
+    if (Object.is(newValue, oldValue)) return
+
+    let propName = camelCase(attributeName)
+    let propDef: PropOption = get(this.constructor, [DecoratorKey.PROPS, propName])
+
+    if (isBooleanProp(propDef.type)) {
+      let v = getBooleanValue(newValue)
+      if (get<boolean>(this, propName) === v) return
+    }
+
     this.#attrChanged(attributeName, oldValue, newValue)
   }
   //********************************** 更新
@@ -580,7 +589,6 @@ export class CompElem extends HTMLElement implements IComponent {
     this.#updateSources = {}
     const changedKeys = Object.keys(changed)
 
-
     //update decorators
     let ary: DecoratorWrapper[] = get(this.constructor, _DecoratorsKey)
     ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
@@ -593,9 +601,10 @@ export class CompElem extends HTMLElement implements IComponent {
     let renderContextList: Set<CompElem | Node> = new Set()
 
     //1. filter context
+    const rcl = this.#renderContextList
     each(changed, ({ value, chain, oldValue, end }, k: string) => {
-      if (this.#renderContextList[k]) {
-        this.#renderContextList[k].forEach(cx => {
+      if (rcl[k]) {
+        rcl[k].forEach(cx => {
           renderContextList.add(cx)
         })
       }
@@ -703,25 +712,34 @@ export class CompElem extends HTMLElement implements IComponent {
           get: getter
         })
       }
+
       if (propDef.attribute && isDefined(val) && !isObject(val)) {
-        let k = kebabCase(key)
-        let v = trim(val)
-        if (isBooleanProp(propDef.type)) {
-          v = getBooleanValue(val)
-          if (isBoolean(v)) {
-            this.toggleAttribute(k, v)
-          } else {
-            this.setAttribute(k, v)
-          }
-        } else {
-          this.setAttribute(k, v)
-        }
+        this.#updateAttribute(propDef, key, val)
       }
+
       this.#data[key] = val;
       rs[key] = val;
     }
 
     return Object.seal(rs)
+  }
+  #updateAttribute(propDef: PropOption, key: string, val: string | null) {
+    let k = kebabCase(key)
+    let v = trim(val)
+    if (isBooleanProp(propDef.type)) {
+      v = getBooleanValue(val)
+      if (isBoolean(v)) {
+        if (v && !this.hasAttribute(k)) {
+          this.toggleAttribute(k, true)
+        } else if (!v && this.hasAttribute(k)) {
+          this.toggleAttribute(k, false)
+        }
+      } else if (this.getAttribute(k) !== v) {
+        this.setAttribute(k, v)
+      }
+    } else if (this.getAttribute(k) !== v) {
+      this.setAttribute(k, v)
+    }
   }
   #convertValue(v: string, types: Array<Constructor<any>>) {
     let val: any = v
@@ -754,22 +772,22 @@ export class CompElem extends HTMLElement implements IComponent {
 
     let validator = propDef.isValid
     let expectType = propDef.type
-    let expectTypeAry = isArray<Constructor<any>>(expectType) ? expectType : [expectType];
-    let typeConverter = propDef.converter;
+    let expectTypeAry = isArray<Constructor<any>>(expectType) ? expectType : [expectType]
+    let typeConverter = propDef.converter
     let val: any = newValue
     if (!some(expectTypeAry, (et) => et === String) && isString(val) && !isNull(val)) {
       try {
-        val = typeConverter ? typeConverter(val) : this.#convertValue(val, expectTypeAry);
+        val = typeConverter ? typeConverter(val) : this.#convertValue(val, expectTypeAry)
       } catch (error) {
-        showTagError(this.tagName, `Convert attribute '${propKey}' error with ` + val);
+        showTagError(this.tagName, `Convert attribute '${propKey}' error with ` + val)
       }
     } //endif
 
     //extra work
     for (let i = 0; i < expectTypeAry.length; i++) {
       const et = expectTypeAry[i];
-      if (et.name === 'Boolean') {
-        val = hasAttr === false && isBlank(val) ? false : getBooleanValue(val)
+      if (et.name === 'Boolean' && hasAttr) {
+        val = getBooleanValue(val)
       }
     }
 
@@ -834,39 +852,13 @@ export class CompElem extends HTMLElement implements IComponent {
    * @param attrs 
    */
   #propsReady = debounce(this.propsReady, 100)
-  /**
-   * @deprecated
-   */
-  _setParentProps(props: Record<string, any>, attrs?: Record<string, any>) {
-    if (this.#inited) {
-      let propDefs: Record<string, PropOption> = get(
-        this.constructor,
-        DecoratorKey.PROPS
-      );
-      //存在attrs表示已初始化完成
-      each(props, (v, k: string) => {
-        let ck = camelCase(k)
-        let propDef = propDefs[ck]
-        if (!propDef) return
-        let ov = this.#data[ck]
-        v = this.#propTypeCheck(propDefs, ck, v)
-        if (propDef.hasChanged && !propDef.hasChanged.call(this, v, ov)) return;
-
-        this.#data[ck] = v;
-        this._notify(ov, [ck])
-      })
-      assign(this.#props, props)
-      assign(this.#attrs, attrs)
-
-      this.#propsReady(this.#props);
-    }
-  }
   //todo 这里需要直接修改prop
   _updateProps(props: Record<string, any>) {
     let propDefs: Record<string, PropOption> = get(
       this.constructor,
       DecoratorKey.PROPS
     );
+    let need2UpdateAttrs: Array<any> = []
     //存在attrs表示已初始化完成
     each(props, (v, k: string) => {
       let ck = camelCase(k)
@@ -874,11 +866,19 @@ export class CompElem extends HTMLElement implements IComponent {
       if (!propDef) return
       v = this.#propTypeCheck(propDefs, ck, v)
 
+      if (propDef.attribute && isDefined(v) && !isObject(v)) {
+        need2UpdateAttrs.push([propDef, ck, v])
+      }
+
       Collector.__skipCheck = true;
       set(this, ck, v)
       Collector.__skipCheck = false;
     })
     assign(this.#props, props)
+
+    need2UpdateAttrs.forEach(([propDef, key, v]) => {
+      this.#updateAttribute(propDef, key, v)
+    })
 
     this.#propsReady(this.#props);
   }
@@ -1073,6 +1073,9 @@ export class CompElem extends HTMLElement implements IComponent {
   }
   _regWrapper(wrapperComponent: CompElem) {
     this.#wrapperComponent = wrapperComponent
+  }
+  _getPrivateData() {
+    return this.#data
   }
   ////////////////////----------------------------/////////////// APIs
   /**

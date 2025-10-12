@@ -1,10 +1,11 @@
 /* compelem 0.6.13-b1 @holyhigh2 https://github.com/holyhigh2/compelem */
-(function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35730/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
+(function (l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35730/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
-    typeof define === 'function' && define.amd ? define(['exports'], factory) :
-    (global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.compelem = {}));
-})(this, (function (exports) { 'use strict';
+        typeof define === 'function' && define.amd ? define(['exports'], factory) :
+            (global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.compelem = {}));
+})(this, (function (exports) {
+    'use strict';
 
     /******************************************************************************
     Copyright (c) Microsoft Corporation.
@@ -39,18 +40,18 @@
        * https://github.com/holyhigh2/myfx
        * (c) 2021-2025 @holyhigh2 may be freely distributed under the MIT license
        */
-      /**
-     * 判断参数是否为Array对象的实例
-     *
-     * @example
-     * //true
-     * console.log(_.isArray([]))
-     * //false
-     * console.log(_.isArray(document.body.children))
-     *
-     * @param v
-     * @returns
-     */
+    /**
+   * 判断参数是否为Array对象的实例
+   *
+   * @example
+   * //true
+   * console.log(_.isArray([]))
+   * //false
+   * console.log(_.isArray(document.body.children))
+   *
+   * @param v
+   * @returns
+   */
     function isArray(v) {
         return Array.isArray(v);
     }
@@ -1611,36 +1612,36 @@
     }
 
     var array = /*#__PURE__*/Object.freeze({
-      __proto__: null,
-      append: append,
-      chunk: chunk,
-      compact: compact,
-      concat: concat,
-      except: except,
-      fill: fill,
-      findIndex: findIndex,
-      findLastIndex: findLastIndex,
-      flat: flat,
-      flatDeep: flatDeep,
-      insert: insert,
-      intersect: intersect,
-      join: join,
-      pop: pop,
-      pull: pull,
-      range: range,
-      remove: remove,
-      reverse: reverse,
-      slice: slice,
-      sortedIndex: sortedIndex,
-      sortedIndexBy: sortedIndexBy,
-      union: union,
-      uniq: uniq,
-      uniqBy: uniqBy,
-      unzip: unzip,
-      without: without,
-      zip: zip,
-      zipObject: zipObject,
-      zipWith: zipWith
+        __proto__: null,
+        append: append,
+        chunk: chunk,
+        compact: compact,
+        concat: concat,
+        except: except,
+        fill: fill,
+        findIndex: findIndex,
+        findLastIndex: findLastIndex,
+        flat: flat,
+        flatDeep: flatDeep,
+        insert: insert,
+        intersect: intersect,
+        join: join,
+        pop: pop,
+        pull: pull,
+        range: range,
+        remove: remove,
+        reverse: reverse,
+        slice: slice,
+        sortedIndex: sortedIndex,
+        sortedIndexBy: sortedIndexBy,
+        union: union,
+        uniq: uniq,
+        uniqBy: uniqBy,
+        unzip: unzip,
+        without: without,
+        zip: zip,
+        zipObject: zipObject,
+        zipWith: zipWith
     });
 
     function countBy(collection, itee) {
@@ -2191,37 +2192,37 @@
     }
 
     var collection = /*#__PURE__*/Object.freeze({
-      __proto__: null,
-      countBy: countBy,
-      each: each,
-      eachRight: eachRight,
-      every: every,
-      filter: filter,
-      find: find,
-      findLast: findLast,
-      first: first,
-      flatMap: flatMap,
-      flatMapDeep: flatMapDeep,
-      groupBy: groupBy,
-      includes: includes,
-      initial: initial,
-      keyBy: keyBy,
-      last: last,
-      map: map,
-      partition: partition,
-      reduce: reduce,
-      reject: reject,
-      sample: sample,
-      sampleSize: sampleSize,
-      shuffle: shuffle,
-      size: size,
-      some: some,
-      sort: sort,
-      sortBy: sortBy,
-      tail: tail,
-      take: take,
-      takeRight: takeRight,
-      toArray: toArray
+        __proto__: null,
+        countBy: countBy,
+        each: each,
+        eachRight: eachRight,
+        every: every,
+        filter: filter,
+        find: find,
+        findLast: findLast,
+        first: first,
+        flatMap: flatMap,
+        flatMapDeep: flatMapDeep,
+        groupBy: groupBy,
+        includes: includes,
+        initial: initial,
+        keyBy: keyBy,
+        last: last,
+        map: map,
+        partition: partition,
+        reduce: reduce,
+        reject: reject,
+        sample: sample,
+        sampleSize: sampleSize,
+        shuffle: shuffle,
+        size: size,
+        some: some,
+        sort: sort,
+        sortBy: sortBy,
+        tail: tail,
+        take: take,
+        takeRight: takeRight,
+        toArray: toArray
     });
 
     const TIME_MAP = {
@@ -2716,17 +2717,17 @@
     }
 
     var datetime = /*#__PURE__*/Object.freeze({
-      __proto__: null,
-      addTime: addTime,
-      compareDate: compareDate,
-      formatDate: formatDate,
-      getDayOfYear: getDayOfYear,
-      getWeekOfMonth: getWeekOfMonth,
-      getWeekOfYear: getWeekOfYear,
-      isLeapYear: isLeapYear,
-      isSameDay: isSameDay,
-      now: now,
-      toDate: toDate
+        __proto__: null,
+        addTime: addTime,
+        compareDate: compareDate,
+        formatDate: formatDate,
+        getDayOfYear: getDayOfYear,
+        getWeekOfMonth: getWeekOfMonth,
+        getWeekOfYear: getWeekOfYear,
+        isLeapYear: isLeapYear,
+        isSameDay: isSameDay,
+        now: now,
+        toDate: toDate
     });
 
     /**
@@ -3176,20 +3177,20 @@
     }
 
     var functions$1 = /*#__PURE__*/Object.freeze({
-      __proto__: null,
-      after: after,
-      alt: alt,
-      bind: bind,
-      bindAll: bindAll,
-      call: call,
-      compose: compose,
-      debounce: debounce,
-      delay: delay,
-      fval: fval,
-      once: once,
-      partial: partial,
-      tap: tap,
-      throttle: throttle
+        __proto__: null,
+        after: after,
+        alt: alt,
+        bind: bind,
+        bindAll: bindAll,
+        call: call,
+        compose: compose,
+        debounce: debounce,
+        delay: delay,
+        fval: fval,
+        once: once,
+        partial: partial,
+        tap: tap,
+        throttle: throttle
     });
 
     /**
@@ -3661,45 +3662,45 @@
     }
 
     var is = /*#__PURE__*/Object.freeze({
-      __proto__: null,
-      isArray: isArray,
-      isArrayLike: isArrayLike,
-      isBlank: isBlank,
-      isBoolean: isBoolean,
-      isDate: isDate,
-      isDefined: isDefined,
-      isElement: isElement,
-      isEmpty: isEmpty,
-      isEqual: isEqual,
-      isEqualWith: isEqualWith,
-      isError: isError,
-      isFinite: isFinite,
-      isFunction: isFunction,
-      isInteger: isInteger,
-      isIterator: isIterator,
-      isLowerCaseChar: isLowerCaseChar,
-      isMap: isMap,
-      isMatch: isMatch,
-      isMatchWith: isMatchWith,
-      isNaN: isNaN$1,
-      isNative: isNative,
-      isNil: isNil,
-      isNode: isNode,
-      isNull: isNull,
-      isNumber: isNumber,
-      isNumeric: isNumeric,
-      isObject: isObject,
-      isPlainObject: isPlainObject,
-      isPrimitive: isPrimitive,
-      isRegExp: isRegExp,
-      isSafeInteger: isSafeInteger,
-      isSet: isSet,
-      isString: isString,
-      isSymbol: isSymbol,
-      isUndefined: isUndefined,
-      isUpperCaseChar: isUpperCaseChar,
-      isWeakMap: isWeakMap,
-      isWeakSet: isWeakSet
+        __proto__: null,
+        isArray: isArray,
+        isArrayLike: isArrayLike,
+        isBlank: isBlank,
+        isBoolean: isBoolean,
+        isDate: isDate,
+        isDefined: isDefined,
+        isElement: isElement,
+        isEmpty: isEmpty,
+        isEqual: isEqual,
+        isEqualWith: isEqualWith,
+        isError: isError,
+        isFinite: isFinite,
+        isFunction: isFunction,
+        isInteger: isInteger,
+        isIterator: isIterator,
+        isLowerCaseChar: isLowerCaseChar,
+        isMap: isMap,
+        isMatch: isMatch,
+        isMatchWith: isMatchWith,
+        isNaN: isNaN$1,
+        isNative: isNative,
+        isNil: isNil,
+        isNode: isNode,
+        isNull: isNull,
+        isNumber: isNumber,
+        isNumeric: isNumeric,
+        isObject: isObject,
+        isPlainObject: isPlainObject,
+        isPrimitive: isPrimitive,
+        isRegExp: isRegExp,
+        isSafeInteger: isSafeInteger,
+        isSet: isSet,
+        isString: isString,
+        isSymbol: isSymbol,
+        isUndefined: isUndefined,
+        isUpperCaseChar: isUpperCaseChar,
+        isWeakMap: isWeakMap,
+        isWeakSet: isWeakSet
     });
 
     /**
@@ -3968,19 +3969,19 @@
     }
 
     var math = /*#__PURE__*/Object.freeze({
-      __proto__: null,
-      add: add,
-      divide: divide,
-      max: max,
-      mean: mean,
-      median: median,
-      min: min,
-      minmax: minmax,
-      multiply: multiply,
-      randf: randf,
-      randi: randi,
-      subtract: subtract,
-      sum: sum
+        __proto__: null,
+        add: add,
+        divide: divide,
+        max: max,
+        mean: mean,
+        median: median,
+        min: min,
+        minmax: minmax,
+        multiply: multiply,
+        randf: randf,
+        randi: randi,
+        subtract: subtract,
+        sum: sum
     });
 
     /**
@@ -4101,10 +4102,10 @@
                     else {
                         dStr =
                             '.' +
-                                fractionPtn.replace(/[0#]/g, (tag, i) => {
-                                    const l = fraction[i];
-                                    return l == undefined ? (tag === '0' ? '0' : '') : l;
-                                });
+                            fractionPtn.replace(/[0#]/g, (tag, i) => {
+                                const l = fraction[i];
+                                return l == undefined ? (tag === '0' ? '0' : '') : l;
+                            });
                     }
                     if (dStr.length < 2) {
                         dStr = '';
@@ -4264,15 +4265,15 @@
     }
 
     var num = /*#__PURE__*/Object.freeze({
-      __proto__: null,
-      formatNumber: formatNumber,
-      gt: gt,
-      gte: gte,
-      inRange: inRange,
-      lt: lt,
-      lte: lte,
-      toInteger: toInteger,
-      toNumber: toNumber
+        __proto__: null,
+        formatNumber: formatNumber,
+        gt: gt,
+        gte: gte,
+        inRange: inRange,
+        lt: lt,
+        lte: lte,
+        toInteger: toInteger,
+        toNumber: toNumber
     });
 
     function checkTarget(target) {
@@ -4988,37 +4989,37 @@
     }
 
     var object = /*#__PURE__*/Object.freeze({
-      __proto__: null,
-      assign: assign,
-      assignWith: assignWith,
-      clone: clone,
-      cloneDeep: cloneDeep,
-      cloneDeepWith: cloneDeepWith,
-      cloneWith: cloneWith,
-      defaults: defaults,
-      defaultsDeep: defaultsDeep,
-      eq: eq,
-      findKey: findKey,
-      fromPairs: fromPairs,
-      functions: functions,
-      get: get,
-      has: has,
-      keys: keys,
-      keysIn: keysIn,
-      merge: merge,
-      mergeWith: mergeWith,
-      omit: omit,
-      omitBy: omitBy,
-      parseJSON: parseJSON,
-      pick: pick,
-      pickBy: pickBy,
-      prop: prop$1,
-      set: set,
-      toObject: toObject,
-      toPairs: toPairs,
-      unset: unset,
-      values: values,
-      valuesIn: valuesIn
+        __proto__: null,
+        assign: assign,
+        assignWith: assignWith,
+        clone: clone,
+        cloneDeep: cloneDeep,
+        cloneDeepWith: cloneDeepWith,
+        cloneWith: cloneWith,
+        defaults: defaults,
+        defaultsDeep: defaultsDeep,
+        eq: eq,
+        findKey: findKey,
+        fromPairs: fromPairs,
+        functions: functions,
+        get: get,
+        has: has,
+        keys: keys,
+        keysIn: keysIn,
+        merge: merge,
+        mergeWith: mergeWith,
+        omit: omit,
+        omitBy: omitBy,
+        parseJSON: parseJSON,
+        pick: pick,
+        pickBy: pickBy,
+        prop: prop$1,
+        set: set,
+        toObject: toObject,
+        toPairs: toPairs,
+        unset: unset,
+        values: values,
+        valuesIn: valuesIn
     });
 
     /**
@@ -5739,36 +5740,36 @@
     }
 
     var str = /*#__PURE__*/Object.freeze({
-      __proto__: null,
-      camelCase: camelCase,
-      capitalize: capitalize,
-      endsWith: endsWith,
-      escapeRegExp: escapeRegExp,
-      indexOf: indexOf,
-      kebabCase: kebabCase,
-      lastIndexOf: lastIndexOf,
-      lowerCase: lowerCase,
-      lowerFirst: lowerFirst,
-      padEnd: padEnd,
-      padStart: padStart,
-      padZ: padZ,
-      pascalCase: pascalCase,
-      repeat: repeat,
-      replace: replace,
-      replaceAll: replaceAll,
-      snakeCase: snakeCase,
-      split: split,
-      startsWith: startsWith,
-      substring: substring,
-      test: test,
-      toFixed: toFixed,
-      toString: toString,
-      trim: trim,
-      trimEnd: trimEnd,
-      trimStart: trimStart,
-      truncate: truncate,
-      upperCase: upperCase,
-      upperFirst: upperFirst
+        __proto__: null,
+        camelCase: camelCase,
+        capitalize: capitalize,
+        endsWith: endsWith,
+        escapeRegExp: escapeRegExp,
+        indexOf: indexOf,
+        kebabCase: kebabCase,
+        lastIndexOf: lastIndexOf,
+        lowerCase: lowerCase,
+        lowerFirst: lowerFirst,
+        padEnd: padEnd,
+        padStart: padStart,
+        padZ: padZ,
+        pascalCase: pascalCase,
+        repeat: repeat,
+        replace: replace,
+        replaceAll: replaceAll,
+        snakeCase: snakeCase,
+        split: split,
+        startsWith: startsWith,
+        substring: substring,
+        test: test,
+        toFixed: toFixed,
+        toString: toString,
+        trim: trim,
+        trimEnd: trimEnd,
+        trimStart: trimStart,
+        truncate: truncate,
+        upperCase: upperCase,
+        upperFirst: upperFirst
     });
 
     /* eslint-disable max-len */
@@ -6011,8 +6012,8 @@
     }
 
     var template = /*#__PURE__*/Object.freeze({
-      __proto__: null,
-      template: template$1
+        __proto__: null,
+        template: template$1
     });
 
     /**
@@ -6354,14 +6355,14 @@
     }
 
     var tree = /*#__PURE__*/Object.freeze({
-      __proto__: null,
-      arrayToTree: arrayToTree,
-      closest: closest,
-      filterTree: filterTree,
-      findTreeNode: findTreeNode,
-      findTreeNodes: findTreeNodes,
-      sortTree: sortTree,
-      walkTree: walkTree
+        __proto__: null,
+        arrayToTree: arrayToTree,
+        closest: closest,
+        filterTree: filterTree,
+        findTreeNode: findTreeNode,
+        findTreeNodes: findTreeNodes,
+        sortTree: sortTree,
+        walkTree: walkTree
     });
 
     const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'.split('');
@@ -6581,7 +6582,7 @@
             let p5 = Date.now().toString(16);
             p5 =
                 substring((p1Num >> 1).toString(16), 0, 6) +
-                    substring(p5, p5.length - 6, p5.length);
+                substring(p5, p5.length - 6, p5.length);
             uuid =
                 p1 + '-' + p2 + '-4' + p3 + '-' + VARIANTS[randi(0, 3)] + p4 + '-' + p5;
         }
@@ -6589,20 +6590,20 @@
     }
 
     var utils = /*#__PURE__*/Object.freeze({
-      __proto__: null,
-      alphaId: alphaId,
-      defaultTo: defaultTo,
-      identity: identity,
-      iteratee: iteratee,
-      matcher: matcher,
-      mixin: mixin,
-      noConflict: noConflict,
-      noop: noop,
-      snowflakeId: snowflakeId,
-      times: times,
-      toPath: toPath,
-      uniqueId: uniqueId,
-      uuid: uuid
+        __proto__: null,
+        alphaId: alphaId,
+        defaultTo: defaultTo,
+        identity: identity,
+        iteratee: iteratee,
+        matcher: matcher,
+        mixin: mixin,
+        noConflict: noConflict,
+        noop: noop,
+        snowflakeId: snowflakeId,
+        times: times,
+        toPath: toPath,
+        uniqueId: uniqueId,
+        uuid: uuid
     });
 
     /* eslint-disable no-invalid-this */
@@ -7792,7 +7793,7 @@
             //todo...
             options.global;
             each(options, (v, k) => {
-                if (test(k[0], /[A-Z]/)) ;
+                if (test(k[0], /[A-Z]/));
             });
         }
         #cid;
@@ -8431,8 +8432,8 @@
             for (let i = 0; i < expectTypeAry.length; i++) {
                 const et = expectTypeAry[i];
                 if (
-                //base form
-                test(realType, et.name, "i") ||
+                    //base form
+                    test(realType, et.name, "i") ||
                     //object form
                     val instanceof et || (Object.prototype.toString.call(val) === Object.prototype.toString.call(et.prototype))) {
                     matched = true;
@@ -9074,11 +9075,11 @@
         return (...args) => {
             let executor = fn(...args);
             return [sym, args, executor, (scopeType) => {
-                    if (!isEmpty(scopes) && !test(scopes.join(','), scopeType)) {
-                        showError(`Directive '${Symbol.keyFor(sym)}' is out of scopes, expect '${scopes.join(',')}' bug got '${scopeType}'`);
-                        return;
-                    }
-                }, Collector.popDirectiveQ()];
+                if (!isEmpty(scopes) && !test(scopes.join(','), scopeType)) {
+                    showError(`Directive '${Symbol.keyFor(sym)}' is out of scopes, expect '${scopes.join(',')}' bug got '${scopeType}'`);
+                    return;
+                }
+            }, Collector.popDirectiveQ()];
         };
     }
 
@@ -9840,7 +9841,7 @@
                             currentNode.removeAttribute(vp.attrName);
                             break;
                         case VarType.AttrSlot:
-                            if (slotComponent && vp.name) ;
+                            if (slotComponent && vp.name);
                             currentNode.removeAttribute(vp.attrName);
                             break;
                         case VarType.Ref:
@@ -10713,14 +10714,14 @@
             if (oldArgs) {
                 //更新
                 if (condi === oldArgs[0])
-                    return [DirectiveUpdateTag.NONE, condi ? render() : html ``];
+                    return [DirectiveUpdateTag.NONE, condi ? render() : html``];
                 if (condi) {
-                    return [DirectiveUpdateTag.REPLACE, condi ? render() : html ``];
+                    return [DirectiveUpdateTag.REPLACE, condi ? render() : html``];
                 }
                 return [DirectiveUpdateTag.REMOVE];
             }
             else {
-                return [DirectiveUpdateTag.APPEND, condi ? render() : html ``];
+                return [DirectiveUpdateTag.APPEND, condi ? render() : html``];
             }
         };
     }, [EnterPointType.TEXT, EnterPointType.SLOT]);
@@ -11015,7 +11016,7 @@
      */
     directive(function When(value, cases) {
         return (point, [value, cases], oldArgs) => {
-            let defaultFn = () => html ``;
+            let defaultFn = () => html``;
             let conditionList = [];
             let tmplList = [];
             each(cases, (v, k) => {
@@ -11062,7 +11063,7 @@
         }
         render() {
             console.log('子组件视图......');
-            return html `<div>${JSON.stringify(this.childData)} <button @click="${this.changeTest}">修改子组件并更新父组件</button><select ${model(this.childData.a)}>
+            return html`<div>${JSON.stringify(this.childData)} <button @click="${this.changeTest}">修改子组件并更新父组件</button><select ${model(this.childData.a)}>
       <option value="123">123</option>
       <option value="234">234</option>
       <option value="345">345</option>
@@ -11194,13 +11195,13 @@
         }
         render() {
             console.log('父组件视图......');
-            return html `<div>
+            return html`<div>
             <h2>父组件 ${JSON.stringify(this.test)}</h2>
             <test-comp .child-data="${this.test}"></test-comp>
             <button @click="${this.changeTest}">修改父组件并更新子组件</button>
             <button @click="${this.changeTest2}">新增属性父组件并更新子组件</button>
 <button @click="${this.changeFor}">更新for</button>
-            ${forEach(this.ary, (item) => html `<span key="${item}">${item}, </span>`)}
+            ${forEach(this.ary, (item) => html`<span key="${item}">${item}, </span>`)}
         </div>`;
         }
         changeTest() {

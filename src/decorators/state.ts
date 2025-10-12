@@ -18,7 +18,7 @@ export type StateOption = {
    * @param oldValue 
    * @returns 
    */
-  hasChanged?: (newValue: any, oldValue: any) => boolean
+  hasChanged?: (newValue: any, oldValue: any, changeChain: string[], subNewValue: any, subOldValue: any) => boolean
 };
 
 /**
