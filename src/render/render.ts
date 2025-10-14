@@ -376,7 +376,7 @@ export function buildTmplate(
               }
               attrMap[attrName] = [point, renderComponent, slotComponent]
 
-              executor(point, args, undefined, { renderComponent, slotComponent })
+              executor(point, args, undefined, { renderComponent, slotComponent, varChain })
 
               po.value = val;
               po.isDirective = true;
