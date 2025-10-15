@@ -1,7 +1,7 @@
-import { each, find, get, isEqual, isObject, last, set, trim } from "myfx";
+import { find, get, isEqual, isObject, last, set, trim } from "myfx";
 import { CompElem } from "../CompElem";
 import { EnterPoint, directive } from "../directive/index";
-import { EnterPointType, PATH_SEPARATOR } from "../types";
+import { EnterPointType } from "../types";
 
 export const enum ModelTriggerType {
   CHANGE = 'change',
@@ -71,18 +71,6 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
     if (get(node, '_model') === 'binded') return
 
     let path: string[] = last(varChain)
-    let joinedPath = path.join(PATH_SEPARATOR)
-    let propFromPathKeys = Object.keys(renderComponent._propObjectKeyMap)
-    if (propFromPathKeys.length > 0) {
-      each(propFromPathKeys, k => {
-        if (joinedPath.startsWith(k)) {
-          let newPath = joinedPath.replace(k, renderComponent._propObjectKeyMap[k])
-          path = newPath.split(PATH_SEPARATOR)
-          return false
-        }
-      })
-    }
-
     PathMap.set(node, path)
 
     if (!isObject(modelValue) && !trim(modelValue)) modelValue = ''

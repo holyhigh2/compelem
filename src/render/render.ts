@@ -420,11 +420,6 @@ export function buildTmplate(
                   showTagError(currentNode.tagName, `Prop '${name}' is not defined in ${currentNode.tagName}`)
                 }
 
-                let fromPath = OBJECT_VAR_PATH.get(val)
-                if (fromPath) {
-                  (currentNode as CompElem)._propObjectKeyMap[fromPath.join(PATH_SEPARATOR)] = propName
-                }
-
                 po.value = val;
                 po.isProp = true;
                 props[propName] = val;

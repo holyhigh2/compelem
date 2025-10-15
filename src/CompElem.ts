@@ -104,10 +104,6 @@ export class CompElem extends HTMLElement implements IComponent {
   #renderContextList: Record<string, Set<CompElem | Node>> = {};
   __events: Record<string, Array<Node | ((e: Event) => void)>[]> = {}
 
-  _propObjectKeyMap: Record<string, string> = {}
-  get [PROP_OBJECT_KEY_MAP_SYMBOL]() {
-    return this._propObjectKeyMap
-  }
   get [Symbol.toStringTag]() {
     return this.constructor.name;
   }
