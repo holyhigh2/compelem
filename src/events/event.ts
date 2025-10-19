@@ -1,4 +1,4 @@
-import { debounce, find, map, once, remove, throttle } from "myfx";
+import { debounce, find, map, once, remove, size, throttle } from "myfx";
 import { CompElem } from "../CompElem";
 import { addExtEvent, isExtEvent } from "./extends";
 
@@ -72,7 +72,7 @@ export function addEvent(fullName: string, cbk: EvHadler, node: Element, compone
       if (remove(parts, p => p == MODI_EV_KEYBOARD_COMBO_META)[0] && !e.metaKey) return;
 
       let checkKeys = map(parts, k => MODI_EV_KEYBOARD_KEY_MAP[k] || k)
-      if (!checkKeys.includes(e.key.toLowerCase())) return;
+      if (size(checkKeys) > 0 && !checkKeys.includes(e.key.toLowerCase())) return;
     }
     c(e)
   }
