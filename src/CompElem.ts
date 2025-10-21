@@ -41,7 +41,7 @@ import { _DecoratorsKey, DecoratorWrapper } from "./decorator";
 import { _getObservedAttrs, PropOption } from "./decorators/prop";
 import { StateOption } from "./decorators/state";
 import { IComponent } from "./IComponent";
-import { Collector, Queue, reactive } from "./reactive";
+import { Collector, OBJECT_VAR_PATH, Queue, reactive } from "./reactive";
 import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildView, updateDirectiveView, updateView } from "./render/render";
 import { Template } from "./render/Template";
 import { Constructor, DefaultProps, Getter, PATH_SEPARATOR, SlotOptions, TmplFn } from "./types";
@@ -878,9 +878,20 @@ export class CompElem extends HTMLElement implements IComponent {
 
     this.#propsReady(this.#props);
   }
+  _wrapperProp = new Set<string>()
   _initProps(props: Record<string, any>, attrs?: Record<string, any>) {
     this.#props = merge(this.#props || {}, props);
     this.#attrs = merge(this.#attrs || {}, attrs);
+
+    each(props, (v, k: string) => {
+      if (isObject(v)) {
+        let fromPath = OBJECT_VAR_PATH.get(v)
+        if (fromPath) {
+          let propPath = fromPath.join(PATH_SEPARATOR)
+          this._wrapperProp.add(propPath)
+        }
+      }
+    })
   }
   /**
    * 绑定slot标签，render时调用

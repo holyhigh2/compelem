@@ -78,7 +78,11 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
       node._initProps({ [updateProp]: modelValue })
       node.addEventListener('update:' + updateProp, (e: CustomEvent) => {
         console.debug('Model =>', path)
-        set(renderComponent, path, e.detail.value)
+        let ctx = renderComponent
+        if (renderComponent._wrapperProp.has(path[0])) {
+          ctx = renderComponent.wrapperComponent || ctx
+        }
+        set(ctx, path, e.detail.value)
       });
       set(node, '_model', 'binded')
     } else if (node instanceof HTMLTextAreaElement) {

@@ -18,6 +18,7 @@ import {
   replace,
   replaceAll,
   set,
+  size,
   snakeCase,
   split,
   startsWith,
@@ -481,8 +482,9 @@ export function buildTmplate(
         }//endif
       }//endfor
       if (currentNode instanceof CompElem) {
-        currentNode._initProps(props)
         currentNode._regWrapper(renderComponent)
+        if (size(props) > 0)
+          currentNode._initProps(props)
       } else if (currentNode instanceof HTMLSlotElement) {
         renderComponent._bindSlot(currentNode, currentNode.name || 'default', props)
       }
@@ -689,8 +691,9 @@ export function buildTmplate2(updatePoints: Array<UpdatePoint>, vars: any[], com
       })
 
       if (currentNode instanceof CompElem) {
-        currentNode._initProps(props)
         currentNode._regWrapper(component)
+        if (size(props) > 0)
+          currentNode._initProps(props)
       } else if (currentNode instanceof HTMLSlotElement) {
         component._bindSlot(currentNode, currentNode.name || 'default', props)
       }
