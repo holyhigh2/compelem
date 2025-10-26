@@ -11,7 +11,7 @@ export type EventOption = {
    */
   target?: Object | ((comp?: CompElem) => (HTMLElement | Promise<HTMLElement>)),
   /**
-   * 是否深度监控
+   * 是否在捕获阶段执行
    */
   capture?: boolean,
   /**

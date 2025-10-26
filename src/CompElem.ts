@@ -876,7 +876,8 @@ export class CompElem extends HTMLElement implements IComponent {
       this.#updateAttribute(propDef, key, v)
     })
 
-    this.#propsReady(this.#props);
+    if (this.#props)
+      this.#propsReady(this.#props);
   }
   _wrapperProp = new Set<string>()
   _initProps(props: Record<string, any>, attrs?: Record<string, any>) {

@@ -602,7 +602,7 @@ export function buildTmplate2(updatePoints: Array<UpdatePoint>, vars: any[], com
 
       let props: Record<string, any> = {};
       let varCacheQueue = varMap[NodeSn]
-      varCacheQueue.forEach(vp => {
+      varCacheQueue && varCacheQueue.forEach(vp => {
         let val = vars[varIndex++];
         switch (vp.type) {
           case VarType.Event:
@@ -699,7 +699,7 @@ export function buildTmplate2(updatePoints: Array<UpdatePoint>, vars: any[], com
       }
     } else {
       let varCacheQueue = varMap[NodeSn]
-      varCacheQueue.forEach(vp => {
+      varCacheQueue && varCacheQueue.forEach(vp => {
         let val = vars[varIndex++]
         switch (vp.type) {
           case VarType.DirectiveSlot:
