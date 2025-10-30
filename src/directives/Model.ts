@@ -1,13 +1,13 @@
-import { find, get, isEqual, isObject, last, set, trim } from "myfx";
+import { find, get, isObject, isString, last, set, toPath, trim } from "myfx";
 import { CompElem } from "../CompElem";
 import { EnterPoint, directive } from "../directive/index";
 import { EnterPointType } from "../types";
+import { showError } from "../utils";
 
 export const enum ModelTriggerType {
   CHANGE = 'change',
   INPUT = 'input',
 }
-const PathMap = new WeakMap
 /**
  * 实现双向绑定（仅支持静态路径，动态增加的属性路径无法识别）
  * 当用于组件时，监控 @update:value 事件
@@ -17,61 +17,70 @@ const PathMap = new WeakMap
  * - 对于 select  监控 @change，并设置 value 属性
  * @param modelValue 双向绑定的组件变量
  * @param updateProp 绑定模型变更时的监控属性，默认 value
+ * @param modelProp 当初始模型路径不存在时可指定路径
  */
-export const model = directive(function Model(modelValue: any, updateProp: string = 'value') {
+export const model = directive(function Model(modelValue: any, updateProp: string = 'value', modelProp?: string) {
   return (point: EnterPoint, newArgs: any[], oldArgs: any[] | undefined, { varChain, renderComponent }: { renderComponent: CompElem; varChain: string[][] }) => {
 
     const node = point.startNode
     if (oldArgs) {
-      if (isEqual(newArgs, oldArgs)) return
+      const oldValue = oldArgs[0]
+      const newValue = newArgs[0]
+      let nodeValue = get(node, updateProp)
+      if (!isObject(newValue) && Object.is(newValue, oldValue) && Object.is(nodeValue, newValue)) return
 
-      if (!isEqual(newArgs, oldArgs)) {
-        let newValue = newArgs[0]
-        if (node instanceof CompElem) {
-          node._updateProps({ [updateProp]: newValue })
-        } else if (node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) {
-          node.setAttribute(updateProp, newValue + '')
-          if (node instanceof HTMLSelectElement) {
-            let opt = find(node.querySelectorAll('option'), n => n.value == newValue)
-            if (opt) {
-              opt.selected = true
-            }
+      if (node instanceof CompElem) {
+        node._updateProps({ [updateProp]: newValue })
+      } else if (node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) {
+        node.setAttribute(updateProp, newValue + '')
+        if (node instanceof HTMLSelectElement) {
+          let opt = find(node.querySelectorAll('option'), n => n.value == newValue)
+          if (opt) {
+            opt.selected = true
           }
-        } else if (node instanceof HTMLInputElement) {
-          if (node.value == newValue) return
-          switch (node.type) {
-            case 'checkbox':
-            case 'radio':
-              if (!!newValue) {
-                node.setAttribute('checked', '')
-              } else {
-                node.removeAttribute('checked')
-              }
-              break;
-            case 'text':
-            case 'email':
-            case 'number':
-            case 'password':
-            case 'search':
-            case 'tel':
-            case 'url':
-              node.setAttribute(updateProp, newValue + '')
-              set(node, updateProp, newValue)
-              break;
-
-            default:
-              node.setAttribute(updateProp, newValue + '')
-              break;
-          }
-
         }
+      } else if (node instanceof HTMLInputElement) {
+        if (node.value == newValue) return
+        switch (node.type) {
+          case 'checkbox':
+          case 'radio':
+            if (!!newValue) {
+              node.setAttribute('checked', '')
+            } else {
+              node.removeAttribute('checked')
+            }
+            break;
+          case 'text':
+          case 'email':
+          case 'number':
+          case 'password':
+          case 'search':
+          case 'tel':
+          case 'url':
+            node.setAttribute(updateProp, newValue + '')
+            set(node, updateProp, newValue)
+            break;
+
+          default:
+            node.setAttribute(updateProp, newValue + '')
+            break;
+        }
+
       }
       return
     }
     if (get(node, '_model') === 'binded') return
+    let path: string[]
+    if (isString(modelProp)) {
+      path = toPath(modelProp)
+    } else {
+      path = last(varChain)
+    }
 
-    let path: string[] = last(varChain)
-    PathMap.set(node, path)
+    const rootPath = path[0]
+    if (!(rootPath in renderComponent)) {
+      showError(`model - property '${rootPath}' is not defined on the instance of ` + renderComponent.tagName)
+    }
 
     if (!isObject(modelValue) && !trim(modelValue)) modelValue = ''
     if (node instanceof CompElem) {
@@ -79,7 +88,7 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
       node.addEventListener('update:' + updateProp, (e: CustomEvent) => {
         console.debug('Model =>', path)
         let ctx = renderComponent
-        if (renderComponent._wrapperProp.has(path[0])) {
+        if (renderComponent._wrapperProp.has(rootPath) && get(renderComponent.wrapperComponent, rootPath) === get(renderComponent, rootPath)) {
           ctx = renderComponent.wrapperComponent || ctx
         }
         set(ctx, path, e.detail.value)
