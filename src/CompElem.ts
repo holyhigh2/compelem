@@ -879,7 +879,7 @@ export class CompElem extends HTMLElement implements IComponent {
     if (this.#props)
       this.#propsReady(this.#props);
   }
-  _wrapperProp = new Set<string>()
+  _wrapperProp: Record<string, string> = {}
   _initProps(props: Record<string, any>, attrs?: Record<string, any>) {
     this.#props = merge(this.#props || {}, props);
     this.#attrs = merge(this.#attrs || {}, attrs);
@@ -889,7 +889,7 @@ export class CompElem extends HTMLElement implements IComponent {
         let fromPath = OBJECT_VAR_PATH.get(v)
         if (fromPath) {
           let propPath = fromPath.join(PATH_SEPARATOR)
-          this._wrapperProp.add(propPath)
+          this._wrapperProp[propPath] = k
         }
       }
     })

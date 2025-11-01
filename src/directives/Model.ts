@@ -88,7 +88,9 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
       node.addEventListener('update:' + updateProp, (e: CustomEvent) => {
         console.debug('Model =>', path)
         let ctx = renderComponent
-        if (renderComponent._wrapperProp.has(rootPath) && get(renderComponent.wrapperComponent, rootPath) === get(renderComponent, rootPath)) {
+        let pathFromWrapperComponent = renderComponent._wrapperProp[rootPath]
+        let hasPath = rootPath in renderComponent
+        if (!hasPath && pathFromWrapperComponent && get(renderComponent.wrapperComponent, rootPath) === get(renderComponent, pathFromWrapperComponent)) {
           ctx = renderComponent.wrapperComponent || ctx
         }
         set(ctx, path, e.detail.value)
