@@ -533,7 +533,7 @@ export class CompElem extends HTMLElement implements IComponent {
     let propDef: PropOption = get(this.constructor, [DecoratorKey.PROPS, propName])
 
     if (isBooleanProp(propDef.type)) {
-      let v = getBooleanValue(newValue)
+      let v = isNull(newValue) ? false : getBooleanValue(newValue)
       if (get<boolean>(this, propName) === v) return
     }
 

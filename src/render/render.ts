@@ -7,6 +7,7 @@ import {
   has,
   isArray,
   isBlank,
+  isDefined,
   isEqual,
   isFunction,
   isObject,
@@ -471,6 +472,9 @@ export function buildTmplate(
             value = replace(value, PLACEHOLDER_EXP, val)
             //回填
             attr.value = value;
+            if (isDefined(value)) {
+              currentNode.setAttribute(name, value)
+            }
 
             executor && executor(cache.point, args!, undefined, { renderComponent, slotComponent })
 
