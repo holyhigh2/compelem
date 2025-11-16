@@ -8,6 +8,8 @@ const MODI_EV_SELF = 'self';
 const MODI_EV_STOP = 'stop';
 const MODI_EV_PREVENT = 'prevent';
 const MODI_EV_ONCE = 'once';
+const MODI_EV_CAPTURE = 'capture';
+const MODI_EV_PASSIVE = 'passive';
 const MODI_EV_MOUSE_LEFT = 'left';
 const MODI_EV_MOUSE_RIGHT = 'right';
 const MODI_EV_MOUSE_MIDDLE = 'middle';
@@ -24,7 +26,7 @@ const MODI_PARAM_DIVIDER = ":";
  * 事件修饰符
  * @author holyhigh2
  * 
- * 全部通用 debounce/once/throttle 可组合
+ * 全部通用 debounce/once/throttle/capture/passive 可组合
  * 原生通用 stop/prevent/self 可组合
  * 鼠标 left/right/middle 不可组合
  * 键盘 ctrl/alt/shift/meta 可组合 esc/letters... 不可组合,多个key并列式表示可选
@@ -76,13 +78,15 @@ export function addEvent(fullName: string, cbk: EvHadler, node: Element, compone
     }
     c(e)
   }
-
-  node.addEventListener(evName, listener)
+  let capture = parts.includes(MODI_EV_CAPTURE) || false
+  let passive = parts.includes(MODI_EV_PASSIVE) || false
+  let options = { capture, passive }
+  node.addEventListener(evName, listener, options)
 
   //record
   let evAry = component.__events[evName]
   if (!evAry) evAry = component.__events[evName] = []
-  evAry.push([node, listener])
+  evAry.push([node, listener, options])
 
   return listener;
 }

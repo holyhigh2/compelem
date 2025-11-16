@@ -102,7 +102,7 @@ export class CompElem extends HTMLElement implements IComponent {
   #shadow: ShadowRoot;
   //保存所有渲染上下文 {CompElem/Directive}
   #renderContextList: Record<string, Set<CompElem | Node>> = {};
-  __events: Record<string, Array<Node | ((e: Event) => void)>[]> = {}
+  __events: Record<string, Array<Node | ((e: Event) => void) | Record<string, any>>[]> = {}
 
   get [Symbol.toStringTag]() {
     return this.constructor.name;
