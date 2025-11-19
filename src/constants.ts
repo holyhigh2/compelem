@@ -13,8 +13,8 @@ export enum DecoratorKey {
     WATCH = '__deco_watch',
     EVENTS = '__deco_events',
 }
-
 export enum Mode {
     Prod = 'prod',
     Dev = 'dev'
 }
+export const DEFINED_TAG_MAP = {} as Record<string, string>;

@@ -1,11 +1,10 @@
-/* compelem 0.6.13-b1 @holyhigh2 https://github.com/holyhigh2/compelem */
-(function (l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35730/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
+/* compelem 0.7.11-b1 @holyhigh2 https://github.com/holyhigh2/compelem */
+(function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35730/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
-        typeof define === 'function' && define.amd ? define(['exports'], factory) :
-            (global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.compelem = {}));
-})(this, (function (exports) {
-    'use strict';
+    typeof define === 'function' && define.amd ? define(['exports'], factory) :
+    (global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.compelem = {}));
+})(this, (function (exports) { 'use strict';
 
     /******************************************************************************
     Copyright (c) Microsoft Corporation.
@@ -35,23 +34,23 @@
     };
 
     /**
-       * myfx v1.13.4
+       * myfx v1.14.1
        * A modular utility library with more utils, higher performance and simpler declarations ...
        * https://github.com/holyhigh2/myfx
        * (c) 2021-2025 @holyhigh2 may be freely distributed under the MIT license
        */
-    /**
-   * 判断参数是否为Array对象的实例
-   *
-   * @example
-   * //true
-   * console.log(_.isArray([]))
-   * //false
-   * console.log(_.isArray(document.body.children))
-   *
-   * @param v
-   * @returns
-   */
+      /**
+     * 判断参数是否为Array对象的实例
+     *
+     * @example
+     * //true
+     * console.log(_.isArray([]))
+     * //false
+     * console.log(_.isArray(document.body.children))
+     *
+     * @param v
+     * @returns
+     */
     function isArray(v) {
         return Array.isArray(v);
     }
@@ -1202,7 +1201,7 @@
             return collection.includes(value, fromIndex);
         }
         collection = isArrayLike(collection)
-            ? slice(collection, fromIndex)
+            ? slice(toArray(collection), fromIndex)
             : collection;
         each(collection, (v) => {
             if (eq$1(v, value)) {
@@ -1612,36 +1611,36 @@
     }
 
     var array = /*#__PURE__*/Object.freeze({
-        __proto__: null,
-        append: append,
-        chunk: chunk,
-        compact: compact,
-        concat: concat,
-        except: except,
-        fill: fill,
-        findIndex: findIndex,
-        findLastIndex: findLastIndex,
-        flat: flat,
-        flatDeep: flatDeep,
-        insert: insert,
-        intersect: intersect,
-        join: join,
-        pop: pop,
-        pull: pull,
-        range: range,
-        remove: remove,
-        reverse: reverse,
-        slice: slice,
-        sortedIndex: sortedIndex,
-        sortedIndexBy: sortedIndexBy,
-        union: union,
-        uniq: uniq,
-        uniqBy: uniqBy,
-        unzip: unzip,
-        without: without,
-        zip: zip,
-        zipObject: zipObject,
-        zipWith: zipWith
+      __proto__: null,
+      append: append,
+      chunk: chunk,
+      compact: compact,
+      concat: concat,
+      except: except,
+      fill: fill,
+      findIndex: findIndex,
+      findLastIndex: findLastIndex,
+      flat: flat,
+      flatDeep: flatDeep,
+      insert: insert,
+      intersect: intersect,
+      join: join,
+      pop: pop,
+      pull: pull,
+      range: range,
+      remove: remove,
+      reverse: reverse,
+      slice: slice,
+      sortedIndex: sortedIndex,
+      sortedIndexBy: sortedIndexBy,
+      union: union,
+      uniq: uniq,
+      uniqBy: uniqBy,
+      unzip: unzip,
+      without: without,
+      zip: zip,
+      zipObject: zipObject,
+      zipWith: zipWith
     });
 
     function countBy(collection, itee) {
@@ -2192,37 +2191,37 @@
     }
 
     var collection = /*#__PURE__*/Object.freeze({
-        __proto__: null,
-        countBy: countBy,
-        each: each,
-        eachRight: eachRight,
-        every: every,
-        filter: filter,
-        find: find,
-        findLast: findLast,
-        first: first,
-        flatMap: flatMap,
-        flatMapDeep: flatMapDeep,
-        groupBy: groupBy,
-        includes: includes,
-        initial: initial,
-        keyBy: keyBy,
-        last: last,
-        map: map,
-        partition: partition,
-        reduce: reduce,
-        reject: reject,
-        sample: sample,
-        sampleSize: sampleSize,
-        shuffle: shuffle,
-        size: size,
-        some: some,
-        sort: sort,
-        sortBy: sortBy,
-        tail: tail,
-        take: take,
-        takeRight: takeRight,
-        toArray: toArray
+      __proto__: null,
+      countBy: countBy,
+      each: each,
+      eachRight: eachRight,
+      every: every,
+      filter: filter,
+      find: find,
+      findLast: findLast,
+      first: first,
+      flatMap: flatMap,
+      flatMapDeep: flatMapDeep,
+      groupBy: groupBy,
+      includes: includes,
+      initial: initial,
+      keyBy: keyBy,
+      last: last,
+      map: map,
+      partition: partition,
+      reduce: reduce,
+      reject: reject,
+      sample: sample,
+      sampleSize: sampleSize,
+      shuffle: shuffle,
+      size: size,
+      some: some,
+      sort: sort,
+      sortBy: sortBy,
+      tail: tail,
+      take: take,
+      takeRight: takeRight,
+      toArray: toArray
     });
 
     const TIME_MAP = {
@@ -2717,17 +2716,17 @@
     }
 
     var datetime = /*#__PURE__*/Object.freeze({
-        __proto__: null,
-        addTime: addTime,
-        compareDate: compareDate,
-        formatDate: formatDate,
-        getDayOfYear: getDayOfYear,
-        getWeekOfMonth: getWeekOfMonth,
-        getWeekOfYear: getWeekOfYear,
-        isLeapYear: isLeapYear,
-        isSameDay: isSameDay,
-        now: now,
-        toDate: toDate
+      __proto__: null,
+      addTime: addTime,
+      compareDate: compareDate,
+      formatDate: formatDate,
+      getDayOfYear: getDayOfYear,
+      getWeekOfMonth: getWeekOfMonth,
+      getWeekOfYear: getWeekOfYear,
+      isLeapYear: isLeapYear,
+      isSameDay: isSameDay,
+      now: now,
+      toDate: toDate
     });
 
     /**
@@ -3177,20 +3176,20 @@
     }
 
     var functions$1 = /*#__PURE__*/Object.freeze({
-        __proto__: null,
-        after: after,
-        alt: alt,
-        bind: bind,
-        bindAll: bindAll,
-        call: call,
-        compose: compose,
-        debounce: debounce,
-        delay: delay,
-        fval: fval,
-        once: once,
-        partial: partial,
-        tap: tap,
-        throttle: throttle
+      __proto__: null,
+      after: after,
+      alt: alt,
+      bind: bind,
+      bindAll: bindAll,
+      call: call,
+      compose: compose,
+      debounce: debounce,
+      delay: delay,
+      fval: fval,
+      once: once,
+      partial: partial,
+      tap: tap,
+      throttle: throttle
     });
 
     /**
@@ -3229,6 +3228,24 @@
      */
     function isBoolean(v) {
         return v instanceof Boolean || Object.prototype.toString.call(v) === '[object Boolean]';
+    }
+
+    /**
+     * 判断值是不是自定义Element
+     *
+     * @example
+     * //false
+     * console.log(_.isCustomElement(document.body))
+     * //true
+     * console.log(_.isCustomElement(document.body.querySelector('l-ele')))
+     *
+     * @param v
+     * @returns
+     * @since 1.14.0
+     */
+    function isCustomElement(v) {
+        return typeof v === 'object' && v instanceof (HTMLElement || Object) &&
+            ((v.shadowRoot instanceof ShadowRoot) || !!customElements.get(v.tagName.toLowerCase()) || (v.tagName.split('-').length > 1));
     }
 
     /**
@@ -3662,45 +3679,46 @@
     }
 
     var is = /*#__PURE__*/Object.freeze({
-        __proto__: null,
-        isArray: isArray,
-        isArrayLike: isArrayLike,
-        isBlank: isBlank,
-        isBoolean: isBoolean,
-        isDate: isDate,
-        isDefined: isDefined,
-        isElement: isElement,
-        isEmpty: isEmpty,
-        isEqual: isEqual,
-        isEqualWith: isEqualWith,
-        isError: isError,
-        isFinite: isFinite,
-        isFunction: isFunction,
-        isInteger: isInteger,
-        isIterator: isIterator,
-        isLowerCaseChar: isLowerCaseChar,
-        isMap: isMap,
-        isMatch: isMatch,
-        isMatchWith: isMatchWith,
-        isNaN: isNaN$1,
-        isNative: isNative,
-        isNil: isNil,
-        isNode: isNode,
-        isNull: isNull,
-        isNumber: isNumber,
-        isNumeric: isNumeric,
-        isObject: isObject,
-        isPlainObject: isPlainObject,
-        isPrimitive: isPrimitive,
-        isRegExp: isRegExp,
-        isSafeInteger: isSafeInteger,
-        isSet: isSet,
-        isString: isString,
-        isSymbol: isSymbol,
-        isUndefined: isUndefined,
-        isUpperCaseChar: isUpperCaseChar,
-        isWeakMap: isWeakMap,
-        isWeakSet: isWeakSet
+      __proto__: null,
+      isArray: isArray,
+      isArrayLike: isArrayLike,
+      isBlank: isBlank,
+      isBoolean: isBoolean,
+      isCustomElement: isCustomElement,
+      isDate: isDate,
+      isDefined: isDefined,
+      isElement: isElement,
+      isEmpty: isEmpty,
+      isEqual: isEqual,
+      isEqualWith: isEqualWith,
+      isError: isError,
+      isFinite: isFinite,
+      isFunction: isFunction,
+      isInteger: isInteger,
+      isIterator: isIterator,
+      isLowerCaseChar: isLowerCaseChar,
+      isMap: isMap,
+      isMatch: isMatch,
+      isMatchWith: isMatchWith,
+      isNaN: isNaN$1,
+      isNative: isNative,
+      isNil: isNil,
+      isNode: isNode,
+      isNull: isNull,
+      isNumber: isNumber,
+      isNumeric: isNumeric,
+      isObject: isObject,
+      isPlainObject: isPlainObject,
+      isPrimitive: isPrimitive,
+      isRegExp: isRegExp,
+      isSafeInteger: isSafeInteger,
+      isSet: isSet,
+      isString: isString,
+      isSymbol: isSymbol,
+      isUndefined: isUndefined,
+      isUpperCaseChar: isUpperCaseChar,
+      isWeakMap: isWeakMap,
+      isWeakSet: isWeakSet
     });
 
     /**
@@ -3969,19 +3987,19 @@
     }
 
     var math = /*#__PURE__*/Object.freeze({
-        __proto__: null,
-        add: add,
-        divide: divide,
-        max: max,
-        mean: mean,
-        median: median,
-        min: min,
-        minmax: minmax,
-        multiply: multiply,
-        randf: randf,
-        randi: randi,
-        subtract: subtract,
-        sum: sum
+      __proto__: null,
+      add: add,
+      divide: divide,
+      max: max,
+      mean: mean,
+      median: median,
+      min: min,
+      minmax: minmax,
+      multiply: multiply,
+      randf: randf,
+      randi: randi,
+      subtract: subtract,
+      sum: sum
     });
 
     /**
@@ -4102,10 +4120,10 @@
                     else {
                         dStr =
                             '.' +
-                            fractionPtn.replace(/[0#]/g, (tag, i) => {
-                                const l = fraction[i];
-                                return l == undefined ? (tag === '0' ? '0' : '') : l;
-                            });
+                                fractionPtn.replace(/[0#]/g, (tag, i) => {
+                                    const l = fraction[i];
+                                    return l == undefined ? (tag === '0' ? '0' : '') : l;
+                                });
                     }
                     if (dStr.length < 2) {
                         dStr = '';
@@ -4265,15 +4283,15 @@
     }
 
     var num = /*#__PURE__*/Object.freeze({
-        __proto__: null,
-        formatNumber: formatNumber,
-        gt: gt,
-        gte: gte,
-        inRange: inRange,
-        lt: lt,
-        lte: lte,
-        toInteger: toInteger,
-        toNumber: toNumber
+      __proto__: null,
+      formatNumber: formatNumber,
+      gt: gt,
+      gte: gte,
+      inRange: inRange,
+      lt: lt,
+      lte: lte,
+      toInteger: toInteger,
+      toNumber: toNumber
     });
 
     function checkTarget(target) {
@@ -4989,37 +5007,37 @@
     }
 
     var object = /*#__PURE__*/Object.freeze({
-        __proto__: null,
-        assign: assign,
-        assignWith: assignWith,
-        clone: clone,
-        cloneDeep: cloneDeep,
-        cloneDeepWith: cloneDeepWith,
-        cloneWith: cloneWith,
-        defaults: defaults,
-        defaultsDeep: defaultsDeep,
-        eq: eq,
-        findKey: findKey,
-        fromPairs: fromPairs,
-        functions: functions,
-        get: get,
-        has: has,
-        keys: keys,
-        keysIn: keysIn,
-        merge: merge,
-        mergeWith: mergeWith,
-        omit: omit,
-        omitBy: omitBy,
-        parseJSON: parseJSON,
-        pick: pick,
-        pickBy: pickBy,
-        prop: prop$1,
-        set: set,
-        toObject: toObject,
-        toPairs: toPairs,
-        unset: unset,
-        values: values,
-        valuesIn: valuesIn
+      __proto__: null,
+      assign: assign,
+      assignWith: assignWith,
+      clone: clone,
+      cloneDeep: cloneDeep,
+      cloneDeepWith: cloneDeepWith,
+      cloneWith: cloneWith,
+      defaults: defaults,
+      defaultsDeep: defaultsDeep,
+      eq: eq,
+      findKey: findKey,
+      fromPairs: fromPairs,
+      functions: functions,
+      get: get,
+      has: has,
+      keys: keys,
+      keysIn: keysIn,
+      merge: merge,
+      mergeWith: mergeWith,
+      omit: omit,
+      omitBy: omitBy,
+      parseJSON: parseJSON,
+      pick: pick,
+      pickBy: pickBy,
+      prop: prop$1,
+      set: set,
+      toObject: toObject,
+      toPairs: toPairs,
+      unset: unset,
+      values: values,
+      valuesIn: valuesIn
     });
 
     /**
@@ -5065,7 +5083,7 @@
         let prevType = 0; //1小写字母；2大写字母；3分隔符
         for (let i = 0; i < str.length; i++) {
             let s = str[i];
-            if (isLowerCaseChar(s)) {
+            if (isLowerCaseChar(s) || isNumeric(s)) {
                 if (prevType === 3 || prevType === 0) {
                     s = s.toUpperCase();
                 }
@@ -5222,7 +5240,7 @@
         let lastPos = str.length - 1;
         for (let i = 0; i < str.length; i++) {
             const s = str[i];
-            if (isLowerCaseChar(s)) {
+            if (isLowerCaseChar(s) || isNumeric(s)) {
                 rs += s;
                 prevType = 1;
                 continue;
@@ -5421,7 +5439,7 @@
         let lastPos = str.length - 1;
         for (let i = 0; i < str.length; i++) {
             const s = str[i];
-            if (isLowerCaseChar(s)) {
+            if (isLowerCaseChar(s) || isNumeric(s)) {
                 rs += s;
                 prevType = 1;
                 continue;
@@ -5740,36 +5758,36 @@
     }
 
     var str = /*#__PURE__*/Object.freeze({
-        __proto__: null,
-        camelCase: camelCase,
-        capitalize: capitalize,
-        endsWith: endsWith,
-        escapeRegExp: escapeRegExp,
-        indexOf: indexOf,
-        kebabCase: kebabCase,
-        lastIndexOf: lastIndexOf,
-        lowerCase: lowerCase,
-        lowerFirst: lowerFirst,
-        padEnd: padEnd,
-        padStart: padStart,
-        padZ: padZ,
-        pascalCase: pascalCase,
-        repeat: repeat,
-        replace: replace,
-        replaceAll: replaceAll,
-        snakeCase: snakeCase,
-        split: split,
-        startsWith: startsWith,
-        substring: substring,
-        test: test,
-        toFixed: toFixed,
-        toString: toString,
-        trim: trim,
-        trimEnd: trimEnd,
-        trimStart: trimStart,
-        truncate: truncate,
-        upperCase: upperCase,
-        upperFirst: upperFirst
+      __proto__: null,
+      camelCase: camelCase,
+      capitalize: capitalize,
+      endsWith: endsWith,
+      escapeRegExp: escapeRegExp,
+      indexOf: indexOf,
+      kebabCase: kebabCase,
+      lastIndexOf: lastIndexOf,
+      lowerCase: lowerCase,
+      lowerFirst: lowerFirst,
+      padEnd: padEnd,
+      padStart: padStart,
+      padZ: padZ,
+      pascalCase: pascalCase,
+      repeat: repeat,
+      replace: replace,
+      replaceAll: replaceAll,
+      snakeCase: snakeCase,
+      split: split,
+      startsWith: startsWith,
+      substring: substring,
+      test: test,
+      toFixed: toFixed,
+      toString: toString,
+      trim: trim,
+      trimEnd: trimEnd,
+      trimStart: trimStart,
+      truncate: truncate,
+      upperCase: upperCase,
+      upperFirst: upperFirst
     });
 
     /* eslint-disable max-len */
@@ -6012,8 +6030,8 @@
     }
 
     var template = /*#__PURE__*/Object.freeze({
-        __proto__: null,
-        template: template$1
+      __proto__: null,
+      template: template$1
     });
 
     /**
@@ -6355,14 +6373,14 @@
     }
 
     var tree = /*#__PURE__*/Object.freeze({
-        __proto__: null,
-        arrayToTree: arrayToTree,
-        closest: closest,
-        filterTree: filterTree,
-        findTreeNode: findTreeNode,
-        findTreeNodes: findTreeNodes,
-        sortTree: sortTree,
-        walkTree: walkTree
+      __proto__: null,
+      arrayToTree: arrayToTree,
+      closest: closest,
+      filterTree: filterTree,
+      findTreeNode: findTreeNode,
+      findTreeNodes: findTreeNodes,
+      sortTree: sortTree,
+      walkTree: walkTree
     });
 
     const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'.split('');
@@ -6582,7 +6600,7 @@
             let p5 = Date.now().toString(16);
             p5 =
                 substring((p1Num >> 1).toString(16), 0, 6) +
-                substring(p5, p5.length - 6, p5.length);
+                    substring(p5, p5.length - 6, p5.length);
             uuid =
                 p1 + '-' + p2 + '-4' + p3 + '-' + VARIANTS[randi(0, 3)] + p4 + '-' + p5;
         }
@@ -6590,20 +6608,20 @@
     }
 
     var utils = /*#__PURE__*/Object.freeze({
-        __proto__: null,
-        alphaId: alphaId,
-        defaultTo: defaultTo,
-        identity: identity,
-        iteratee: iteratee,
-        matcher: matcher,
-        mixin: mixin,
-        noConflict: noConflict,
-        noop: noop,
-        snowflakeId: snowflakeId,
-        times: times,
-        toPath: toPath,
-        uniqueId: uniqueId,
-        uuid: uuid
+      __proto__: null,
+      alphaId: alphaId,
+      defaultTo: defaultTo,
+      identity: identity,
+      iteratee: iteratee,
+      matcher: matcher,
+      mixin: mixin,
+      noConflict: noConflict,
+      noop: noop,
+      snowflakeId: snowflakeId,
+      times: times,
+      toPath: toPath,
+      uniqueId: uniqueId,
+      uuid: uuid
     });
 
     /* eslint-disable no-invalid-this */
@@ -6701,6 +6719,7 @@
         isArrayLike() { return get(FuncChain.prototype, '_isArrayLike').call(this, ...arguments); }
         isBlank() { return get(FuncChain.prototype, '_isBlank').call(this, ...arguments); }
         isBoolean() { return get(FuncChain.prototype, '_isBoolean').call(this, ...arguments); }
+        isCustomElement() { return get(FuncChain.prototype, '_isCustomElement').call(this, ...arguments); }
         isDate() { return get(FuncChain.prototype, '_isDate').call(this, ...arguments); }
         isDefined() { return get(FuncChain.prototype, '_isDefined').call(this, ...arguments); }
         isElement() { return get(FuncChain.prototype, '_isElement').call(this, ...arguments); }
@@ -7009,7 +7028,7 @@
     /* eslint-disable require-jsdoc */
     /* eslint-disable no-invalid-this */
     /* eslint-disable max-len */
-    const VERSION = "1.13.4"; //#ver
+    const VERSION = "1.14.1"; //#ver
     /**
     * 显式开启myfx的函数链，返回一个包裹了参数v的myfx链式对象。函数链可以链接Myfx提供的所有函数，如
      <p>
@@ -7129,6 +7148,7 @@
         Mode["Prod"] = "prod";
         Mode["Dev"] = "dev";
     })(Mode || (Mode = {}));
+    const DEFINED_TAG_MAP = {};
 
     function showError(msg) {
         console.error(`[CompElem]`, msg);
@@ -7568,7 +7588,6 @@
                         let pathAry = pathMap?.get(dep);
                         if (!pathAry)
                             return;
-                        subChain = concat(pathAry, [prop]);
                         reactiveVal = reactive(value, dep);
                         PROXY_MAP.set(value, reactiveVal);
                         if (!OBJECT_VAR_PATH.has(reactiveVal))
@@ -7587,7 +7606,13 @@
                 let stateDefs = get(context.constructor, DecoratorKey.STATES);
                 let hasChanged = get(propDefs, [subChain[0], 'hasChanged']) || get(stateDefs, [subChain[0], 'hasChanged']);
                 if (hasChanged) {
-                    if (!hasChanged.call(context, newValue, ov))
+                    let moreThan1 = subChain.length > 1;
+                    let rootObjNew = newValue;
+                    let rootObjOld = ov;
+                    if (moreThan1) {
+                        rootObjOld = rootObjNew = context._getPrivateData()[subChain[0]];
+                    }
+                    if (!hasChanged.call(context, rootObjNew, rootObjOld, subChain, newValue, ov))
                         return true;
                 }
                 else {
@@ -7715,11 +7740,11 @@
             Queue.cssSet.clear();
             let nq = Array.from(Queue.nextSet);
             Queue.nextSet.clear();
+            QMap.clear();
             wq.forEach(u => u(get(u, 'ov')));
             cq.forEach(u => u());
             sq.forEach(u => u());
             nq.forEach(u => u());
-            QMap.clear();
         }
         static pushWatch(updater) {
             Queue.watchSet.add(updater);
@@ -7733,7 +7758,6 @@
         static pushNext(updater, key) {
             if (key) {
                 if (QMap.has(key)) {
-                    // console.log(updater, 'nextting......')
                     return;
                 }
                 QMap.set(key, updater);
@@ -7768,7 +7792,6 @@
     let CompElemSn = 0;
     const GlobalStyleMap = new Map();
     const HostStyleMap = new WeakMap();
-    const PROP_OBJECT_KEY_MAP_SYMBOL = Symbol.for('PROP_OBJECT_KEY_MAP_SYMBOL');
     /**
      * CompElem基类，意为组件元素。提供了基本内置属性及生命周期等必备接口
      * 每个组件都需要继承自该类
@@ -7793,7 +7816,7 @@
             //todo...
             options.global;
             each(options, (v, k) => {
-                if (test(k[0], /[A-Z]/));
+                if (test(k[0], /[A-Z]/)) ;
             });
         }
         #cid;
@@ -7805,10 +7828,6 @@
         //保存所有渲染上下文 {CompElem/Directive}
         #renderContextList = {};
         __events = {};
-        _propObjectKeyMap = {};
-        get [PROP_OBJECT_KEY_MAP_SYMBOL]() {
-            return this._propObjectKeyMap;
-        }
         get [Symbol.toStringTag]() {
             return this.constructor.name;
         }
@@ -8157,7 +8176,6 @@
                 each(this.slots, (nodeAry, k) => {
                     nodeAry.filter(node => node.nodeType === Node.ELEMENT_NODE).forEach((node) => {
                         if (node instanceof CompElem) {
-                            // node._setParentProps(props)
                             node._updateProps(props);
                             return;
                         }
@@ -8189,6 +8207,15 @@
         }
         slotChange(slot, name) { }
         attributeChangedCallback(attributeName, oldValue, newValue) {
+            if (Object.is(newValue, oldValue))
+                return;
+            let propName = camelCase(attributeName);
+            let propDef = get(this.constructor, [DecoratorKey.PROPS, propName]);
+            if (isBooleanProp(propDef.type)) {
+                let v = isNull(newValue) ? false : getBooleanValue(newValue);
+                if (get(this, propName) === v)
+                    return;
+            }
             this.#attrChanged(attributeName, oldValue, newValue);
         }
         //********************************** 更新
@@ -8243,9 +8270,10 @@
                 return;
             let renderContextList = new Set();
             //1. filter context
+            const rcl = this.#renderContextList;
             each(changed, ({ value, chain, oldValue, end }, k) => {
-                if (this.#renderContextList[k]) {
-                    this.#renderContextList[k].forEach(cx => {
+                if (rcl[k]) {
+                    rcl[k].forEach(cx => {
                         renderContextList.add(cx);
                     });
                 }
@@ -8349,25 +8377,33 @@
                     });
                 }
                 if (propDef.attribute && isDefined(val) && !isObject(val)) {
-                    let k = kebabCase(key);
-                    let v = trim(val);
-                    if (isBooleanProp(propDef.type)) {
-                        v = getBooleanValue(val);
-                        if (isBoolean(v)) {
-                            this.toggleAttribute(k, v);
-                        }
-                        else {
-                            this.setAttribute(k, v);
-                        }
-                    }
-                    else {
-                        this.setAttribute(k, v);
-                    }
+                    this.#updateAttribute(propDef, key, val);
                 }
                 this.#data[key] = val;
                 rs[key] = val;
             }
             return Object.seal(rs);
+        }
+        #updateAttribute(propDef, key, val) {
+            let k = kebabCase(key);
+            let v = trim(val);
+            if (isBooleanProp(propDef.type)) {
+                v = getBooleanValue(val);
+                if (isBoolean(v)) {
+                    if (v && !this.hasAttribute(k)) {
+                        this.toggleAttribute(k, true);
+                    }
+                    else if (!v && this.hasAttribute(k)) {
+                        this.toggleAttribute(k, false);
+                    }
+                }
+                else if (this.getAttribute(k) !== v) {
+                    this.setAttribute(k, v);
+                }
+            }
+            else if (this.getAttribute(k) !== v) {
+                this.setAttribute(k, v);
+            }
         }
         #convertValue(v, types) {
             let val = v;
@@ -8420,8 +8456,8 @@
             //extra work
             for (let i = 0; i < expectTypeAry.length; i++) {
                 const et = expectTypeAry[i];
-                if (et.name === 'Boolean') {
-                    val = hasAttr === false && isBlank(val) ? false : getBooleanValue(val);
+                if (et.name === 'Boolean' && hasAttr) {
+                    val = getBooleanValue(val);
                 }
             }
             if (isNil(val)) {
@@ -8432,8 +8468,8 @@
             for (let i = 0; i < expectTypeAry.length; i++) {
                 const et = expectTypeAry[i];
                 if (
-                    //base form
-                    test(realType, et.name, "i") ||
+                //base form
+                test(realType, et.name, "i") ||
                     //object form
                     val instanceof et || (Object.prototype.toString.call(val) === Object.prototype.toString.call(et.prototype))) {
                     matched = true;
@@ -8468,33 +8504,10 @@
          * @param attrs
          */
         #propsReady = debounce(this.propsReady, 100);
-        /**
-         * @deprecated
-         */
-        _setParentProps(props, attrs) {
-            if (this.#inited) {
-                let propDefs = get(this.constructor, DecoratorKey.PROPS);
-                //存在attrs表示已初始化完成
-                each(props, (v, k) => {
-                    let ck = camelCase(k);
-                    let propDef = propDefs[ck];
-                    if (!propDef)
-                        return;
-                    let ov = this.#data[ck];
-                    v = this.#propTypeCheck(propDefs, ck, v);
-                    if (propDef.hasChanged && !propDef.hasChanged.call(this, v, ov))
-                        return;
-                    this.#data[ck] = v;
-                    this._notify(ov, [ck]);
-                });
-                assign(this.#props, props);
-                assign(this.#attrs, attrs);
-                this.#propsReady(this.#props);
-            }
-        }
         //todo 这里需要直接修改prop
         _updateProps(props) {
             let propDefs = get(this.constructor, DecoratorKey.PROPS);
+            let need2UpdateAttrs = [];
             //存在attrs表示已初始化完成
             each(props, (v, k) => {
                 let ck = camelCase(k);
@@ -8502,16 +8515,33 @@
                 if (!propDef)
                     return;
                 v = this.#propTypeCheck(propDefs, ck, v);
+                if (propDef.attribute && isDefined(v) && !isObject(v)) {
+                    need2UpdateAttrs.push([propDef, ck, v]);
+                }
                 Collector.__skipCheck = true;
                 set(this, ck, v);
                 Collector.__skipCheck = false;
             });
             assign(this.#props, props);
-            this.#propsReady(this.#props);
+            need2UpdateAttrs.forEach(([propDef, key, v]) => {
+                this.#updateAttribute(propDef, key, v);
+            });
+            if (this.#props)
+                this.#propsReady(this.#props);
         }
+        _wrapperProp = {};
         _initProps(props, attrs) {
             this.#props = merge(this.#props || {}, props);
             this.#attrs = merge(this.#attrs || {}, attrs);
+            each(props, (v, k) => {
+                if (isObject(v)) {
+                    let fromPath = OBJECT_VAR_PATH.get(v);
+                    if (fromPath) {
+                        let propPath = fromPath.join(PATH_SEPARATOR);
+                        this._wrapperProp[propPath] = k;
+                    }
+                }
+            });
         }
         /**
          * 绑定slot标签，render时调用
@@ -8686,6 +8716,9 @@
         }
         _regWrapper(wrapperComponent) {
             this.#wrapperComponent = wrapperComponent;
+        }
+        _getPrivateData() {
+            return this.#data;
         }
         ////////////////////----------------------------/////////////// APIs
         /**
@@ -9075,11 +9108,11 @@
         return (...args) => {
             let executor = fn(...args);
             return [sym, args, executor, (scopeType) => {
-                if (!isEmpty(scopes) && !test(scopes.join(','), scopeType)) {
-                    showError(`Directive '${Symbol.keyFor(sym)}' is out of scopes, expect '${scopes.join(',')}' bug got '${scopeType}'`);
-                    return;
-                }
-            }, Collector.popDirectiveQ()];
+                    if (!isEmpty(scopes) && !test(scopes.join(','), scopeType)) {
+                        showError(`Directive '${Symbol.keyFor(sym)}' is out of scopes, expect '${scopes.join(',')}' bug got '${scopeType}'`);
+                        return;
+                    }
+                }, Collector.popDirectiveQ()];
         };
     }
 
@@ -9297,6 +9330,8 @@
     const MODI_EV_STOP = 'stop';
     const MODI_EV_PREVENT = 'prevent';
     const MODI_EV_ONCE = 'once';
+    const MODI_EV_CAPTURE = 'capture';
+    const MODI_EV_PASSIVE = 'passive';
     const MODI_EV_MOUSE_LEFT = 'left';
     const MODI_EV_MOUSE_RIGHT = 'right';
     const MODI_EV_MOUSE_MIDDLE = 'middle';
@@ -9354,17 +9389,20 @@
                 if (remove(parts, p => p == MODI_EV_KEYBOARD_COMBO_META)[0] && !e.metaKey)
                     return;
                 let checkKeys = map(parts, k => MODI_EV_KEYBOARD_KEY_MAP[k] || k);
-                if (!checkKeys.includes(e.key.toLowerCase()))
+                if (size(checkKeys) > 0 && !checkKeys.includes(e.key.toLowerCase()))
                     return;
             }
             c(e);
         };
-        node.addEventListener(evName, listener);
+        let capture = parts.includes(MODI_EV_CAPTURE) || false;
+        let passive = parts.includes(MODI_EV_PASSIVE) || false;
+        let options = { capture, passive };
+        node.addEventListener(evName, listener, options);
         //record
         let evAry = component.__events[evName];
         if (!evAry)
             evAry = component.__events[evName] = [];
-        evAry.push([node, listener]);
+        evAry.push([node, listener, options]);
         return listener;
     }
 
@@ -9375,6 +9413,8 @@
     const ATTR_PROP_DELIMITER = ":";
     const ATTR_REF = "ref";
     const ATTR_KEY = "key";
+    const EXP_TAG_CONVERT = /(<\/?)\s*([A-Z][A-Za-z0-9]*)([\s>])/gm;
+    const EXP_ATTR_CONVERT = /\s+((?:[a-zA-Z]*[A-Z][^\s<>=]*){2,})\s*([\s|=|>])/gm;
     const EXP_ATTR_CHECK = /[.?-a-z]+\s*=\s*(['"])\s*([^='"]*<\!--c_ui-pl_df-->){2,}.*?\1/ims;
     const EXP_PLACEHOLDER = /<\s*[a-z0-9-]+([^>]*<\!--c_ui-pl_df-->)*[^>]*?(?<!-)>/imgs;
     const SLOT_KEY_PROPS = 'slot-props';
@@ -9458,6 +9498,15 @@
             return rs;
         });
         html = html.replace(EXP_STR, '$1><').trim();
+        //attr convert
+        html = html.replace(EXP_ATTR_CONVERT, (a, b, c) => {
+            return ` ${kebabCase(b)}${c}`;
+        });
+        //tag convert
+        html = html.replace(EXP_TAG_CONVERT, (a, b, c, d) => {
+            let tag = DEFINED_TAG_MAP[c];
+            return b + tag + d;
+        });
         return [html, vars];
     }
     function buildVars(component, tmpl) {
@@ -9637,7 +9686,7 @@
                                     DirectiveArgsMap.set(currentNode, attrMap);
                                 }
                                 attrMap[attrName] = [point, renderComponent, slotComponent];
-                                executor(point, args, undefined, { renderComponent, slotComponent });
+                                executor(point, args, undefined, { renderComponent, slotComponent, varChain });
                                 po.value = val;
                                 po.isDirective = true;
                                 varCacheQueue && varCacheQueue.push({ type: VarType.DirectiveProp, up: po, point, name, attrName });
@@ -9678,10 +9727,6 @@
                                     let propName = camelCase(name.substring(1));
                                     if (!(propName in currentNode) && currentNode.tagName !== 'SLOT') {
                                         showTagError(currentNode.tagName, `Prop '${name}' is not defined in ${currentNode.tagName}`);
-                                    }
-                                    let fromPath = OBJECT_VAR_PATH.get(val);
-                                    if (fromPath) {
-                                        currentNode._propObjectKeyMap[fromPath.join(PATH_SEPARATOR)] = propName;
                                     }
                                     po.value = val;
                                     po.isProp = true;
@@ -9725,6 +9770,9 @@
                             value = replace(value, PLACEHOLDER_EXP, val);
                             //回填
                             attr.value = value;
+                            if (isDefined(value)) {
+                                currentNode.setAttribute(name, value);
+                            }
                             executor && executor(cache.point, args, undefined, { renderComponent, slotComponent });
                             varCacheQueue && varCacheQueue.push(cache);
                         }
@@ -9733,8 +9781,9 @@
                     } //endif
                 } //endfor
                 if (currentNode instanceof CompElem) {
-                    currentNode._initProps(props);
                     currentNode._regWrapper(renderComponent);
+                    if (size(props) > 0)
+                        currentNode._initProps(props);
                 }
                 else if (currentNode instanceof HTMLSlotElement) {
                     renderComponent._bindSlot(currentNode, currentNode.name || 'default', props);
@@ -9828,7 +9877,7 @@
                 }
                 let props = {};
                 let varCacheQueue = varMap[NodeSn];
-                varCacheQueue.forEach(vp => {
+                varCacheQueue && varCacheQueue.forEach(vp => {
                     let val = vars[varIndex++];
                     switch (vp.type) {
                         case VarType.Event:
@@ -9841,7 +9890,7 @@
                             currentNode.removeAttribute(vp.attrName);
                             break;
                         case VarType.AttrSlot:
-                            if (slotComponent && vp.name);
+                            if (slotComponent && vp.name) ;
                             currentNode.removeAttribute(vp.attrName);
                             break;
                         case VarType.Ref:
@@ -9907,8 +9956,9 @@
                         updatePoints.push(po);
                 });
                 if (currentNode instanceof CompElem) {
-                    currentNode._initProps(props);
                     currentNode._regWrapper(component);
+                    if (size(props) > 0)
+                        currentNode._initProps(props);
                 }
                 else if (currentNode instanceof HTMLSlotElement) {
                     component._bindSlot(currentNode, currentNode.name || 'default', props);
@@ -9916,7 +9966,7 @@
             }
             else {
                 let varCacheQueue = varMap[NodeSn];
-                varCacheQueue.forEach(vp => {
+                varCacheQueue && varCacheQueue.forEach(vp => {
                     let val = vars[varIndex++];
                     switch (vp.type) {
                         case VarType.DirectiveSlot:
@@ -10460,6 +10510,7 @@
                         cbk.call(this);
                     };
                 }
+                DEFINED_TAG_MAP[target.name] = name;
                 customElements.define(name, target);
             }
         };
@@ -10714,14 +10765,14 @@
             if (oldArgs) {
                 //更新
                 if (condi === oldArgs[0])
-                    return [DirectiveUpdateTag.NONE, condi ? render() : html``];
+                    return [DirectiveUpdateTag.NONE, condi ? render() : html ``];
                 if (condi) {
-                    return [DirectiveUpdateTag.REPLACE, condi ? render() : html``];
+                    return [DirectiveUpdateTag.REPLACE, condi ? render() : html ``];
                 }
                 return [DirectiveUpdateTag.REMOVE];
             }
             else {
-                return [DirectiveUpdateTag.APPEND, condi ? render() : html``];
+                return [DirectiveUpdateTag.APPEND, condi ? render() : html ``];
             }
         };
     }, [EnterPointType.TEXT, EnterPointType.SLOT]);
@@ -10731,7 +10782,6 @@
         ModelTriggerType["CHANGE"] = "change";
         ModelTriggerType["INPUT"] = "input";
     })(ModelTriggerType || (ModelTriggerType = {}));
-    const PathMap = new WeakMap;
     /**
      * 实现双向绑定（仅支持静态路径，动态增加的属性路径无法识别）
      * 当用于组件时，监控 @update:value 事件
@@ -10741,81 +10791,85 @@
      * - 对于 select  监控 @change，并设置 value 属性
      * @param modelValue 双向绑定的组件变量
      * @param updateProp 绑定模型变更时的监控属性，默认 value
+     * @param modelProp 当初始模型路径不存在时可指定路径
      */
-    const model = directive(function Model(modelValue, updateProp = 'value') {
+    const model = directive(function Model(modelValue, updateProp = 'value', modelProp) {
         return (point, newArgs, oldArgs, { varChain, renderComponent }) => {
             const node = point.startNode;
             if (oldArgs) {
-                if (isEqual(newArgs, oldArgs))
+                const oldValue = oldArgs[0];
+                const newValue = newArgs[0];
+                let nodeValue = get(node, updateProp);
+                if (!isObject(newValue) && Object.is(newValue, oldValue) && Object.is(nodeValue, newValue))
                     return;
-                if (!isEqual(newArgs, oldArgs)) {
-                    let newValue = newArgs[0];
-                    if (node instanceof CompElem) {
-                        node._updateProps({ [updateProp]: newValue });
+                if (node instanceof CompElem) {
+                    node._updateProps({ [updateProp]: newValue });
+                }
+                else if (node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) {
+                    node.setAttribute(updateProp, newValue + '');
+                    if (node instanceof HTMLSelectElement) {
+                        let opt = find(node.querySelectorAll('option'), n => n.value == newValue);
+                        if (opt) {
+                            opt.selected = true;
+                        }
                     }
-                    else if (node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) {
-                        node.setAttribute(updateProp, newValue + '');
-                        if (node instanceof HTMLSelectElement) {
-                            let opt = find(node.querySelectorAll('option'), n => n.value == newValue);
-                            if (opt) {
-                                opt.selected = true;
+                }
+                else if (node instanceof HTMLInputElement) {
+                    if (node.value == newValue)
+                        return;
+                    switch (node.type) {
+                        case 'checkbox':
+                        case 'radio':
+                            if (!!newValue) {
+                                node.setAttribute('checked', '');
                             }
-                        }
-                    }
-                    else if (node instanceof HTMLInputElement) {
-                        if (node.value == newValue)
-                            return;
-                        switch (node.type) {
-                            case 'checkbox':
-                            case 'radio':
-                                if (!!newValue) {
-                                    node.setAttribute('checked', '');
-                                }
-                                else {
-                                    node.removeAttribute('checked');
-                                }
-                                break;
-                            case 'text':
-                            case 'email':
-                            case 'number':
-                            case 'password':
-                            case 'search':
-                            case 'tel':
-                            case 'url':
-                                node.setAttribute(updateProp, newValue + '');
-                                set(node, updateProp, newValue);
-                                break;
-                            default:
-                                node.setAttribute(updateProp, newValue + '');
-                                break;
-                        }
+                            else {
+                                node.removeAttribute('checked');
+                            }
+                            break;
+                        case 'text':
+                        case 'email':
+                        case 'number':
+                        case 'password':
+                        case 'search':
+                        case 'tel':
+                        case 'url':
+                            node.setAttribute(updateProp, newValue + '');
+                            set(node, updateProp, newValue);
+                            break;
+                        default:
+                            node.setAttribute(updateProp, newValue + '');
+                            break;
                     }
                 }
                 return;
             }
             if (get(node, '_model') === 'binded')
                 return;
-            let path = last(varChain);
-            let joinedPath = path.join(PATH_SEPARATOR);
-            let propFromPathKeys = Object.keys(renderComponent._propObjectKeyMap);
-            if (propFromPathKeys.length > 0) {
-                each(propFromPathKeys, k => {
-                    if (joinedPath.startsWith(k)) {
-                        let newPath = joinedPath.replace(k, renderComponent._propObjectKeyMap[k]);
-                        path = newPath.split(PATH_SEPARATOR);
-                        return false;
-                    }
-                });
-                console.log(joinedPath);
+            let path;
+            if (isString(modelProp)) {
+                path = toPath(modelProp);
             }
-            PathMap.set(node, path);
+            else {
+                path = last(varChain);
+            }
+            const rootPath = path[0];
+            if (!(rootPath in renderComponent)) {
+                showError(`model - property '${rootPath}' is not defined on the instance of ` + renderComponent.tagName);
+            }
             if (!isObject(modelValue) && !trim(modelValue))
                 modelValue = '';
             if (node instanceof CompElem) {
                 node._initProps({ [updateProp]: modelValue });
                 node.addEventListener('update:' + updateProp, (e) => {
                     console.debug('Model =>', path);
-                    set(renderComponent, path, e.detail.value);
+                    let ctx = renderComponent;
+                    let pathFromWrapperComponent = renderComponent._wrapperProp[rootPath];
+                    let hasPath = rootPath in renderComponent;
+                    if (!hasPath && pathFromWrapperComponent && get(renderComponent.wrapperComponent, rootPath) === get(renderComponent, pathFromWrapperComponent)) {
+                        ctx = renderComponent.wrapperComponent || ctx;
+                    }
+                    set(ctx, path, e.detail.value);
                 });
                 set(node, '_model', 'binded');
             }
@@ -11016,7 +11070,7 @@
      */
     directive(function When(value, cases) {
         return (point, [value, cases], oldArgs) => {
-            let defaultFn = () => html``;
+            let defaultFn = () => html ``;
             let conditionList = [];
             let tmplList = [];
             each(cases, (v, k) => {
@@ -11063,7 +11117,7 @@
         }
         render() {
             console.log('子组件视图......');
-            return html`<div>${JSON.stringify(this.childData)} <button @click="${this.changeTest}">修改子组件并更新父组件</button><select ${model(this.childData.a)}>
+            return html `<div>${JSON.stringify(this.childData)} <button @click="${this.changeTest}">修改子组件并更新父组件</button><select ${model(this.childData.a)}>
       <option value="123">123</option>
       <option value="234">234</option>
       <option value="345">345</option>
@@ -11195,13 +11249,13 @@
         }
         render() {
             console.log('父组件视图......');
-            return html`<div>
+            return html `<div>
             <h2>父组件 ${JSON.stringify(this.test)}</h2>
-            <test-comp .child-data="${this.test}"></test-comp>
+            <TestComp .childData="${this.test}"></TestComp>
             <button @click="${this.changeTest}">修改父组件并更新子组件</button>
             <button @click="${this.changeTest2}">新增属性父组件并更新子组件</button>
 <button @click="${this.changeFor}">更新for</button>
-            ${forEach(this.ary, (item) => html`<span key="${item}">${item}, </span>`)}
+            ${forEach(this.ary, (item) => html `<span key="${item}">${item}, </span>`)}
         </div>`;
         }
         changeTest() {

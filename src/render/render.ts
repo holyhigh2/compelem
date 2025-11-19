@@ -27,6 +27,7 @@ import {
   toString
 } from "myfx";
 import { CompElem } from "../CompElem";
+import { DEFINED_TAG_MAP } from "../constants";
 import {
   EnterPoint,
   updateDirective
@@ -45,6 +46,8 @@ export const ATTR_PROP_DELIMITER = ":";
 export const ATTR_REF = "ref";
 export const ATTR_KEY = "key";
 
+const EXP_TAG_CONVERT = /(<\/?)\s*([A-Z][A-Za-z0-9]*)([\s>])/gm
+const EXP_ATTR_CONVERT = /\s+((?:[a-zA-Z]*[A-Z][^\s<>=]*){2,})\s*([\s|=|>])/gm
 const EXP_ATTR_CHECK = /[.?-a-z]+\s*=\s*(['"])\s*([^='"]*<\!--c_ui-pl_df-->){2,}.*?\1/ims;
 const EXP_PLACEHOLDER = /<\s*[a-z0-9-]+([^>]*<\!--c_ui-pl_df-->)*[^>]*?(?<!-)>/imgs;
 const SLOT_KEY_PROPS = 'slot-props'
@@ -137,6 +140,16 @@ export function buildHTML(
     return rs
   })
   html = html.replace(EXP_STR, '$1><').trim()
+
+  //attr convert
+  html = html.replace(EXP_ATTR_CONVERT, (a: string, b: string, c: string) => {
+    return ` ${kebabCase(b)}${c}`
+  })
+  //tag convert
+  html = html.replace(EXP_TAG_CONVERT, (a: string, b: string, c: string, d: string) => {
+    let tag = DEFINED_TAG_MAP[c]
+    return b + tag + d
+  })
 
   return [html, vars];
 }

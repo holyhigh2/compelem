@@ -349,7 +349,6 @@ export class Queue {
   static pushNext(updater: () => void, key?: string | number) {
     if (key) {
       if (QMap.has(key)) {
-        // console.log(updater, 'nextting......')
         return
       }
       QMap.set(key, updater)

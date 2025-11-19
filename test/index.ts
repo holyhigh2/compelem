@@ -128,7 +128,7 @@ export class PageTest extends CompElem {
     console.log('父组件视图......')
     return html`<div>
             <h2>父组件 ${JSON.stringify(this.test)}</h2>
-            <test-comp .child-data="${this.test}"></test-comp>
+            <TestComp .childData="${this.test}"></TestComp>
             <button @click="${this.changeTest}">修改父组件并更新子组件</button>
             <button @click="${this.changeTest2}">新增属性父组件并更新子组件</button>
 <button @click="${this.changeFor}">更新for</button>
