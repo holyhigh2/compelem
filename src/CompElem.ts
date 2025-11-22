@@ -890,6 +890,12 @@ export class CompElem extends HTMLElement implements IComponent {
         if (fromPath) {
           let propPath = fromPath.join(PATH_SEPARATOR)
           this._wrapperProp[propPath] = k
+          let parentStateDefs = get<Record<string, any>>(this.wrapperComponent?.constructor, DecoratorKey.STATES)
+          let parentStateKey = fromPath[0]
+          if (parentStateDefs && parentStateDefs[parentStateKey]) {
+            let propDefs = get<Record<string, any>>(this.constructor, DecoratorKey.PROPS)
+            set(propDefs, [k, 'shallow'], parentStateDefs[parentStateKey].shallow)
+          }
         }
       }
     })

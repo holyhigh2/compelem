@@ -151,8 +151,15 @@ export function reactive(obj: Record<string, any>, context: any): ProxyConstruct
       const meta = OBJECT_META_DATA.get(receiver)!
       let sourceContext = meta.from
       let stateDefs = get<Record<string, StateOption>>(sourceContext.constructor, DecoratorKey.STATES)
-      let shallow = get<boolean>(stateDefs, [prop, 'shallow'])
-      if (shallow) return value
+      let shallowDef = get<Record<string, any>>(stateDefs, [subChain[0]])
+      if (!shallowDef) {
+        let propDefs = get<Record<string, PropOption>>(sourceContext.constructor, DecoratorKey.PROPS)
+        shallowDef = get<Record<string, any>>(propDefs, [subChain[0]])
+      }
+
+      if (!shallowDef) return value;
+      let shallow = get<boolean>(shallowDef, 'shallow')
+      if (shallow && subChain.length > 1) return value
 
       let reactiveVal = value
       if (isObject(value) && !isFunction(value) && !(value instanceof Node) && !Object.isFrozen(value)) {
