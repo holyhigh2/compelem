@@ -864,6 +864,8 @@ export function updateView(tmpl: Template, comp: CompElem, updatePoints?: Update
         if (isObject(newValue) && Object.is(newValue, oldValue)) {
           let targetVarName = camelCase(up.attrName)
           let path = [targetVarName]
+          let subNewValue = newValue
+          let subOldValue = undefined
           if (changedKeys && changedKeys.length > 0) {
             let kStr = ''
             let fromVarName = join(OBJECT_VAR_PATH.get(up.value)!, PATH_SEPARATOR)
@@ -873,8 +875,9 @@ export function updateView(tmpl: Template, comp: CompElem, updatePoints?: Update
               }
             })
             path = concat(split(kStr.replace(fromVarName, targetVarName), PATH_SEPARATOR))
+            subNewValue = get(node, path)
           }
-          notifyUpdate(node, oldValue, path)
+          notifyUpdate(node, oldValue, path, subNewValue, subOldValue)
         } else {
           node._updateProps({ [up.attrName]: newValue });
         }
@@ -906,7 +909,7 @@ export function updateView(tmpl: Template, comp: CompElem, updatePoints?: Update
 
 }
 
-export function updateDirectiveView(node: Node, comp: CompElem, tmpl?: Template, updatePoints?: UpdatePoint[]): void {
+export function updateDirectiveView(node: Node, comp: CompElem, tmpl?: Template, updatePoints?: UpdatePoint[], changedKeys?: string[]): void {
   const render = TextOrSlotDirectiveExecutorMap.get(node)!
   const [point, renderComponent, slotComponent, oldArgs, varChain] = TextOrSlotDirectiveArgsMap.get(node)!
   const up = TextOrSlotDirectiveUpdatePointMap.get(node)!
@@ -932,7 +935,7 @@ export function updateDirectiveView(node: Node, comp: CompElem, tmpl?: Template,
     DirectiveUpdatePointsMap.set(node, updatePoints)
   }
   updatePoints = updatePoints ?? DirectiveUpdatePointsMap.get(node)
-  updateView(tmpl!, comp, updatePoints)
+  updateView(tmpl!, comp, updatePoints, changedKeys)
 }
 
 export const DomUtil = {

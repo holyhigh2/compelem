@@ -23,6 +23,7 @@ import {
   isObject,
   isString,
   isUndefined,
+  join,
   kebabCase,
   last,
   merge,
@@ -40,6 +41,7 @@ import { CollectorType, DecoratorKey } from "./constants";
 import { _DecoratorsKey, DecoratorWrapper } from "./decorator";
 import { _getObservedAttrs, PropOption } from "./decorators/prop";
 import { StateOption } from "./decorators/state";
+import { WatchHandler } from "./decorators/watch";
 import { IComponent } from "./IComponent";
 import { Collector, OBJECT_VAR_PATH, Queue, reactive } from "./reactive";
 import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildView, updateDirectiveView, updateView } from "./render/render";
@@ -353,14 +355,14 @@ export class CompElem extends HTMLElement implements IComponent {
     each(watchMap, (watchList: Record<string, any>[], k: string) => {
       watchList.forEach(v => {
         let { source, options, handler } = v
-        let fn = handler.bind(this)
+        let fn = handler.bind(this) as WatchHandler
         let onceWatch = get(options, "once", false);
         if (onceWatch) {
           fn = once(fn)
         }
-        const updater = (function (ov: any) {
+        const updater = (function (path: string[], oldValue: any, subNewValue: any, subOldValue: any) {
           let nv = get(this, source.replaceAll(PATH_SEPARATOR, '.'));
-          fn(nv, ov, source)
+          fn(nv, oldValue, join(path, '.'), subNewValue, subOldValue);
         }).bind(this)
         let deep = get(options, "deep", false);
         updater.deep = deep
@@ -611,7 +613,7 @@ export class CompElem extends HTMLElement implements IComponent {
         updateView(this.render(), this, undefined, changedKeys);
       } else {
         //指令在这里仅更新视图
-        updateDirectiveView(context, this)
+        updateDirectiveView(context, this, undefined, undefined, changedKeys)
       }
     })
 

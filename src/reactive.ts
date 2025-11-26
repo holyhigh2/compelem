@@ -115,6 +115,7 @@ export function reactive(obj: Record<string, any>, context: any): ProxyConstruct
       if (!prop) return undefined;
       const value = Reflect.get(target, prop, receiver);
       if (isSymbol(prop)) return value
+      if (isFunction(value)) return value
       if (prop === 'length' && isArray(target)) return value
 
       let chain = OBJECT_VAR_PATH.get(receiver) ?? []
@@ -150,6 +151,9 @@ export function reactive(obj: Record<string, any>, context: any): ProxyConstruct
       }
       const meta = OBJECT_META_DATA.get(receiver)!
       let sourceContext = meta.from
+
+      if (PROXY_MAP.has(value)) return PROXY_MAP.get(value)
+
       let stateDefs = get<Record<string, StateOption>>(sourceContext.constructor, DecoratorKey.STATES)
       let shallowDef = get<Record<string, any>>(stateDefs, [subChain[0]])
       if (!shallowDef) {
@@ -191,13 +195,13 @@ export function reactive(obj: Record<string, any>, context: any): ProxyConstruct
       let propDefs = get<Record<string, PropOption>>(context.constructor, DecoratorKey.PROPS)
       let stateDefs = get<Record<string, StateOption>>(context.constructor, DecoratorKey.STATES)
       let hasChanged = get<Function>(propDefs, [subChain[0], 'hasChanged']) || get<Function>(stateDefs, [subChain[0], 'hasChanged'])
+      let moreThan1 = subChain.length > 1
+      let rootObjNew = newValue
+      let rootObjOld = ov
+      if (moreThan1) {
+        rootObjOld = rootObjNew = context._getPrivateData()[subChain[0]]
+      }
       if (hasChanged) {
-        let moreThan1 = subChain.length > 1
-        let rootObjNew = newValue
-        let rootObjOld = ov
-        if (moreThan1) {
-          rootObjOld = rootObjNew = context._getPrivateData()[subChain[0]]
-        }
         if (!hasChanged.call(context, rootObjNew, rootObjOld, subChain, newValue, ov)) return true;
       } else {
         //默认对比算法
@@ -217,7 +221,7 @@ export function reactive(obj: Record<string, any>, context: any): ProxyConstruct
 
       let rs = Reflect.set(target, prop, nv);
 
-      notifyUpdate(context, ov, subChain)
+      notifyUpdate(context, rootObjOld, subChain, newValue, ov)
 
       return rs;
     }
@@ -258,7 +262,7 @@ export function reactive(obj: Record<string, any>, context: any): ProxyConstruct
 
   return proxyObject
 }
-export function notifyUpdate(context: CompElem, ov: any, path: Array<string>) {
+export function notifyUpdate(context: CompElem, oldValue: any, path: string[], subNewValue?: any, subOldValue?: any) {
   //computed
   let computedMap = COMPUTED_MAP.get(context)!
   //css
@@ -276,14 +280,20 @@ export function notifyUpdate(context: CompElem, ov: any, path: Array<string>) {
         if (i === path.length) {
           watchList?.forEach((wk) => {
             let updater = wk()
-            updater.ov = ov
+            updater.oldValue = oldValue
+            updater.subNewValue = subNewValue
+            updater.subOldValue = subOldValue
+            updater.path = path
             Queue.pushWatch(updater)
           })
         } else {
           watchList?.forEach((wk) => {
             let updater = wk()
             if (get(updater, 'deep')) {
-              updater.ov = ov
+              updater.oldValue = oldValue
+              updater.subNewValue = subNewValue
+              updater.subOldValue = subOldValue
+              updater.path = path
               Queue.pushWatch(updater)
             }
           })
@@ -312,7 +322,7 @@ export function notifyUpdate(context: CompElem, ov: any, path: Array<string>) {
     }
   }
 
-  let updater = context._notify(ov, path);
+  let updater = context._notify(oldValue, path);
   Queue.pushNext(updater, context.cid)
 }
 
@@ -338,7 +348,7 @@ export class Queue {
 
     QMap.clear()
 
-    wq.forEach(u => u(get(u, 'ov')))
+    wq.forEach(u => u(get(u, 'path'), get(u, 'oldValue'), get(u, 'subNewValue'), get(u, 'subOldValue')))
     cq.forEach(u => u())
     sq.forEach(u => u())
     nq.forEach(u => u())

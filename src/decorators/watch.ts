@@ -38,4 +38,4 @@ export function watch(source: string | string[], options?: WatchOptions): (targe
 }
 
 
-export type WatchHandler = (newValue: any, oldValue: any, source: string) => any;
+export type WatchHandler = (newValue: any, oldValue: any, source: string, subNewValue?: any, subOldValue?: any) => any;
