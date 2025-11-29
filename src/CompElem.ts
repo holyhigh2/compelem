@@ -250,6 +250,28 @@ export class CompElem extends HTMLElement implements IComponent {
 
     this.#updatedD = this.#update.bind(this)
   }
+  insertStyleSheet(sheet: string | CSSStyleSheet): CSSStyleSheet {
+    let cssSheet: CSSStyleSheet;
+    if (isString(sheet)) {
+      cssSheet = new CSSStyleSheet();
+      try {
+        cssSheet.replaceSync(sheet);
+      } catch (e) {
+      }
+    } else {
+      if (this.shadowRoot!.adoptedStyleSheets.includes(sheet)) return sheet
+
+      cssSheet = sheet;
+    }
+
+    this.shadowRoot!.adoptedStyleSheets = [...this.shadowRoot!.adoptedStyleSheets, cssSheet]
+
+    // Keep ComponentStyleMap in sync for this constructor
+    const cur = ComponentStyleMap.get(this.constructor) ?? [];
+    cur.push(cssSheet)
+
+    return cssSheet;
+  }
   /**
    * Returns the root component in the parent chain, or itself if it's the top-level component.
    */

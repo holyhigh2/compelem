@@ -47,7 +47,7 @@ export const ATTR_REF = "ref";
 export const ATTR_KEY = "key";
 
 const EXP_TAG_CONVERT = /(<\/?)\s*([A-Z][A-Za-z0-9]*)([\s>])/gm
-const EXP_ATTR_CONVERT = /\s+((?:[a-zA-Z]*[A-Z][^\s<>=]*){2,})\s*([\s|=|>])/gm
+const EXP_ATTR_CONVERT = /\s+([\.?@*])?((?:[a-zA-Z]*[A-Z][^\s<>=]+))\s*([\s=>])/gm
 const EXP_ATTR_CHECK = /[.?-a-z]+\s*=\s*(['"])\s*([^='"]*<\!--c_ui-pl_df-->){2,}.*?\1/ims;
 const EXP_PLACEHOLDER = /<\s*[a-z0-9-]+([^>]*<\!--c_ui-pl_df-->)*[^>]*?(?<!-)>/imgs;
 const SLOT_KEY_PROPS = 'slot-props'
@@ -141,17 +141,21 @@ export function buildHTML(
   })
   html = html.replace(EXP_STR, '$1><').trim()
 
+  html = convertHTML(html)
+
+  return [html, vars];
+}
+export function convertHTML(html: string) {
   //attr convert
-  html = html.replace(EXP_ATTR_CONVERT, (a: string, b: string, c: string) => {
-    return ` ${kebabCase(b)}${c}`
+  html = html.replace(EXP_ATTR_CONVERT, (a: string, b: string, c: string, d: string) => {
+    return ` ${b ?? ''}${kebabCase(c)}${d}`
   })
   //tag convert
   html = html.replace(EXP_TAG_CONVERT, (a: string, b: string, c: string, d: string) => {
     let tag = DEFINED_TAG_MAP[c]
     return b + tag + d
   })
-
-  return [html, vars];
+  return html
 }
 function buildVars(
   component: CompElem,

@@ -1,5 +1,5 @@
-/* compelem 0.7.11-b1 @holyhigh2 https://github.com/holyhigh2/compelem */
-(function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35730/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
+/* compelem 0.7.13-b1 @holyhigh2 https://github.com/holyhigh2/compelem */
+(function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
     typeof define === 'function' && define.amd ? define(['exports'], factory) :
@@ -7539,6 +7539,8 @@
                 const value = Reflect.get(target, prop, receiver);
                 if (isSymbol(prop))
                     return value;
+                if (isFunction(value))
+                    return value;
                 if (prop === 'length' && isArray(target))
                     return value;
                 let chain = OBJECT_VAR_PATH.get(receiver) ?? [];
@@ -7576,9 +7578,18 @@
                 }
                 const meta = OBJECT_META_DATA.get(receiver);
                 let sourceContext = meta.from;
+                if (PROXY_MAP.has(value))
+                    return PROXY_MAP.get(value);
                 let stateDefs = get(sourceContext.constructor, DecoratorKey.STATES);
-                let shallow = get(stateDefs, [prop, 'shallow']);
-                if (shallow)
+                let shallowDef = get(stateDefs, [subChain[0]]);
+                if (!shallowDef) {
+                    let propDefs = get(sourceContext.constructor, DecoratorKey.PROPS);
+                    shallowDef = get(propDefs, [subChain[0]]);
+                }
+                if (!shallowDef)
+                    return value;
+                let shallow = get(shallowDef, 'shallow');
+                if (shallow && subChain.length > 1)
                     return value;
                 let reactiveVal = value;
                 if (isObject(value) && !isFunction(value) && !(value instanceof Node) && !Object.isFrozen(value)) {
@@ -7605,13 +7616,13 @@
                 let propDefs = get(context.constructor, DecoratorKey.PROPS);
                 let stateDefs = get(context.constructor, DecoratorKey.STATES);
                 let hasChanged = get(propDefs, [subChain[0], 'hasChanged']) || get(stateDefs, [subChain[0], 'hasChanged']);
+                let moreThan1 = subChain.length > 1;
+                let rootObjNew = newValue;
+                let rootObjOld = ov;
+                if (moreThan1) {
+                    rootObjOld = rootObjNew = context._getPrivateData()[subChain[0]];
+                }
                 if (hasChanged) {
-                    let moreThan1 = subChain.length > 1;
-                    let rootObjNew = newValue;
-                    let rootObjOld = ov;
-                    if (moreThan1) {
-                        rootObjOld = rootObjNew = context._getPrivateData()[subChain[0]];
-                    }
                     if (!hasChanged.call(context, rootObjNew, rootObjOld, subChain, newValue, ov))
                         return true;
                 }
@@ -7629,7 +7640,7 @@
                 //get oldValue from sourceContext
                 let nv = newValue;
                 let rs = Reflect.set(target, prop, nv);
-                notifyUpdate(context, ov, subChain);
+                notifyUpdate(context, rootObjOld, subChain, newValue, ov);
                 return rs;
             }
         });
@@ -7667,7 +7678,7 @@
         PROXY_MAP.set(obj, proxyObject);
         return proxyObject;
     }
-    function notifyUpdate(context, ov, path) {
+    function notifyUpdate(context, oldValue, path, subNewValue, subOldValue) {
         //computed
         let computedMap = COMPUTED_MAP.get(context);
         //css
@@ -7684,7 +7695,10 @@
                     if (i === path.length) {
                         watchList?.forEach((wk) => {
                             let updater = wk();
-                            updater.ov = ov;
+                            updater.oldValue = oldValue;
+                            updater.subNewValue = subNewValue;
+                            updater.subOldValue = subOldValue;
+                            updater.path = path;
                             Queue.pushWatch(updater);
                         });
                     }
@@ -7692,7 +7706,10 @@
                         watchList?.forEach((wk) => {
                             let updater = wk();
                             if (get(updater, 'deep')) {
-                                updater.ov = ov;
+                                updater.oldValue = oldValue;
+                                updater.subNewValue = subNewValue;
+                                updater.subOldValue = subOldValue;
+                                updater.path = path;
                                 Queue.pushWatch(updater);
                             }
                         });
@@ -7719,7 +7736,7 @@
                 i--;
             }
         }
-        let updater = context._notify(ov, path);
+        let updater = context._notify(oldValue, path);
         Queue.pushNext(updater, context.cid);
     }
     const QMap = new Map();
@@ -7741,7 +7758,7 @@
             let nq = Array.from(Queue.nextSet);
             Queue.nextSet.clear();
             QMap.clear();
-            wq.forEach(u => u(get(u, 'ov')));
+            wq.forEach(u => u(get(u, 'path'), get(u, 'oldValue'), get(u, 'subNewValue'), get(u, 'subOldValue')));
             cq.forEach(u => u());
             sq.forEach(u => u());
             nq.forEach(u => u());
@@ -8057,9 +8074,9 @@
                     if (onceWatch) {
                         fn = once(fn);
                     }
-                    const updater = (function (ov) {
+                    const updater = (function (path, oldValue, subNewValue, subOldValue) {
                         let nv = get(this, source.replaceAll(PATH_SEPARATOR, '.'));
-                        fn(nv, ov, source);
+                        fn(nv, oldValue, join(path, '.'), subNewValue, subOldValue);
                     }).bind(this);
                     let deep = get(options, "deep", false);
                     updater.deep = deep;
@@ -8285,7 +8302,7 @@
                 }
                 else {
                     //指令在这里仅更新视图
-                    updateDirectiveView(context, this);
+                    updateDirectiveView(context, this, undefined, undefined, changedKeys);
                 }
             });
             //update slot view
@@ -8539,6 +8556,12 @@
                     if (fromPath) {
                         let propPath = fromPath.join(PATH_SEPARATOR);
                         this._wrapperProp[propPath] = k;
+                        let parentStateDefs = get(this.wrapperComponent?.constructor, DecoratorKey.STATES);
+                        let parentStateKey = fromPath[0];
+                        if (parentStateDefs && parentStateDefs[parentStateKey]) {
+                            let propDefs = get(this.constructor, DecoratorKey.PROPS);
+                            set(propDefs, [k, 'shallow'], parentStateDefs[parentStateKey].shallow);
+                        }
                     }
                 }
             });
@@ -9414,7 +9437,7 @@
     const ATTR_REF = "ref";
     const ATTR_KEY = "key";
     const EXP_TAG_CONVERT = /(<\/?)\s*([A-Z][A-Za-z0-9]*)([\s>])/gm;
-    const EXP_ATTR_CONVERT = /\s+((?:[a-zA-Z]*[A-Z][^\s<>=]*){2,})\s*([\s|=|>])/gm;
+    const EXP_ATTR_CONVERT = /\s+([\.?@*])?((?:[a-zA-Z]*[A-Z][^\s<>=]+))\s*([\s=>])/gm;
     const EXP_ATTR_CHECK = /[.?-a-z]+\s*=\s*(['"])\s*([^='"]*<\!--c_ui-pl_df-->){2,}.*?\1/ims;
     const EXP_PLACEHOLDER = /<\s*[a-z0-9-]+([^>]*<\!--c_ui-pl_df-->)*[^>]*?(?<!-)>/imgs;
     const SLOT_KEY_PROPS = 'slot-props';
@@ -9499,8 +9522,8 @@
         });
         html = html.replace(EXP_STR, '$1><').trim();
         //attr convert
-        html = html.replace(EXP_ATTR_CONVERT, (a, b, c) => {
-            return ` ${kebabCase(b)}${c}`;
+        html = html.replace(EXP_ATTR_CONVERT, (a, b, c, d) => {
+            return ` ${b ?? ''}${kebabCase(c)}${d}`;
         });
         //tag convert
         html = html.replace(EXP_TAG_CONVERT, (a, b, c, d) => {
@@ -10104,6 +10127,8 @@
                     if (isObject(newValue) && Object.is(newValue, oldValue)) {
                         let targetVarName = camelCase(up.attrName);
                         let path = [targetVarName];
+                        let subNewValue = newValue;
+                        let subOldValue = undefined;
                         if (changedKeys && changedKeys.length > 0) {
                             let kStr = '';
                             let fromVarName = join(OBJECT_VAR_PATH.get(up.value), PATH_SEPARATOR);
@@ -10113,8 +10138,9 @@
                                 }
                             });
                             path = concat(split(kStr.replace(fromVarName, targetVarName), PATH_SEPARATOR));
+                            subNewValue = get(node, path);
                         }
-                        notifyUpdate(node, oldValue, path);
+                        notifyUpdate(node, oldValue, path, subNewValue, subOldValue);
                     }
                     else {
                         node._updateProps({ [up.attrName]: newValue });
@@ -10145,7 +10171,7 @@
             up.value = newValue;
         } //endfor
     }
-    function updateDirectiveView(node, comp, tmpl, updatePoints) {
+    function updateDirectiveView(node, comp, tmpl, updatePoints, changedKeys) {
         const render = TextOrSlotDirectiveExecutorMap.get(node);
         const [point, renderComponent, slotComponent, oldArgs, varChain] = TextOrSlotDirectiveArgsMap.get(node);
         const up = TextOrSlotDirectiveUpdatePointMap.get(node);
@@ -10170,7 +10196,7 @@
             DirectiveUpdatePointsMap.set(node, updatePoints);
         }
         updatePoints = updatePoints ?? DirectiveUpdatePointsMap.get(node);
-        updateView(tmpl, comp, updatePoints);
+        updateView(tmpl, comp, updatePoints, changedKeys);
     }
     const DomUtil = {
         insertBefore: function (node, newNodes) {

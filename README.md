@@ -249,6 +249,7 @@ export class PageTest extends CompElem {
   - emit(evName: string, arg: Record<string, any>, options?: {event?: Event;bubbles?: boolean;composed?: boolean;}) 抛出自定义事件
   - nextTick(cbk: () => void) 下一帧执行函数
   - forceUpdate() 强制更新一次视图
+  - insertStyleSheet(sheet: string | CSSStyleSheet): CSSStyleSheet 向组件插入样式表
 
 ## 组件渲染流程
 
@@ -386,6 +387,7 @@ return html` <l-tooltip>
 | ifElse  | TEXT/SLOT | 当条件为 true/false 时输出对应模板内容                      | ` ...>${ifElse(condition,()=>html``,()=>html``)}<... ` |
 | when    | TEXT/SLOT | 多条件分支，支持 switch/ifelse 两种模式                     | ` ...>${when(condition,{c1:()=>html``,c2:...})}<... `  |
 | slot    | SLOT      | 动态插槽                                                    | ` ...>${slot((args) => html``)}<... `                  |
+| htmlD    | TAG      | 向指定元素插入HTML内容                                                    | `<div a="b" ${htmlD('<b>1</b>')}>`                  |
 
 ## 装饰器 Decorator
 

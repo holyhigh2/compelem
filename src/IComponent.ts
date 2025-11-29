@@ -60,7 +60,6 @@ export interface IComponent {
   attributeChangedCallback(attributeName: string, oldValue: string | null, newValue: string | null): void;
 
   //----------------------------------------------------- 接口
-
   /**
    * 抛出自定义事件
    * @param evName 事件名称
@@ -71,7 +70,6 @@ export interface IComponent {
     arg: Record<string, any>,
     options?: { event?: Event; bubbles?: boolean, composed?: boolean }
   ): void;
-
   /**
    * 在root上绑定事件
    * @param evName
@@ -87,4 +85,9 @@ export interface IComponent {
    * 强制更新一次视图
    */
   forceUpdate(): void;
+  /**
+   * 向组件插入样式表
+   * @param sheet 
+   */
+  insertStyleSheet(sheet: string | CSSStyleSheet): CSSStyleSheet;
 }
