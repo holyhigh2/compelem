@@ -1,4 +1,4 @@
-/* compelem 0.7.13-b1 @holyhigh2 https://github.com/holyhigh2/compelem */
+/* compelem 0.8.0-b1 @holyhigh2 https://github.com/holyhigh2/compelem */
 (function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
@@ -7980,6 +7980,27 @@
             ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => dw.create(this));
             this.#updatedD = this.#update.bind(this);
         }
+        insertStyleSheet(sheet) {
+            let cssSheet;
+            if (isString(sheet)) {
+                cssSheet = new CSSStyleSheet();
+                try {
+                    cssSheet.replaceSync(sheet);
+                }
+                catch (e) {
+                }
+            }
+            else {
+                if (this.shadowRoot.adoptedStyleSheets.includes(sheet))
+                    return sheet;
+                cssSheet = sheet;
+            }
+            this.shadowRoot.adoptedStyleSheets = [...this.shadowRoot.adoptedStyleSheets, cssSheet];
+            // Keep ComponentStyleMap in sync for this constructor
+            const cur = ComponentStyleMap.get(this.constructor) ?? [];
+            cur.push(cssSheet);
+            return cssSheet;
+        }
         /**
          * Returns the root component in the parent chain, or itself if it's the top-level component.
          */
@@ -9436,10 +9457,11 @@
     const ATTR_PROP_DELIMITER = ":";
     const ATTR_REF = "ref";
     const ATTR_KEY = "key";
+    const PLACEHOLDER = "${·}";
+    const EXP_COMMENT_CONVERT = /(>[^><]*)(\$\{·\})([^><]*<)/gm;
     const EXP_TAG_CONVERT = /(<\/?)\s*([A-Z][A-Za-z0-9]*)([\s>])/gm;
     const EXP_ATTR_CONVERT = /\s+([\.?@*])?((?:[a-zA-Z]*[A-Z][^\s<>=]+))\s*([\s=>])/gm;
-    const EXP_ATTR_CHECK = /[.?-a-z]+\s*=\s*(['"])\s*([^='"]*<\!--c_ui-pl_df-->){2,}.*?\1/ims;
-    const EXP_PLACEHOLDER = /<\s*[a-z0-9-]+([^>]*<\!--c_ui-pl_df-->)*[^>]*?(?<!-)>/imgs;
+    const EXP_ATTR_CHECK = /[.?-a-z]+\s*=\s*(['"])\s*([^='"]*\$\{·\}){2,}.*?\1/ims;
     const SLOT_KEY_PROPS = 'slot-props';
     const HTML_CACHE = new Map();
     const DOM_CACHE = new Map();
@@ -9515,12 +9537,12 @@
                 return ['', vars];
             }
         }
-        let i = 0;
-        html = html.replace(EXP_PLACEHOLDER, (a, b) => {
-            let rs = replaceAll(a, PLACEHOLDER, () => PLACEHOLDER.replace('-->', '') + (i++));
-            return rs;
-        });
+        html = html.replace(EXP_COMMENT_CONVERT, '$1<!--$2-->$3');
         html = html.replace(EXP_STR, '$1><').trim();
+        html = convertHTML(html);
+        return [html, vars];
+    }
+    function convertHTML(html) {
         //attr convert
         html = html.replace(EXP_ATTR_CONVERT, (a, b, c, d) => {
             return ` ${b ?? ''}${kebabCase(c)}${d}`;
@@ -9530,7 +9552,7 @@
             let tag = DEFINED_TAG_MAP[c];
             return b + tag + d;
         });
-        return [html, vars];
+        return html;
     }
     function buildVars(component, tmpl) {
         let vars = concat(tmpl.vars);
@@ -9544,9 +9566,6 @@
         }
         return vars;
     }
-    const PLACEHOLDER = "<!--c_ui-pl_df-->";
-    const PLACEHOLDER_PREFFIX = "<!--c_ui-pl_df";
-    const PLACEHOLDER_EXP = /<!--c_ui-pl_df\d*(-->)?/;
     /**
      * 构建模板为DOM结构
      * @param html
@@ -9588,7 +9607,8 @@
                         varCacheQueue && varCacheQueue.push({ type: VarType.AttrSlot, name: slotName, attrName: name });
                         continue;
                     } //endif
-                    if (startsWith(name, PLACEHOLDER_PREFFIX)) {
+                    if (name === PLACEHOLDER) {
+                        // if (startsWith(name, PLACEHOLDER_PREFFIX)) {
                         let val = vars[varIndex];
                         //support directive only for now
                         if (isArray(val) && isSymbol(val[0])) {
@@ -9621,7 +9641,7 @@
                         let cbk = (e) => { };
                         let po = null;
                         let hasValue = false;
-                        if (PLACEHOLDER_EXP.test(value)) {
+                        if (PLACEHOLDER === value) {
                             po = new UpdatePoint(varIndex, currentNode);
                             po.notUpdated = true;
                             if (keyNode && keyNode?.contains(currentNode)) {
@@ -9644,7 +9664,7 @@
                         continue;
                     } //endif
                     if (name === ATTR_REF) {
-                        if (PLACEHOLDER_EXP.test(value)) {
+                        if (PLACEHOLDER === value) {
                             let val = vars[varIndex];
                             if (!has(val, 'current')) {
                                 showTagError(currentNode.tagName, `Ref must be a RefObject`);
@@ -9684,11 +9704,11 @@
                         continue;
                     } //endif
                     //校验变量必须是表达式
-                    if (name[0] === ATTR_PREFIX_PROP && !PLACEHOLDER_EXP.test(value)) {
+                    if (name[0] === ATTR_PREFIX_PROP && PLACEHOLDER !== value) {
                         showTagError(currentNode.tagName, `Prop '${name}' must be an interpolation`);
                         continue;
                     }
-                    if (PLACEHOLDER_EXP.test(value)) {
+                    if (PLACEHOLDER === value) {
                         let val = vars[varIndex];
                         let po = new UpdatePoint(varIndex, currentNode, name.replace(/\.|\?|@/, ''), value);
                         po.isComponent = !!slotComponent;
@@ -9790,7 +9810,7 @@
                                 cache.type = VarType.DirectiveAttr;
                                 cache.point = point;
                             }
-                            value = replace(value, PLACEHOLDER_EXP, val);
+                            value = replace(value, PLACEHOLDER, val);
                             //回填
                             attr.value = value;
                             if (isDefined(value)) {
@@ -9814,8 +9834,8 @@
             }
             else {
                 let comment = currentNode;
-                let ph = `<!--${comment.nodeValue}-->`;
-                if (ph !== PLACEHOLDER) {
+                // let ph = `<!--${comment.nodeValue}-->`
+                if (comment.nodeValue !== PLACEHOLDER) {
                     continue;
                 }
                 let po = new UpdatePoint(varIndex, currentNode);
@@ -9968,7 +9988,7 @@
                             executor(point, args, undefined, { renderComponent: component, slotComponent, varChain });
                             if (VarType.DirectiveAttr === vp.type) {
                                 let attrValue = currentNode.getAttribute(vp.attrName);
-                                attrValue = replace(attrValue, PLACEHOLDER_EXP, '');
+                                attrValue = replace(attrValue, PLACEHOLDER, '');
                                 currentNode.setAttribute(vp.attrName, attrValue);
                             }
                             if (vp.name)
@@ -10160,7 +10180,7 @@
                                 break;
                             }
                         default:
-                            node.setAttribute(up.attrName, replace(up.attrTmpl, PLACEHOLDER_EXP, newValue + ''));
+                            node.setAttribute(up.attrName, replace(up.attrTmpl, PLACEHOLDER, newValue + ''));
                     }
                 }
             }
@@ -10754,6 +10774,20 @@
         return lastRenderTmpl;
     }
 
+    /**
+     * 向元素中插入指定HTML内容
+     * @param htmlStr html内容
+     */
+    directive(function HtmlD(htmlStr) {
+        return (point, newArgs, oldArgs, { renderComponent, slotComponent }) => {
+            if (oldArgs && newArgs[0] == oldArgs[0])
+                return;
+            if (isNil(newArgs[0]))
+                return;
+            point.startNode.innerHTML = convertHTML(newArgs[0]);
+        };
+    }, [EnterPointType.TAG]);
+
     const LastTmplMap = new WeakMap();
     /**
      * 条件为真时返回参数1，否则返回参数2，仅能用于文本节点
@@ -10880,7 +10914,7 @@
                 path = last(varChain);
             }
             const rootPath = path[0];
-            if (!(rootPath in renderComponent)) {
+            if (!(rootPath in renderComponent) && !renderComponent._wrapperProp[rootPath]) {
                 showError(`model - property '${rootPath}' is not defined on the instance of ` + renderComponent.tagName);
             }
             if (!isObject(modelValue) && !trim(modelValue))
@@ -10945,7 +10979,13 @@
                 node.addEventListener('change', (e) => {
                     console.debug('Model =>', path);
                     let t = e.target;
-                    set(renderComponent, path, t.value);
+                    let ctx = renderComponent;
+                    let pathFromWrapperComponent = renderComponent._wrapperProp[rootPath];
+                    let hasPath = rootPath in renderComponent;
+                    if (!hasPath && pathFromWrapperComponent && get(renderComponent.wrapperComponent, rootPath) === get(renderComponent, pathFromWrapperComponent)) {
+                        ctx = renderComponent.wrapperComponent || ctx;
+                    }
+                    set(ctx, path, t.value);
                 });
                 set(node, '_model', 'binded');
             }
@@ -11279,7 +11319,7 @@
             <h2>父组件 ${JSON.stringify(this.test)}</h2>
             <TestComp .childData="${this.test}"></TestComp>
             <button @click="${this.changeTest}">修改父组件并更新子组件</button>
-            <button @click="${this.changeTest2}">新增属性父组件并更新子组件</button>
+            <button @click="${this.changeTest2}">新增父组件属性并更新子组件</button>
 <button @click="${this.changeFor}">更新for</button>
             ${forEach(this.ary, (item) => html `<span key="${item}">${item}, </span>`)}
         </div>`;

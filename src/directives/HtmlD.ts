@@ -6,6 +6,7 @@ import { EnterPointType } from "../types";
 
 /**
  * 向元素中插入指定HTML内容
+ * 注意，应用该指令的元素内部不应再出现表达式，否则会导致异常显示
  * @param htmlStr html内容
  */
 export const htmlD = directive(function HtmlD(htmlStr?: string) {

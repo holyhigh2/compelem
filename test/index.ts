@@ -130,7 +130,7 @@ export class PageTest extends CompElem {
             <h2>父组件 ${JSON.stringify(this.test)}</h2>
             <TestComp .childData="${this.test}"></TestComp>
             <button @click="${this.changeTest}">修改父组件并更新子组件</button>
-            <button @click="${this.changeTest2}">新增属性父组件并更新子组件</button>
+            <button @click="${this.changeTest2}">新增父组件属性并更新子组件</button>
 <button @click="${this.changeFor}">更新for</button>
             ${forEach(this.ary, (item: any) => html`<span key="${item}">${item}, </span>`)}
         </div>`

@@ -78,7 +78,7 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
     }
 
     const rootPath = path[0]
-    if (!(rootPath in renderComponent)) {
+    if (!(rootPath in renderComponent) && !renderComponent._wrapperProp[rootPath]) {
       showError(`model - property '${rootPath}' is not defined on the instance of ` + renderComponent.tagName)
     }
 
@@ -140,7 +140,13 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
       node.addEventListener('change', (e: Event) => {
         console.debug('Model =>', path)
         let t = e.target as any
-        set(renderComponent, path, t.value)
+        let ctx = renderComponent;
+        let pathFromWrapperComponent = renderComponent._wrapperProp[rootPath];
+        let hasPath = rootPath in renderComponent;
+        if (!hasPath && pathFromWrapperComponent && get(renderComponent.wrapperComponent, rootPath) === get(renderComponent, pathFromWrapperComponent)) {
+          ctx = renderComponent.wrapperComponent || ctx;
+        }
+        set(ctx, path, t.value)
       });
       set(node, '_model', 'binded')
     }
