@@ -810,8 +810,8 @@ export function buildDirectiveView(pointNode: Node, tmpl: Template, component: C
 export function updateView(tmpl: Template, comp: CompElem, updatePoints?: UpdatePoint[], changedKeys?: string[]): void {
   if (isBlank(join(tmpl.strings))) return;
   if (!ComponentUpdatePointsMap.has(comp)) return;
-  let vars = tmpl.flatVars(comp)
   updatePoints = updatePoints ?? ComponentUpdatePointsMap.get(comp)!
+  let vars = tmpl.flatVars(comp)
   for (let i = 0; i < updatePoints.length; i++) {
     const up = updatePoints[i];
     let varIndex = up.varIndex;
@@ -938,6 +938,7 @@ export function updateDirectiveView(node: Node, comp: CompElem, tmpl?: Template,
   if (updatePoints) {
     DirectiveUpdatePointsMap.set(node, updatePoints)
   }
+
   updatePoints = updatePoints ?? DirectiveUpdatePointsMap.get(node)
   updateView(tmpl!, comp, updatePoints, changedKeys)
 }

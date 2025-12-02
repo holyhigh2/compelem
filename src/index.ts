@@ -19,6 +19,7 @@ export * from "./directive/index";
 export * from "./directives/Bind";
 export * from "./directives/Classes";
 export * from "./directives/ForEach";
+export * from "./directives/HtmlC";
 export * from "./directives/HtmlD";
 export * from "./directives/IfElse";
 export * from "./directives/IfTrue";
