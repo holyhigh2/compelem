@@ -842,6 +842,8 @@ export function updateView(tmpl: Template, comp: CompElem, updatePoints?: Update
         args = argsMap[up.attrName] || argsMap[Symbol.keyFor(sym)!]
       }
 
+      if (!isArray(newValue)) continue
+
       let [point, renderComponent, slotComponent] = args
       let [, newArgs] = newValue
 
@@ -852,7 +854,7 @@ export function updateView(tmpl: Template, comp: CompElem, updatePoints?: Update
         tsdArgs[3] = newArgs
       }
 
-      updateDirective(point, newArgs, oldArgs, executor, renderComponent, slotComponent, varChain, point.type == EnterPointType.TEXT || point.type == EnterPointType.SLOT)
+      updateDirective(point, newArgs as any[], oldArgs, executor, renderComponent, slotComponent, varChain, point.type == EnterPointType.TEXT || point.type == EnterPointType.SLOT)
     } else if (up.isToggleProp) {
       //布尔特性
       if ((!!newValue) === oldValue) continue

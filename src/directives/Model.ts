@@ -86,7 +86,8 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
     if (node instanceof CompElem) {
       node._initProps({ [updateProp]: modelValue })
       node.addEventListener('update:' + updateProp, (e: CustomEvent) => {
-        console.debug('Model =>', path)
+        if (process.env.DEV)
+          console.debug('Model =>', path)
         let ctx = renderComponent
         let pathFromWrapperComponent = renderComponent._wrapperProp[rootPath]
         let hasPath = rootPath in renderComponent
@@ -99,7 +100,8 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
     } else if (node instanceof HTMLTextAreaElement) {
       node.setAttribute(updateProp, modelValue + '');
       node.addEventListener('input', (e: Event) => {
-        console.debug('Model =>', path)
+        if (process.env.DEV)
+          console.debug('Model =>', path)
         let t = e.target as any
         set(renderComponent, path, t.value)
       });
@@ -130,7 +132,8 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
       }
       node.setAttribute(updateProp ?? propName, modelValue + '');
       node.addEventListener(evName, (e: Event) => {
-        console.debug('Model =>', path)
+        if (process.env.DEV)
+          console.debug('Model =>', path)
         let t = e.target as any
         set(renderComponent, path, t.value)
       });
@@ -138,7 +141,8 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
     } else if (node instanceof HTMLSelectElement) {
       node.setAttribute(updateProp, modelValue + '');
       node.addEventListener('change', (e: Event) => {
-        console.debug('Model =>', path)
+        if (process.env.DEV)
+          console.debug('Model =>', path)
         let t = e.target as any
         let ctx = renderComponent;
         let pathFromWrapperComponent = renderComponent._wrapperProp[rootPath];
