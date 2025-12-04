@@ -47,7 +47,7 @@ export const ATTR_REF = "ref";
 export const ATTR_KEY = "key";
 
 const EXP_TAG_CONVERT = /(<\/?)\s*([A-Z][A-Za-z0-9]*)([\s>])/gm
-const EXP_ATTR_CONVERT = /\s+([\.?@*])?((?:[a-zA-Z]*[A-Z][^\s<>=]+))\s*([\s=>])/gm
+const EXP_ATTR_CONVERT = /\s+([\.?@*])?((?:[a-zA-Z]*[A-Z][^\s<>="']+))(?=[\s=>])/gm
 const EXP_ATTR_CHECK = /[.?-a-z]+\s*=\s*(['"])\s*([^='"]*<\!--c_ui-pl_df-->){2,}.*?\1/ims;
 const EXP_PLACEHOLDER = /<\s*[a-z0-9-]+([^>]*<\!--c_ui-pl_df-->)*[^>]*?(?<!-)>/imgs;
 const SLOT_KEY_PROPS = 'slot-props'
@@ -146,9 +146,10 @@ export function buildHTML(
   return [html, vars];
 }
 export function convertHTML(html: string) {
+  if (!isString(html)) return html + ''
   //attr convert
-  html = html.replace(EXP_ATTR_CONVERT, (a: string, b: string, c: string, d: string) => {
-    return ` ${b ?? ''}${kebabCase(c)}${d}`
+  html = html.replace(EXP_ATTR_CONVERT, (a: string, b: string, c: string) => {
+    return ` ${b ?? ''}${kebabCase(c)}`
   })
   //tag convert
   html = html.replace(EXP_TAG_CONVERT, (a: string, b: string, c: string, d: string) => {
