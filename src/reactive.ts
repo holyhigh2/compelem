@@ -187,6 +187,10 @@ export function reactive(obj: Record<string, any>, context: any): ProxyConstruct
     },
     set(target: any, prop: string, newValue: any, receiver: any) {
       if (!prop) return false;
+      if (!context.isMounted) {
+        let rs = Reflect.set(target, prop, newValue);
+        return rs;
+      }
 
       let ov = target[prop];
 

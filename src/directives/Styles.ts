@@ -20,9 +20,12 @@ export const styles = directive(function Styles(styles: Record<string, string> |
       StyleMap.set(el, styleId)
     }
 
-    renderComponent.nextTick(() => {
+    if (renderComponent.isMounted) {
+      renderComponent.nextTick(() => {
+        CssHelper.setStyle(newArgs[0], el)
+      }, styleId)
+    } else {
       CssHelper.setStyle(newArgs[0], el)
-    }, styleId)
-
+    }
   }
 }, [EnterPointType.STYLE])

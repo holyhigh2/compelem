@@ -345,6 +345,7 @@ export class CompElem extends HTMLElement implements IComponent {
         },
       });
     });
+
     Reflect.defineProperty(this.#data, '__isData', {
       enumerable: false,
       value: true
@@ -394,7 +395,7 @@ export class CompElem extends HTMLElement implements IComponent {
         if (!immediate) return
 
         let nv = get(this, source.replaceAll(PATH_SEPARATOR, '.'));
-        fn(nv, nv, source);
+        fn(nv, undefined, source);
       })
     })
 
@@ -604,19 +605,20 @@ export class CompElem extends HTMLElement implements IComponent {
   }
   #update() {
     if (size(this.#updateSources) < 1) return;
+    if (!this.isMounted) return
 
     const changed = this.#updateSources
     this.#updateSources = {}
-    const changedKeys = Object.keys(changed)
 
+    let toBreak = !this.shouldUpdate(changed);
+    if (toBreak) return;
+
+    const changedKeys = Object.keys(changed)
     //update decorators
     let ary: DecoratorWrapper[] = get(this.constructor, _DecoratorsKey)
     ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
       dw.updated(this, changed)
     })
-
-    let toBreak = !this.shouldUpdate(changed);
-    if (toBreak) return;
 
     let renderContextList: Set<CompElem | Node> = new Set()
 
