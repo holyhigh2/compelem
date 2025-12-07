@@ -464,32 +464,33 @@ export class CompElem extends HTMLElement implements IComponent {
       target.addEventListener(name, listener, options)
     })
 
-    //instance dynamic style
-    Collector.startCollect(this, CollectorType.CSS);
-    let cssAry: CSSStyleSheet[] = []
-    this.styles.forEach(st => {
-      if (!isFunction(st)) return;
-      let cssss = new CSSStyleSheet()
-      cssAry.push(cssss)
-
-      Collector.setUpdater(() => {
-        let css = st() ?? ''
-        cssss.replaceSync(css)
-      })
-      let css = st()
-      if (isBlank(css)) return
-
-      cssss.replaceSync(css)
-    })
-    Collector.endCollect()
-
-    if (cssAry.length > 0) {
-      this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, ...cssAry];
-    }
-
     setTimeout(() => {
 
       this.#mounted = true;
+
+      //instance dynamic style
+      Collector.startCollect(this, CollectorType.CSS);
+      let cssAry: CSSStyleSheet[] = []
+      this.styles.forEach(st => {
+        if (!isFunction(st)) return;
+        let cssss = new CSSStyleSheet()
+        cssAry.push(cssss)
+
+        Collector.setUpdater(() => {
+          let css = st() ?? ''
+          cssss.replaceSync(css)
+        })
+        let css = st()
+        if (isBlank(css)) return
+
+        cssss.replaceSync(css)
+      })
+      Collector.endCollect()
+
+      if (cssAry.length > 0) {
+        this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, ...cssAry];
+      }
+
       this.mounted();
 
       ary && ary.forEach(dw => {
