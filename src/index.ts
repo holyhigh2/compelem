@@ -4,6 +4,7 @@ import { buildHTML, createRef, html, RefObject } from "./render/render";
 //decorators
 export * from "./decorator/Decorator";
 export * from "./decorator/index";
+export * from "./decorators/bindThis";
 export * from "./decorators/computed";
 export * from "./decorators/debounced";
 export * from "./decorators/event";

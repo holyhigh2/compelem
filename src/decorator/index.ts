@@ -77,7 +77,7 @@ const DecoKeyMap = new WeakMap<Constructor<Decorator>, WeakMap<Constructor<CompE
  * @param decoClass 装饰器构造
  * @returns 装饰器函数
  */
-export function decorator<T extends Array<any>>(decoClass: Constructor<Decorator>) {
+export function decorator<T extends Array<any>>(decoClass: Constructor<Decorator>): (...args: T) => (...metadata: any[]) => any {
   let fn = (...args: T) => {
     return (...metadata: any[]): any => {
       let ctor = metadata[0].constructor
@@ -116,6 +116,33 @@ export function decorator<T extends Array<any>>(decoClass: Constructor<Decorator
       ary?.push(dw)
       return dw
     };
+  }
+  _DecoratorMap.set(fn, true)
+  return fn;
+}
+
+export function decoratorWithNoArgs(decoClass: Constructor<Decorator>): (...metadata: any[]) => any {
+  let fn = (...metadata: any[]): any => {
+    if (!metadata || metadata.length < 1) return;
+
+    let ctor = metadata[0].constructor
+
+    let ary: DecoratorWrapper[] | undefined = ctor[_DecoratorsKey]
+    if (!has(ctor, _DecoratorsKey)) {
+      //继承父类
+      let proto = Object.getPrototypeOf(ctor)
+      ary = proto ? concat(proto[_DecoratorsKey] ?? []) : []
+
+      Reflect.defineProperty(ctor, _DecoratorsKey, {
+        configurable: false,
+        enumerable: false,
+        value: ary
+      })
+    }
+    let dw = new DecoratorWrapper([], metadata, decoClass)
+
+    ary?.push(dw)
+    return dw
   }
   _DecoratorMap.set(fn, true)
   return fn;

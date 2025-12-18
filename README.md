@@ -400,6 +400,7 @@ return html` <l-tooltip>
 - @watch 监控 state/prop 变更
 - @computed 计算属性，仅在响应变量变更时更新缓存值
 - @debounced 定义函数防抖
+- @bindThis 为组件方法绑定this
 
 #### 继承
   部分指令可由子类继承不会覆盖，包括@state/@prop/@watch/@computed
