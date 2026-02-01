@@ -30,6 +30,7 @@ import {
   once,
   parseJSON,
   reject,
+  remove,
   set,
   size,
   some,
@@ -39,6 +40,7 @@ import {
 } from "myfx";
 import { CollectorType, DecoratorKey } from "./constants";
 import { _DecoratorsKey, DecoratorWrapper } from "./decorator";
+import { bindThis } from "./decorators/bindThis";
 import { _getObservedAttrs, PropOption } from "./decorators/prop";
 import { StateOption } from "./decorators/state";
 import { WatchHandler } from "./decorators/watch";
@@ -59,12 +61,13 @@ const PropTypeMap: Record<string, Constructor<any>> = {
 }
 const PrivatePreffix = '#'
 //组件静态样式
-const ComponentStyleMap = new WeakMap<WeakKey, CSSStyleSheet[]>()
+const ComponentStyleMap = new Map<string, CSSStyleSheet[]>()
 let DefaultCss: CSSStyleSheet[] = []
 let DefaultGlobalProps = {}
 let DefaultComponentProps: Record<string, any> = {}
 let CompElemSn = 0
-const GlobalStyleMap = new Map<Function, HTMLStyleElement>()
+const SlotCompMap = new WeakMap()
+const GlobalStyleAppendedSet = new Set<string>()
 const HostStyleMap = new WeakMap<WeakKey, Constructor<any>[]>()
 export const PROP_OBJECT_KEY_MAP_SYMBOL = Symbol.for('PROP_OBJECT_KEY_MAP_SYMBOL')
 /**
@@ -74,7 +77,6 @@ export const PROP_OBJECT_KEY_MAP_SYMBOL = Symbol.for('PROP_OBJECT_KEY_MAP_SYMBOL
  * @author holyhigh2
  */
 export class CompElem extends HTMLElement implements IComponent {
-  static __l_globalRule = document.createElement("style");
   //设置全局/组件默认属性
   static defaults(options: DefaultProps) {
     DefaultCss = flatMap<string | CSSStyleSheet, CSSStyleSheet>(options.css!, c => {
@@ -103,8 +105,8 @@ export class CompElem extends HTMLElement implements IComponent {
   #updateSources: Record<string, { value: any; chain?: string[], oldValue?: any, end?: boolean }> = {};
   #shadow: ShadowRoot;
   //保存所有渲染上下文 {CompElem/Directive}
-  #renderContextList: Record<string, Set<CompElem | Node>> = {};
-  __events: Record<string, Array<Node | ((e: Event) => void) | Record<string, any>>[]> = {}
+  __events: Record<string, Array<Node | ((e: Event) => void) | Record<string, any>>[]> | null = {}
+  __updateMap: Record<string, Set<Node | null>>
 
   get [Symbol.toStringTag]() {
     return this.constructor.name;
@@ -136,11 +138,8 @@ export class CompElem extends HTMLElement implements IComponent {
   get slotHooks() {
     return this.#slotHooks;
   }
-  get css() {
-    return ComponentStyleMap.get(this.constructor)!
-  }
-  get globalStyleSheet() {
-    return GlobalStyleMap.get(this.constructor)?.sheet!
+  get styleSheets() {
+    return ComponentStyleMap.get(this.tagName)!
   }
   get isMounted() {
     return this.#mounted
@@ -167,10 +166,10 @@ export class CompElem extends HTMLElement implements IComponent {
   static get styles(): Array<string | CSSStyleSheet> {
     return [];
   }
-  static get globalStyles(): Array<string> {
-    return [];
+  static get globalStyle(): string {
+    return '';
   }
-  static get hostStyles(): Array<string> {
+  static get hostStyles(): Array<string | CSSStyleSheet> {
     return [];
   }
   get styles(): Array<() => string> {
@@ -182,6 +181,8 @@ export class CompElem extends HTMLElement implements IComponent {
   constructor(...args: any[]) {
     super();
     this.#cid = CompElemSn++
+
+    this.__updateMap = {}
 
     //init props via constructor
     if (size(args) === 1) {
@@ -200,26 +201,21 @@ export class CompElem extends HTMLElement implements IComponent {
 
     /////////////////////////////////////////////////// styles
     //global styles
-    let globalStyles = get<[]>(this.constructor, "globalStyles")
-    // let beAttached = get(this.constructor, '_global_style_attached')
-    let beAttached = GlobalStyleMap.has(this.constructor)
-    if (!isEmpty(globalStyles) && !beAttached) {
-      let globalTextContent = "";
-      globalStyles.forEach((st) => {
-        if (isString(st)) {
-          globalTextContent += st + "\n";
-        }
-      });
-      let style = document.createElement('style')
-      style.textContent += globalTextContent;
-      GlobalStyleMap.set(this.constructor, style)
-      document.head.appendChild(style);
-      // set(this.constructor, '_global_style_attached', '1')
+    let globalTextContent = get<string>(this.constructor, "globalStyle")
+    if (!isEmpty(globalTextContent)) {
+      let appended = GlobalStyleAppendedSet.has(globalTextContent)
+      if (isString(globalTextContent) && !appended) {
+        let style = document.createElement('style')
+        style.textContent += globalTextContent;
+        document.head.appendChild(style);
+
+        GlobalStyleAppendedSet.add(globalTextContent)
+      }
     }
     //component styles
-    let beAttached2 = ComponentStyleMap.get(this.constructor)
-    let styleSheets: CSSStyleSheet[] = beAttached2 ?? [];
-    if (!beAttached2) {
+    let beAttached = ComponentStyleMap.get(this.tagName)
+    let styleSheets: CSSStyleSheet[] = beAttached ?? [];
+    if (!beAttached) {
       each(get<[]>(this.constructor, "styles"), (st) => {
         if (isString(st)) {
           let sheet = new CSSStyleSheet();
@@ -229,7 +225,7 @@ export class CompElem extends HTMLElement implements IComponent {
           styleSheets.push(st);
         }
       });
-      ComponentStyleMap.set(this.constructor, styleSheets)
+      ComponentStyleMap.set(this.tagName, styleSheets)
     }
 
     /////////////////////////////////////////////////// shadow
@@ -267,7 +263,7 @@ export class CompElem extends HTMLElement implements IComponent {
     this.shadowRoot!.adoptedStyleSheets = [...this.shadowRoot!.adoptedStyleSheets, cssSheet]
 
     // Keep ComponentStyleMap in sync for this constructor
-    const cur = ComponentStyleMap.get(this.constructor) ?? [];
+    const cur = ComponentStyleMap.get(this.tagName) ?? [];
     cur.push(cssSheet)
 
     return cssSheet;
@@ -302,7 +298,6 @@ export class CompElem extends HTMLElement implements IComponent {
   }
 
   disconnectedCallback() {
-
   }
 
   //////////////////////////////////// lifecycles
@@ -430,6 +425,10 @@ export class CompElem extends HTMLElement implements IComponent {
     let hostStyles = get<[]>(this.constructor, "hostStyles")
     let styleRoot = this.#wrapperComponent?.shadowRoot ?? this.ownerDocument
     let cls = HostStyleMap.get(styleRoot)
+    if (!HostStyleMap.get(styleRoot)) {
+      cls = []
+      HostStyleMap.set(styleRoot, cls)
+    }
     if (!cls?.includes(this.constructor as any) && hostStyles.length > 0) {
       let styleSheets: CSSStyleSheet[] = [];
       each(hostStyles, (st) => {
@@ -510,6 +509,20 @@ export class CompElem extends HTMLElement implements IComponent {
   }
   beforeMount(): void { }
   mounted(): void { }
+
+  @bindThis
+  __onSlotChangeHook(e: Event) {
+    let t = e.currentTarget as HTMLSlotElement
+    let name = ''
+    each(this.#slotsEl, (el, n) => {
+      if (el === t) {
+        name = n
+        return false
+      }
+    })
+    if (this.#inited)
+      this.#onSlotChange(t, name === 'default' ? '' : name)
+  }
   #onSlotChange(slot: HTMLSlotElement, name: string) {
     //1. 更新 _slotsPropMap & slots
     this.#updateSlotsAry()
@@ -524,7 +537,7 @@ export class CompElem extends HTMLElement implements IComponent {
           }
           each(props, (v, k: string) => {
             if (node instanceof HTMLSlotElement) {
-              let compOfSlot = get<CompElem>(node, '__l_comp')
+              let compOfSlot = SlotCompMap.get(node)
               if (compOfSlot) {
                 let sname = node.name || 'default'
                 let slotMap = compOfSlot.#slotPropsMap[sname]
@@ -621,20 +634,21 @@ export class CompElem extends HTMLElement implements IComponent {
       dw.updated(this, changed)
     })
 
-    let renderContextList: Set<CompElem | Node> = new Set()
+    let updateList: Set<Node | null> = new Set()
 
-    //1. filter context
-    const rcl = this.#renderContextList
-    each(changed, ({ value, chain, oldValue, end }, k: string) => {
+    //1. filter update point
+    const rcl = this.__updateMap
+    each(changed, (x, k: string) => {
       if (rcl[k]) {
         rcl[k].forEach(cx => {
-          renderContextList.add(cx)
+          updateList.add(cx)
         })
       }
     });
-    //2. update context
-    renderContextList.forEach(context => {
-      if (context === this) {
+
+    //2. update view
+    updateList.forEach(context => {
+      if (context === null) {
         updateView(this.render(), this, undefined, changedKeys);
       } else {
         //指令在这里仅更新视图
@@ -934,15 +948,10 @@ export class CompElem extends HTMLElement implements IComponent {
     //1. 设置map
     if (!this.#slotsEl[name]) {
       this.#slotsEl[name] = slot;
-      Reflect.defineProperty(slot, '__l_comp', {
-        value: this
-      })
+      SlotCompMap.set(slot, this)
     }
 
-    slot.addEventListener('slotchange', (e: Event) => {
-      if (this.#inited)
-        this.#onSlotChange(slot, name === 'default' ? '' : name)
-    })
+    slot.addEventListener('slotchange', this.__onSlotChangeHook)
 
     //3. 保存参数
     if (!isEmpty(props)) {
@@ -1094,23 +1103,24 @@ export class CompElem extends HTMLElement implements IComponent {
    * todo 
    * 1. 取消上溯递归路径
    */
-  _regDeps(varPath: string, renderContext: CompElem | Node) {
-    let list = this.#renderContextList[varPath]
+  _regDeps(varPath: string, renderContext: Node) {
+    let list = this.__updateMap[varPath]
     if (!list) {
-      list = this.#renderContextList[varPath] = new Set<CompElem | Node>()
+      list = this.__updateMap[varPath] = new Set<Node>()
     }
-    list.add(renderContext)
+
+    list.add(this === renderContext ? null : renderContext)
 
     let restPath = varPath.split(PATH_SEPARATOR)
     restPath.pop()
     if (restPath.length < 1) return;
     let upperPath = restPath.join(PATH_SEPARATOR)
 
-    list = this.#renderContextList[upperPath]
+    list = this.__updateMap[upperPath]
     if (!list) {
-      list = this.#renderContextList[upperPath] = new Set<CompElem | Node>()
+      list = this.__updateMap[upperPath] = new Set<Node>()
     }
-    list.add(renderContext)
+    list.add(this === renderContext ? null : renderContext)
   }
   _regWrapper(wrapperComponent: CompElem) {
     this.#wrapperComponent = wrapperComponent
@@ -1146,6 +1156,7 @@ export class CompElem extends HTMLElement implements IComponent {
    * 在root上绑定事件
    * @param evName
    * @param hook
+   * @returns 函数钩子，用于卸载
    */
   on(evName: string, hook: (e: Event) => void) {
     if (!this.#rootEvs[evName]) {
@@ -1154,6 +1165,23 @@ export class CompElem extends HTMLElement implements IComponent {
     let cbk = hook.bind(this);
     this.#rootEvs[evName].push(cbk);
     this.addEventListener(evName, cbk);
+    return cbk
+  }
+  /**
+   * 从root上移除事件
+   * @param evName 
+   * @param hook on函数返回的钩子，可选。为空时移除所有evName事件
+   */
+  off(evName: string, hook?: (e: Event) => void) {
+    if (hook) {
+      this.removeEventListener(evName, hook);
+      remove(this.#rootEvs[evName], cbk => cbk === hook)
+    } else {
+      each(this.#rootEvs[evName], cbk => {
+        this.removeEventListener(evName, cbk);
+      })
+      this.#rootEvs[evName] = []
+    }
   }
   /**
    * 下一帧执行

@@ -35,7 +35,7 @@ import {
 import { addEvent } from "../events/event";
 import { Collector, notifyUpdate, OBJECT_VAR_PATH } from "../reactive";
 import { DirectiveExecutor, DirectiveInstance, EnterPointType, PATH_SEPARATOR, UpdatePoint } from "../types";
-import { showError, showTagError } from "../utils";
+import { DomUtil, showError, showTagError } from "../utils";
 import { Template } from "./Template";
 
 export const ATTR_PREFIX_EVENT = "@";
@@ -51,9 +51,9 @@ const EXP_ATTR_CONVERT = /\s+([\.?@*])?((?:[a-zA-Z]*[A-Z][^\s<>="']+))(?=[\s=>])
 const EXP_ATTR_CHECK = /[.?-a-z]+\s*=\s*(['"])\s*([^='"]*<\!--c_ui-pl_df-->){2,}.*?\1/ims;
 const EXP_PLACEHOLDER = /<\s*[a-z0-9-]+([^>]*<\!--c_ui-pl_df-->)*[^>]*?(?<!-)>/imgs;
 const SLOT_KEY_PROPS = 'slot-props'
-const HTML_CACHE = new Map<Function, string>()
-const DOM_CACHE = new Map<Function, Node>()
-const VAR_CACHE = new Map<Function, Record<number, Array<VarPoint>>>()
+const HTML_TMPL_CACHE: Record<string, string> = {}
+const DOM_CACHE: Record<string, Node> = {}
+const VAR_CACHE: Record<string, Record<number, Array<VarPoint>>> = {}
 type VarPoint = { type: VarType, up: UpdatePoint, value?: any, name?: string, point?: EnterPoint, attrName?: string }
 enum VarType {
   Event = 'event',
@@ -72,12 +72,14 @@ enum VarType {
   Ref = 'ref',
   Text = 'text'
 }
+
 const ComponentUpdatePointsMap = new WeakMap<CompElem, UpdatePoint[]>()
 export const DirectiveUpdatePointsMap = new WeakMap<Node, UpdatePoint[]>()
-const TextOrSlotDirectiveExecutorMap = new WeakMap<Node, DirectiveExecutor>()
-const TextOrSlotDirectiveArgsMap = new WeakMap<Node, Array<any>>()
-const TextOrSlotDirectiveUpdatePointMap = new WeakMap<Node, UpdatePoint>()
+export const TextOrSlotDirectiveExecutorMap = new Map<string, DirectiveExecutor>()
+export const TextOrSlotDirectiveArgsMap = new WeakMap<Node, Array<any>>()
+export const TextOrSlotDirectiveUpdatePointMap = new WeakMap<Node, UpdatePoint>()
 const DirectiveArgsMap = new WeakMap<Node, Record<string, Array<any>>>()
+export const CurrentNodeMap = new WeakMap<Node, RefObject<any>>()
 /**
  * 提供渲染函数相关操作
  * @author holyhigh2
@@ -191,9 +193,9 @@ export function buildTmplate(
 ): NodeListOf<ChildNode> {
   const container = document.createElement("div");
   container.innerHTML = html;
-  const hasVarChache = VAR_CACHE.has(renderComponent.constructor)
-  if (!isDirective && hasVarChache && !DOM_CACHE.has(renderComponent.constructor)) {
-    DOM_CACHE.set(renderComponent.constructor, container.cloneNode(true))
+  const hasVarChache = VAR_CACHE[renderComponent.tagName]
+  if (!isDirective && hasVarChache && !DOM_CACHE[renderComponent.tagName]) {
+    DOM_CACHE[renderComponent.tagName] = container.cloneNode(true)
   }
   let NodeSn = 0
 
@@ -215,6 +217,7 @@ export function buildTmplate(
     if (slotComponent && !slotComponent.contains(currentNode)) {
       slotComponent = undefined;
     }
+    let nonDirectiveTextComment = null
     if (currentNode instanceof HTMLElement || currentNode instanceof SVGElement) {
       if (currentNode instanceof CompElem) {
         slotComponent = currentNode
@@ -227,7 +230,7 @@ export function buildTmplate(
         let { name, value } = attr;
         //todo 这里需要修改为 data-slot-xx
         if (name === SLOT_KEY_PROPS) {
-          let slotName = currentNode.getAttribute('name') || 'default'
+          // let slotName = currentNode.getAttribute('name') || 'default'
           if (slotComponent) {
             // let ary = slotComponent._slotsPropMap[slotName]
             // if (!ary) {
@@ -235,7 +238,7 @@ export function buildTmplate(
             // }
             // ary.push(currentNode)
           }
-          varCacheQueue && varCacheQueue.push({ type: VarType.AttrSlot, name: slotName, attrName: name })
+          // varCacheQueue && varCacheQueue.push({ type: VarType.AttrSlot, name: slotName, attrName: name })
           continue
         }//endif
         if (startsWith(name, PLACEHOLDER_PREFFIX)) {
@@ -271,7 +274,9 @@ export function buildTmplate(
 
             executor(point, args, undefined, { renderComponent, slotComponent, varChain })
 
-            varCacheQueue && varCacheQueue.push({ type: VarType.DirectiveTag, point, up: po, name })
+            let upCopy = clone(po)
+            upCopy.node = upCopy.value = null!
+            varCacheQueue && varCacheQueue.push({ type: VarType.DirectiveTag, point, up: upCopy, name })
           }
           currentNode.removeAttribute(name)
           continue;
@@ -306,7 +311,10 @@ export function buildTmplate(
           addEvent(evName, cbk, currentNode, renderComponent)
           currentNode.removeAttribute(name)
 
-          varCacheQueue && varCacheQueue.push({ type: VarType.Event, up: po, name: evName, attrName: name, value: hasValue })
+          let upCopy = po ? clone(po) : null
+          if (upCopy)
+            upCopy.node = null!
+          varCacheQueue && varCacheQueue.push({ type: VarType.Event, up: upCopy, name: evName, attrName: name, value: hasValue })
           continue;
         }//endif
         if (name === ATTR_REF) {
@@ -328,8 +336,11 @@ export function buildTmplate(
 
             varIndex++;
             val.current = currentNode
+            CurrentNodeMap.set(currentNode, val)
 
-            varCacheQueue && varCacheQueue.push({ type: VarType.Ref, up: po, attrName: name })
+            let upCopy = clone(po)
+            upCopy.node = null!
+            varCacheQueue && varCacheQueue.push({ type: VarType.Ref, up: upCopy, attrName: name })
           }
           currentNode.removeAttribute(name)
           continue;
@@ -348,7 +359,10 @@ export function buildTmplate(
           varIndex++;
           keyNode = currentNode
           keyVal = val
-          varCacheQueue && varCacheQueue.push({ up: po, type: VarType.AttrKey })
+
+          let upCopy = clone(po)
+          upCopy.node = null!
+          varCacheQueue && varCacheQueue.push({ up: upCopy, type: VarType.AttrKey })
 
           if (updatePoints.length > 0) {
             updatePoints.forEach(up => {
@@ -372,13 +386,13 @@ export function buildTmplate(
           if (keyNode && keyNode?.contains(currentNode)) {
             po.key = keyVal
           }
+          let varCacheObj: Record<string, any> | null = null
           if (
             name[0] === ATTR_PREFIX_PROP ||
             name[0] === ATTR_PREFIX_BOOLEAN ||
             name[0] === ATTR_PREFIX_REF
           ) {
             if (isArray(val) && isSymbol(val[0])) {
-
               let [, args, executor, checker, varChain] = val as DirectiveInstance
               checker(EnterPointType.PROP)
 
@@ -401,7 +415,7 @@ export function buildTmplate(
               po.value = val;
               po.isDirective = true;
 
-              varCacheQueue && varCacheQueue.push({ type: VarType.DirectiveProp, up: po, point, name, attrName })
+              if (varCacheQueue) varCacheObj = { type: VarType.DirectiveProp, up: po, point, name, attrName }
             } else if (name[0] === ATTR_PREFIX_BOOLEAN) {
               po.isToggleProp = true;
               po.value = !!val;
@@ -409,7 +423,7 @@ export function buildTmplate(
               if (po.value)
                 currentNode.setAttribute(attrName, '')
 
-              varCacheQueue && varCacheQueue.push({ type: VarType.AttrBool, name: attrName, up: po, attrName: name })
+              if (varCacheQueue) varCacheObj = { type: VarType.AttrBool, name: attrName, up: po, attrName: name }
             } else if (name[0] === ATTR_PREFIX_REF) {
               po.value = val;
               let refNames = name.substring(1);
@@ -430,7 +444,7 @@ export function buildTmplate(
               po.attrName = refName
               currentNode.setAttribute(refName, val)
 
-              varCacheQueue && varCacheQueue.push({ type: VarType.AttrRef, up: po, name, attrName: refName })
+              if (varCacheQueue) varCacheObj = { type: VarType.AttrRef, up: po, name, attrName: refName }
             } else {
               if (process.env.DEV && !(currentNode instanceof CompElem) && currentNode.tagName !== 'SLOT') {
                 showTagError(currentNode.tagName, `Prop '${name}' can only be set on a CompElem or a slot`)
@@ -444,7 +458,8 @@ export function buildTmplate(
                 po.isProp = true;
                 props[propName] = val;
 
-                varCacheQueue && varCacheQueue.push({ type: VarType.AttrProp, up: po, name: propName, attrName: name })
+
+                if (varCacheQueue) varCacheObj = { type: VarType.AttrProp, up: po, name: propName, attrName: name }
               }
             }
             currentNode.removeAttribute(name)
@@ -453,7 +468,11 @@ export function buildTmplate(
             po.value = val;
             let executor
             let args
-            let cache: Record<string, any> = { type: VarType.Attr, up: po, attrName: name }
+            if (varCacheQueue) {
+              varCacheObj = { type: VarType.Attr, up: po, attrName: name }
+            }
+
+            let point
             if (isArray(val) && isSymbol(val[0])) {
               let type = EnterPointType.ATTR;
               if (name === "class") {
@@ -463,11 +482,13 @@ export function buildTmplate(
               }
 
               let [, ags, exec, checker, varChain] = val as DirectiveInstance
-              checker(type)
+              if (process.env.DEV) {
+                checker(type)
+              }
 
               po.isDirective = true;
               po.attrName = name
-              let point = new EnterPoint(
+              point = new EnterPoint(
                 currentNode,
                 name,
                 type
@@ -484,8 +505,11 @@ export function buildTmplate(
               executor = exec
 
               val = ''
-              cache.type = VarType.DirectiveAttr
-              cache.point = point
+              if (varCacheObj) {
+                varCacheObj.type = VarType.DirectiveAttr
+                varCacheObj.point = point
+              }
+
             }
             value = replace(value, PLACEHOLDER_EXP, val)
             //回填
@@ -494,9 +518,14 @@ export function buildTmplate(
               currentNode.setAttribute(name, value)
             }
 
-            executor && executor(cache.point, args!, undefined, { renderComponent, slotComponent })
+            executor && executor(point!, args!, undefined, { renderComponent, slotComponent })
+          }
 
-            varCacheQueue && varCacheQueue.push(cache)
+          if (varCacheQueue && varCacheObj) {
+            let upCopy = clone(po)
+            upCopy.node = null!
+            varCacheObj.up = upCopy
+            varCacheQueue.push(varCacheObj!)
           }
 
           updatePoints.push(po)
@@ -528,6 +557,7 @@ export function buildTmplate(
 
       let val = vars[varIndex];
 
+      let varCacheObj: Record<string, any> | null = null
       if (isArray(val) && isSymbol(val[0])) {
         const diName = Symbol.keyFor(val[0] as symbol)
         //插入start占位符
@@ -556,7 +586,6 @@ export function buildTmplate(
         point.endNode = comment;
 
         TextOrSlotDirectiveArgsMap.set(comment, [point, renderComponent, slotComponent, args, varChain])
-        TextOrSlotDirectiveExecutorMap.set(comment, executor)
         TextOrSlotDirectiveUpdatePointMap.set(comment, po)
         Collector.startRender(comment)
         let tmpl = executor(point, args, undefined, { renderComponent, slotComponent, varChain })!
@@ -572,35 +601,52 @@ export function buildTmplate(
 
         val = undefined
 
-        varCacheQueue && varCacheQueue.push({ type: pType === EnterPointType.SLOT ? VarType.DirectiveSlot : VarType.DirectiveText, up: po, point })
+        if (varCacheQueue) {
+          varCacheObj = { type: pType === EnterPointType.SLOT ? VarType.DirectiveSlot : VarType.DirectiveText, up: po, point }
+        }
       } else {
         po.value = val
+        po.node = null
 
-        varCacheQueue && varCacheQueue.push({ type: VarType.Text, up: po })
+        if (varCacheQueue) {
+          varCacheObj = { type: VarType.Text }
+        }
+      }
+      if (varCacheQueue && varCacheObj) {
+        let upCopy = clone(po)
+        upCopy.node = upCopy.value = null!
+        varCacheObj.up = upCopy
+        varCacheQueue.push(varCacheObj)
       }
       varIndex++;
 
-      let text = toString(val ?? '')
-      let textDom = document.createTextNode(text);
-      comment.parentNode!.insertBefore(textDom, comment);
-      po.textNode = textDom
+      if (!po.isDirective) {
+        let text = toString(val ?? '')
+        let textDom = document.createTextNode(text);
+        comment.parentNode!.insertBefore(textDom, comment);
+        po.textNode = textDom
+        nonDirectiveTextComment = comment
+      }
     }
-    if (varCacheMap && varCacheQueue)
+    if (varCacheMap && varCacheQueue && size(varCacheQueue) > 0)
       varCacheMap[NodeSn] = varCacheQueue
 
     if (keyNode && !keyNode.contains(currentNode) && keyNode !== currentNode) {
       keyNode = null
       keyVal = ''
     }
+    if (nonDirectiveTextComment) {
+      nonDirectiveTextComment.remove()
+    }
   }
   if (!isDirective && varCacheMap)
-    VAR_CACHE.set(renderComponent.constructor, varCacheMap)
+    VAR_CACHE[renderComponent.tagName] = varCacheMap
   return container.childNodes;
 }
 
 export function buildTmplate2(updatePoints: Array<UpdatePoint>, vars: any[], component: CompElem) {
-  let container = DOM_CACHE.get(component.constructor)?.cloneNode(true)!
-  let varMap = VAR_CACHE.get(component.constructor)!
+  let container = DOM_CACHE[component.tagName]?.cloneNode(true)!
+  let varMap = VAR_CACHE[component.tagName]!
 
   //遍历dom
   const nodeIterator = document.createNodeIterator(
@@ -626,9 +672,10 @@ export function buildTmplate2(updatePoints: Array<UpdatePoint>, vars: any[], com
       let varCacheQueue = varMap[NodeSn]
       varCacheQueue && varCacheQueue.forEach(vp => {
         let val = vars[varIndex++];
+        let vpUp = vp.up
         switch (vp.type) {
           case VarType.Event:
-            po = clone(vp.up)
+            po = vpUp ? UpdatePoint.createFrom(vpUp) : vpUp
             if (!vp.value) {
               varIndex--
             }
@@ -647,16 +694,17 @@ export function buildTmplate2(updatePoints: Array<UpdatePoint>, vars: any[], com
             currentNode.removeAttribute(vp.attrName)
             break
           case VarType.Ref:
-            po = clone(vp.up)
+            po = UpdatePoint.createFrom(vpUp)
             val.current = currentNode
+            CurrentNodeMap.set(currentNode, val)
             currentNode.removeAttribute(vp.attrName)
             break
           case VarType.AttrKey:
-            po = clone(vp.up)
+            po = UpdatePoint.createFrom(vpUp)
             currentNode.setAttribute(ATTR_KEY, val)
             break
           case VarType.AttrBool:
-            po = clone(vp.up)
+            po = UpdatePoint.createFrom(vpUp)
             po.value = !!val
             po.node = currentNode
             if (po.value)
@@ -664,7 +712,7 @@ export function buildTmplate2(updatePoints: Array<UpdatePoint>, vars: any[], com
             currentNode.removeAttribute(vp.attrName)
             break
           case VarType.AttrProp:
-            po = clone(vp.up)
+            po = UpdatePoint.createFrom(vpUp)
             po.value = val
             po.node = currentNode
             props[vp.name!] = val
@@ -673,7 +721,7 @@ export function buildTmplate2(updatePoints: Array<UpdatePoint>, vars: any[], com
             break
           case VarType.AttrRef:
           case VarType.Attr:
-            po = clone(vp.up)
+            po = UpdatePoint.createFrom(vpUp)
             po.value = val
             po.node = currentNode
             currentNode.setAttribute(vp.attrName, val)
@@ -682,7 +730,7 @@ export function buildTmplate2(updatePoints: Array<UpdatePoint>, vars: any[], com
           case VarType.DirectiveAttr:
           case VarType.DirectiveTag:
           case VarType.DirectiveProp:
-            po = clone(vp.up)
+            po = UpdatePoint.createFrom(vpUp)
             po.value = val
             po.node = currentNode
             let point = clone(vp.point!)
@@ -723,10 +771,11 @@ export function buildTmplate2(updatePoints: Array<UpdatePoint>, vars: any[], com
       let varCacheQueue = varMap[NodeSn]
       varCacheQueue && varCacheQueue.forEach(vp => {
         let val = vars[varIndex++]
+        let vpUp = vp.up
         switch (vp.type) {
           case VarType.DirectiveSlot:
           case VarType.DirectiveText:
-            po = clone(vp.up)
+            po = UpdatePoint.createFrom(vpUp)
             po.value = val
             po.node = currentNode
 
@@ -739,13 +788,13 @@ export function buildTmplate2(updatePoints: Array<UpdatePoint>, vars: any[], com
 
             currentNode.parentNode!.insertBefore(startComment, currentNode)
             currentNode.nodeValue = `compelem-${component.tagName}-${diName}-end`
+              ; (currentNode as any)._diName = diName
 
             let point = clone(vp.point!)
             point.startNode = startComment
             point.endNode = currentNode
 
             TextOrSlotDirectiveArgsMap.set(currentNode, [point, component, slotComponent, args, varChain])
-            TextOrSlotDirectiveExecutorMap.set(currentNode, executor)
             TextOrSlotDirectiveUpdatePointMap.set(currentNode, po)
             Collector.startRender(currentNode)
             let tmpl = executor(point, args, undefined, { renderComponent: component, slotComponent, varChain })!
@@ -753,18 +802,18 @@ export function buildTmplate2(updatePoints: Array<UpdatePoint>, vars: any[], com
 
             //render
             let nodes = buildDirectiveView(currentNode, tmpl[1]!, component)
-            if (nodes && nodes.length > 0) {
+            let len = nodes.length
+            if (nodes && len > 0) {
               DomUtil.insertBefore(currentNode, Array.from(nodes))
             }
 
             break
           case VarType.Text:
-            po = clone(vp.up)
+            po = UpdatePoint.createFrom(vpUp)
             po.node = currentNode
             let text = toString(val ?? '')
             let textDom = document.createTextNode(text);
             currentNode.replaceWith(textDom)
-            // currentNode.parentNode!.insertBefore(textDom, currentNode);
             po.textNode = textDom
             break
         }
@@ -783,17 +832,17 @@ export function buildView(
 
   let updatePoints: UpdatePoint[] = []
   let nodes
-  if (HTML_CACHE.has(component.constructor)) {
-    let htmlTmpl = HTML_CACHE.get(component.constructor)!
+  if (HTML_TMPL_CACHE[component.tagName]) {
+    let htmlTmpl = HTML_TMPL_CACHE[component.tagName]
     let vars = buildVars(component, tmpl)
-    if (DOM_CACHE.has(component.constructor)) {
+    if (DOM_CACHE[component.tagName]) {
       nodes = buildTmplate2(updatePoints, vars, component)
     } else {
       nodes = buildTmplate(updatePoints, htmlTmpl, vars, component);
     }
   } else {
     let [html, vars] = buildHTML(component, tmpl);
-    HTML_CACHE.set(component.constructor, html)
+    HTML_TMPL_CACHE[component.tagName] = html
     nodes = buildTmplate(updatePoints, html, vars, component);
   }
 
@@ -808,19 +857,20 @@ export function buildDirectiveView(pointNode: Node, tmpl: Template, component: C
   return nodes
 }
 
-export function updateView(tmpl: Template, comp: CompElem, updatePoints?: UpdatePoint[], changedKeys?: string[]): void {
+export function updateView(tmpl: Template, renderComponent: CompElem, updatePoints?: UpdatePoint[], changedKeys?: string[]): void {
   if (isBlank(join(tmpl.strings))) return;
-  if (!ComponentUpdatePointsMap.has(comp)) return;
-  updatePoints = updatePoints ?? ComponentUpdatePointsMap.get(comp)!
-  let vars = tmpl.flatVars(comp)
+  if (!ComponentUpdatePointsMap.has(renderComponent)) return;
+  updatePoints = updatePoints ?? ComponentUpdatePointsMap.get(renderComponent)!
+  let vars = tmpl.flatVars(renderComponent)
   for (let i = 0; i < updatePoints.length; i++) {
     const up = updatePoints[i];
     let varIndex = up.varIndex;
     if (varIndex < 0) continue;
     if (up.notUpdated) continue
+    if (up.__destroyed) continue
     let oldValue = up.value;
     let newValue: any = vars;
-    let node = up.node;
+    let node = up.node!;
     let indexSegs = split(varIndex, PATH_SEPARATOR)
     for (let l = 0; l < indexSegs.length; l++) {
       const seg = indexSegs[l];
@@ -889,7 +939,7 @@ export function updateView(tmpl: Template, comp: CompElem, updatePoints?: Update
           node._updateProps({ [up.attrName]: newValue });
         }
       } else if (node instanceof HTMLSlotElement) {
-        comp._updateSlot(node.getAttribute('name') || 'default', up.attrName, newValue)
+        renderComponent._updateSlot(node.getAttribute('name') || 'default', up.attrName, newValue)
       }
     } else if (up.attrName) {
       //特性
@@ -910,14 +960,12 @@ export function updateView(tmpl: Template, comp: CompElem, updatePoints?: Update
       let textNode = up.textNode
       textNode.textContent = toString(newValue ?? '')
     }
-
     up.value = newValue
   }//endfor
-
 }
 
 export function updateDirectiveView(node: Node, comp: CompElem, tmpl?: Template, updatePoints?: UpdatePoint[], changedKeys?: string[]): void {
-  const render = TextOrSlotDirectiveExecutorMap.get(node)!
+  const render = TextOrSlotDirectiveExecutorMap.get((node as any)._diName)!
   const [point, renderComponent, slotComponent, oldArgs, varChain] = TextOrSlotDirectiveArgsMap.get(node)!
   const up = TextOrSlotDirectiveUpdatePointMap.get(node)!
   if (!tmpl) {
@@ -943,28 +991,7 @@ export function updateDirectiveView(node: Node, comp: CompElem, tmpl?: Template,
   }
 
   updatePoints = updatePoints ?? DirectiveUpdatePointsMap.get(node)
-  updateView(tmpl!, comp, updatePoints, changedKeys)
-}
-
-export const DomUtil = {
-  insertBefore: function (node: Node, newNodes: any[]) {
-    if (!node.parentNode) return;
-
-    let fragment = document.createDocumentFragment();
-    fragment.append(...newNodes);
-    node.parentNode!.insertBefore(fragment, node);
-  },
-  remove: function (startNode: Node, endNode: Node) {
-    if (startNode === endNode) {
-      startNode?.parentNode?.removeChild(startNode)
-      return;
-    }
-    let nextNode = startNode.nextSibling
-    while (nextNode && nextNode !== endNode) {
-      nextNode?.parentNode?.removeChild(nextNode)
-      nextNode = startNode.nextSibling
-    }
-  }
+  updateView(tmpl!, comp, updatePoints!, changedKeys)
 }
 
 //////////////////////////////////////////////////// interfaces

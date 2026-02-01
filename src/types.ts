@@ -68,26 +68,31 @@ export class UpdatePoint {
     //表达式对应的vars位置
     varIndex: number
     value: any
-    isText: boolean = false;
-    //是否模板
-    // isTmpl: boolean = false;
-    isDirective: boolean = false;
     //表达式所在节点，可能是元素/文本
-    node: Node;
-    //如果是文本位置，与node一起构成插入范围
-    textNode: Node;
-    //是否组件
-    isComponent: boolean = false;
+    node: Node | null;
     //如果在属性中，属性名
     attrName: string
     //属性值模板
     attrTmpl: string
+    isText: boolean = false;
+    //是否模板
+    // isTmpl: boolean = false;
+    isDirective: boolean = false;
+    //如果是文本位置，与node一起构成插入范围
+    textNode: Node;
+    //是否组件
+    isComponent: boolean = false;
     //是否组件属性
     isProp: boolean = false;
     //是否布尔属性
     isToggleProp: boolean = false;
     //是否被更新，对于 key，event，ref等属性不需要更新，仅用于占位
     notUpdated: boolean
+
+    __destroyed = false
+    directiveOldValue: Array<any> | null
+    children: UpdatePoint[] | null
+    parent: UpdatePoint | null
 
     constructor(varIndex: number, node: Node, attrName?: string, attrTmpl?: string) {
         this.varIndex = varIndex
@@ -98,7 +103,27 @@ export class UpdatePoint {
             this.attrTmpl = attrTmpl
         }
     }
-}
 
+    static createFrom(up: UpdatePoint) {
+        let newUp = new UpdatePoint(up.varIndex, up.node!, up.attrName, up.attrTmpl)
+        newUp.key = up.key
+        newUp.value = up.value
+        newUp.isText = up.isText
+        newUp.isDirective = up.isDirective
+        newUp.isComponent = up.isComponent
+        newUp.isProp = up.isProp
+        newUp.isToggleProp = up.isToggleProp
+        newUp.notUpdated = up.notUpdated
+        return newUp
+    }
+
+    insert(up: UpdatePoint) {
+        up.parent = this
+        if (!this.children) {
+            this.children = []
+        }
+        this.children.push(up)
+    }
+}
 
 export const PATH_SEPARATOR = '-'

@@ -84,6 +84,7 @@ export function addEvent(fullName: string, cbk: EvHadler, node: Element, compone
   node.addEventListener(evName, listener, options)
 
   //record
+  if (!component.__events) component.__events = {}
   let evAry = component.__events[evName]
   if (!evAry) evAry = component.__events[evName] = []
   evAry.push([node, listener, options])

@@ -23,10 +23,11 @@ export default [
       }),
       typescript(
         {
-          compilerOptions: {
-            target: "ES2017",
+          tsconfigOverride: {
+            compilerOptions: {
+              declaration: false,
+            },
           },
-          clean: true
         }),
       scss({ output: false }),
       terser({
@@ -63,11 +64,6 @@ export default [
       {
         file: 'dist/index.js',
         format: 'esm'
-      },
-      {
-        file: 'dist/compelem.umd.js',
-        format: 'umd',
-        name: 'compelem'
       }
     ],
   }

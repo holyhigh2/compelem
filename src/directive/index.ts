@@ -1,7 +1,7 @@
-import { camelCase, compact, each, filter, groupBy, initial, isEmpty, last, map, remove, test, toArray } from "myfx";
+import { camelCase, compact, each, filter, groupBy, includes, initial, isEmpty, isNil, last, map, remove, set, test, toArray } from "myfx";
 import { CompElem } from "../CompElem";
 import { Collector } from "../reactive";
-import { buildDirectiveView, DirectiveUpdatePointsMap, updateDirectiveView } from "../render/render";
+import { buildDirectiveView, DirectiveUpdatePointsMap, TextOrSlotDirectiveExecutorMap, updateDirectiveView } from "../render/render";
 import { Template } from "../render/Template";
 import { DirectiveExecutor, DirectiveInstance, DirectiveUpdateTag, EnterPointType, UpdatePoint } from "../types";
 import { showError } from "../utils";
@@ -191,7 +191,7 @@ export function updateDirective(point: EnterPoint, newArgs: any[], oldArgs: any[
       const node = nodes[i];
       let treeNode = <HTMLElement>node;
       let k = treeNode.getAttribute("key")
-      if (!k) continue;
+      if (isNil(k)) continue;
 
       if (oldNodeMap[k]) {
         dupKey = k
@@ -223,7 +223,7 @@ export function updateDirective(point: EnterPoint, newArgs: any[], oldArgs: any[
       }
     })
 
-    //计算move
+    //move
     let moved = false
     if (!isEmpty(newSeq)) {
       let lastMoveIndex = -1
@@ -303,6 +303,17 @@ export function updateDirective(point: EnterPoint, newArgs: any[], oldArgs: any[
         }
       }//endif
     }
+
+    //del
+    dels.forEach(k => {
+      let treeNode = oldNodeMap[k]
+      if (treeNode && treeNode.parentNode) {
+        // oldNodeMap[k] = null as any
+        treeNode.remove()
+      }
+    })
+
+    //add
     let addGroup
     if (adds.length > 0) {
       addGroup = addNodes(adds, newTmpls, newSeq, renderComponent, updatePoints, point.endNode)
@@ -330,13 +341,6 @@ export function updateDirective(point: EnterPoint, newArgs: any[], oldArgs: any[
       })
     }
 
-    dels.forEach(k => {
-      let treeNode = oldNodeMap[k]
-      if (treeNode && treeNode.parentNode) {
-        parentNode!.removeChild(treeNode)
-      }
-    })
-
     //合并
     if (tmpl.vars[0] instanceof Template) {
       let tStrAry = []
@@ -355,7 +359,7 @@ export function updateDirective(point: EnterPoint, newArgs: any[], oldArgs: any[
       let movedUpAry: UpdatePoint[] = []
       let i = 0
       newSeq.forEach(nk => {
-        upGroup[nk].forEach((up) => {
+        upGroup[nk] && upGroup[nk].forEach((up) => {
           up.varIndex = i++
           movedUpAry.push(up)
         })
@@ -383,6 +387,9 @@ export function directive<T extends Array<any>>(
 
   return (...args: T) => {
     let executor = fn(...args)
+    if (includes(scopes, EnterPointType.TEXT) || includes(scopes, EnterPointType.SLOT))
+      TextOrSlotDirectiveExecutorMap.set(name, executor)
+    set(executor, '__scope', scopes[0])
     return [sym, args, executor as any, (scopeType: string) => {
       //校验scope
       if (!process.env.DEV) return

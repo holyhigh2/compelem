@@ -104,4 +104,7 @@ export class Template {
         }
         return vars
     }
+    destroy() {
+        this.strings = this.vars = null as any
+    }
 }

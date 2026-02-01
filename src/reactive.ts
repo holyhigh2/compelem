@@ -97,7 +97,7 @@ export const OBJECT_VAR_PATH = new WeakMap<any, Array<string>>()
 const COMPUTED_MAP = new WeakMap<CompElem, Record<string, Getter[] | null>>()
 const CSS_MAP = new WeakMap<CompElem, Record<string, Getter[] | null>>()
 const WATCH_MAP = new WeakMap<CompElem, Record<string, Getter[] | null>>()
-//缓存已经创建的proxy对象，避免重复创建
+//缓存已经创建的proxy对象
 const PROXY_MAP = new WeakMap<Record<string, any>, ProxyConstructor>()
 
 /**

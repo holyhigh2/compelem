@@ -27,9 +27,7 @@ export interface IComponent {
   //动态slot中的render函数，可传递给子元素的动态插槽
   get slotHooks(): Record<string, (...args: any[]) => Template>;
   //通过静态getter创建的所有样式表对象，所有实例共享
-  get css(): CSSStyleSheet[];
-  //通过静态getter创建的全局样式表对象，所有实例共享
-  get globalStyleSheet(): CSSStyleSheet;
+  get styleSheets(): CSSStyleSheet[];
   //是否已挂载
   get isMounted(): boolean;
   //响应式样式数组
@@ -44,9 +42,9 @@ export interface IComponent {
   beforeMount(): void;
   // 3. 首次渲染完成后调用，仅触发一次
   mounted(): void;
-  // 4. 每次插入dom时调用
+  // 4. 每次插入dom时调用，子类需要super调用
   connectedCallback(): void;
-  // 5. 卸载组件时调用
+  // 5. 每次从dom卸载时调用，子类需要super调用
   disconnectedCallback(): void;
 
   //----------------------------------------------------- lifecycles —— 更新
@@ -56,7 +54,7 @@ export interface IComponent {
   updated(changed: Record<string, any>): void;
   // 3. 插槽内容变更时触发
   slotChange(slot: HTMLSlotElement, slotName: string): void;
-  // 4. 组件属性由外部变更时触发
+  // 4. 组件属性由外部变更时触发，子类需要super调用
   attributeChangedCallback(attributeName: string, oldValue: string | null, newValue: string | null): void;
 
   //----------------------------------------------------- 接口
