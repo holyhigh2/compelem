@@ -1,4 +1,5 @@
 import {
+  alphaId,
   camelCase,
   clone,
   concat,
@@ -32,7 +33,6 @@ import {
   EnterPoint,
   updateDirective
 } from "../directive/index";
-import { addEvent } from "../events/event";
 import { Collector, notifyUpdate, OBJECT_VAR_PATH } from "../reactive";
 import { DirectiveExecutor, DirectiveInstance, EnterPointType, PATH_SEPARATOR, UpdatePoint } from "../types";
 import { DomUtil, showError, showTagError } from "../utils";
@@ -73,13 +73,14 @@ enum VarType {
   Text = 'text'
 }
 
-const ComponentUpdatePointsMap = new WeakMap<CompElem, UpdatePoint[]>()
+export const ComponentUpdatePointsMap = new WeakMap<CompElem, UpdatePoint[]>()
 export const DirectiveUpdatePointsMap = new WeakMap<Node, UpdatePoint[]>()
 export const TextOrSlotDirectiveExecutorMap = new Map<string, DirectiveExecutor>()
 export const TextOrSlotDirectiveArgsMap = new WeakMap<Node, Array<any>>()
 export const TextOrSlotDirectiveUpdatePointMap = new WeakMap<Node, UpdatePoint>()
 const DirectiveArgsMap = new WeakMap<Node, Record<string, Array<any>>>()
 export const CurrentNodeMap = new WeakMap<Node, RefObject<any>>()
+export const ComponentEventsMap = new Map<string, Record<string, [string, Function]>>()
 /**
  * 提供渲染函数相关操作
  * @author holyhigh2
@@ -198,6 +199,11 @@ export function buildTmplate(
     DOM_CACHE[renderComponent.tagName] = container.cloneNode(true)
   }
   let NodeSn = 0
+  let evMap: Record<string, [string, Function]> | undefined = ComponentEventsMap.get(renderComponent.tagName)
+  if (!evMap) {
+    evMap = {}
+    ComponentEventsMap.set(renderComponent.tagName, evMap)
+  }
 
   //遍历dom
   const nodeIterator = document.createNodeIterator(
@@ -283,38 +289,30 @@ export function buildTmplate(
         }//endif
         //@event.stop.prevent.debounce
         if (name[0] === ATTR_PREFIX_EVENT) {
-          let cbk: (ev: Event) => any = (e: Event) => {/* Do nothing */ }
 
-          let po = null
+          let val;
+          let evId = alphaId(8)
           let hasValue = false
           if (PLACEHOLDER_EXP.test(value)) {
-            po = new UpdatePoint(varIndex, currentNode)
-            po.notUpdated = true;
-            if (keyNode && keyNode?.contains(currentNode)) {
-              po.key = keyVal
-            }
-            updatePoints.push(po)
-
-            let val = vars[varIndex];
+            val = vars[varIndex];
             if (process.env.DEV && !isFunction(val)) {
               showTagError(currentNode.tagName,
                 `Event '${name}' must be a function`
               );
               continue;
             }
-            cbk = val.bind(renderComponent)
 
             varIndex++;
             hasValue = true
           }
-          let evName = name.substring(1)
-          addEvent(evName, cbk, currentNode, renderComponent)
-          currentNode.removeAttribute(name)
+          if (!evMap[evId]) {
+            let evName = name.substring(1)
+            evMap[evId] = [evName, val]
+            currentNode.toggleAttribute('data-ev-' + evId, true)
+          }
 
-          let upCopy = po ? clone(po) : null
-          if (upCopy)
-            upCopy.node = null!
-          varCacheQueue && varCacheQueue.push({ type: VarType.Event, up: upCopy, name: evName, attrName: name, value: hasValue })
+          currentNode.removeAttribute(name)
+          varCacheQueue && varCacheQueue.push({ type: VarType.Event, evId, attrName: name, value: hasValue })
           continue;
         }//endif
         if (name === ATTR_REF) {
@@ -327,20 +325,11 @@ export function buildTmplate(
               continue;
             }
 
-            let po = new UpdatePoint(varIndex, currentNode)
-            po.notUpdated = true;
-            if (keyNode && keyNode?.contains(currentNode)) {
-              po.key = keyVal
-            }
-            updatePoints.push(po)
-
             varIndex++;
             val.current = currentNode
             CurrentNodeMap.set(currentNode, val)
 
-            let upCopy = clone(po)
-            upCopy.node = null!
-            varCacheQueue && varCacheQueue.push({ type: VarType.Ref, up: upCopy, attrName: name })
+            varCacheQueue && varCacheQueue.push({ type: VarType.Ref, attrName: name })
           }
           currentNode.removeAttribute(name)
           continue;
@@ -349,20 +338,11 @@ export function buildTmplate(
           let val = vars[varIndex];
           currentNode.setAttribute(name, val)
 
-          let po = new UpdatePoint(varIndex, currentNode)
-          po.notUpdated = true;
-          if (keyNode && keyNode?.contains(currentNode)) {
-            po.key = keyVal
-          }
-          updatePoints.push(po)
-
           varIndex++;
           keyNode = currentNode
           keyVal = val
 
-          let upCopy = clone(po)
-          upCopy.node = null!
-          varCacheQueue && varCacheQueue.push({ up: upCopy, type: VarType.AttrKey })
+          varCacheQueue && varCacheQueue.push({ type: VarType.AttrKey })
 
           if (updatePoints.length > 0) {
             updatePoints.forEach(up => {
@@ -457,7 +437,6 @@ export function buildTmplate(
                 po.value = val;
                 po.isProp = true;
                 props[propName] = val;
-
 
                 if (varCacheQueue) varCacheObj = { type: VarType.AttrProp, up: po, name: propName, attrName: name }
               }
@@ -675,12 +654,10 @@ export function buildTmplate2(updatePoints: Array<UpdatePoint>, vars: any[], com
         let vpUp = vp.up
         switch (vp.type) {
           case VarType.Event:
-            po = vpUp ? UpdatePoint.createFrom(vpUp) : vpUp
             if (!vp.value) {
               varIndex--
             }
-            if (vp.value)
-              addEvent(vp.name!, val.bind(component), currentNode, component)
+            currentNode.toggleAttribute('data-ev-' + (vp as any).evId, true)
             currentNode.removeAttribute(vp.attrName)
             break
           case VarType.AttrSlot:
@@ -694,13 +671,11 @@ export function buildTmplate2(updatePoints: Array<UpdatePoint>, vars: any[], com
             currentNode.removeAttribute(vp.attrName)
             break
           case VarType.Ref:
-            po = UpdatePoint.createFrom(vpUp)
             val.current = currentNode
             CurrentNodeMap.set(currentNode, val)
             currentNode.removeAttribute(vp.attrName)
             break
           case VarType.AttrKey:
-            po = UpdatePoint.createFrom(vpUp)
             currentNode.setAttribute(ATTR_KEY, val)
             break
           case VarType.AttrBool:

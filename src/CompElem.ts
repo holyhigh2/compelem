@@ -44,9 +44,10 @@ import { bindThis } from "./decorators/bindThis";
 import { _getObservedAttrs, PropOption } from "./decorators/prop";
 import { StateOption } from "./decorators/state";
 import { WatchHandler } from "./decorators/watch";
+import { addEvent } from "./events/event";
 import { IComponent } from "./IComponent";
 import { Collector, OBJECT_VAR_PATH, Queue, reactive } from "./reactive";
-import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildView, updateDirectiveView, updateView } from "./render/render";
+import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildView, ComponentEventsMap, ComponentUpdatePointsMap, updateDirectiveView, updateView } from "./render/render";
 import { Template } from "./render/Template";
 import { Constructor, DefaultProps, Getter, PATH_SEPARATOR, SlotOptions, TmplFn } from "./types";
 import { _toUpdatePath, getBooleanValue, isBooleanProp, showTagError } from "./utils";
@@ -105,7 +106,6 @@ export class CompElem extends HTMLElement implements IComponent {
   #updateSources: Record<string, { value: any; chain?: string[], oldValue?: any, end?: boolean }> = {};
   #shadow: ShadowRoot;
   //保存所有渲染上下文 {CompElem/Directive}
-  __events: Record<string, Array<Node | ((e: Event) => void) | Record<string, any>>[]> | null = {}
   __updateMap: Record<string, Set<Node | null>>
 
   get [Symbol.toStringTag]() {
@@ -295,9 +295,81 @@ export class CompElem extends HTMLElement implements IComponent {
       : null;
 
     this.__init();
+    this.__bindEvents()
   }
 
   disconnectedCallback() {
+    each(this.#unbinders, cbk => cbk())
+  }
+
+  __bindEvents() {
+    let evs = ComponentEventsMap.get(this.tagName)!
+    each(evs, ([evName, cbk], evId) => {
+      let el = this.renderRoot.querySelector('[data-ev-' + evId + ']')
+      if (!el) return
+      addEvent(evName, cbk ? cbk.bind(this) : cbk, el, this)
+    })
+  }
+  #unbinders: Function[] = []
+  __regUnbindEvents(cbk: Function) {
+    this.#unbinders.push(cbk)
+  }
+  beforeDestroyed() {
+  }
+  get destroyed() {
+    return this.#destroyed
+  }
+  #destroyed = false
+  destroy() {
+    this.#destroyed = true
+
+    this.beforeDestroyed()
+
+    //events
+    each(this.#unbinders, cbk => cbk(true))
+    this.#unbinders = null as any
+
+    each(this.#rootEvs, (hooks, evName) => {
+      each(hooks, hook => {
+        this.removeEventListener(evName, hook);
+      })
+      this.#rootEvs[evName] = null as any
+    })
+    //styles
+    ComponentStyleMap.delete(this.tagName)
+
+    //sup scope
+    if (this.#parentComponent) {
+      let pComp = this.#parentComponent
+      let parentUpdatePoint = ComponentUpdatePointsMap.get(pComp)
+      let ups = parentUpdatePoint?.filter(up => up.node === this || up.textNode === this)
+      ups?.forEach(up => up.destroy(pComp))
+    }
+    //sub scopes
+    let updatePoint = ComponentUpdatePointsMap.get(this)
+    updatePoint?.forEach(up => up.destroy(this))
+
+    //slots
+    each(this.#slotsEl, slot => {
+      slot.removeEventListener('slotchange', this.__onSlotChangeHook)
+    })
+    //data
+    this.#rootEvs =
+      this.#updateSources =
+      this.#reactiveData =
+      this.#attrs =
+      this.#props =
+      this.#renderRoot =
+      this.#renderRoots =
+      this.#slotHooks =
+      this.#data =
+      this.#slotsEl =
+      this.__updateMap =
+      this.#parentComponent =
+      this.#wrapperComponent = null as any
+    //unmount
+    this.remove()
+
   }
 
   //////////////////////////////////// lifecycles

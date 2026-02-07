@@ -33,13 +33,13 @@ const MODI_PARAM_DIVIDER = ":";
  * 
  * 部分修饰符支持参数，使用冒号传参如：throttle:100 / debounce:100
  *************************************************************/
-
+const VFN = () => { }
 export type EvHadler = (ev: Event) => any
 export function addEvent(fullName: string, cbk: EvHadler, node: Element, component: CompElem) {
   let parts = fullName.split('.');
   let evName = parts.shift()!;
   let isOnce = parts.includes(MODI_EV_ONCE);
-  let c = cbk;
+  let c = cbk ?? VFN;
   let modi
   if (modi = find(parts, x => MODI_EV_DEBOUNCE.test(x))) {
     let params = modi.split(MODI_PARAM_DIVIDER)
@@ -84,10 +84,10 @@ export function addEvent(fullName: string, cbk: EvHadler, node: Element, compone
   node.addEventListener(evName, listener, options)
 
   //record
-  if (!component.__events) component.__events = {}
-  let evAry = component.__events[evName]
-  if (!evAry) evAry = component.__events[evName] = []
-  evAry.push([node, listener, options])
+  component.__regUnbindEvents((remove = false) => {
+    node.removeEventListener(evName, listener, options)
+    if (remove) node = null as any
+  })
 
   return listener;
 }

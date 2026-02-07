@@ -117,6 +117,19 @@ export class UpdatePoint {
         return newUp
     }
 
+    destroy(contextComponent?: CompElem) {
+        if (this.__destroyed) return;
+        this.__destroyed = true
+        let node = this.node
+        let children = this.children
+        let parent = this.parent
+        //clean up
+        this.node = this.value = this.directiveOldValue = this.children = this.parent = null
+        if (!node) return
+        //sup scope
+
+    }
+
     insert(up: UpdatePoint) {
         up.parent = this
         if (!this.children) {
