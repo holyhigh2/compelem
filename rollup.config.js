@@ -25,7 +25,7 @@ export default [
         {
           tsconfigOverride: {
             compilerOptions: {
-              declaration: false,
+              declaration: true,
             },
           },
         }),

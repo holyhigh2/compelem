@@ -1,7 +1,7 @@
-import { camelCase, each, get } from "myfx";
+import { camelCase, each } from "myfx";
 import { CompElem } from "../CompElem";
-import { DecoratorKey } from "../constants";
-import { EnterPoint, directive } from "../directive/index";
+import { DefinitionPropMap } from "../constants";
+import { directive } from "../directive/index";
 import { EnterPointType } from "../types";
 const Ignores = ['key']
 /**
@@ -9,8 +9,8 @@ const Ignores = ['key']
  * @param styles 对象/数组/字符串
  */
 export const bind = directive(function Bind(obj: Record<string, any>) {
-  return (point: EnterPoint, [obj]: [Record<string, any>], oldArgs: any[] | undefined) => {
-    let el = point.startNode as HTMLElement
+  return (pointNode: Node, [obj]: [Record<string, any>], oldArgs: any[] | undefined) => {
+    let el = pointNode as HTMLElement
     if (oldArgs) {
       each(obj, (v, k: string) => {
         el.setAttribute(k, v)
@@ -22,16 +22,13 @@ export const bind = directive(function Bind(obj: Record<string, any>) {
       //判断是否prop
       let props: Record<string, any> = {};
       let attrs: Record<string, string> = {}
-      let propDefs: Record<string, any> = get(
-        el.constructor,
-        DecoratorKey.PROPS
-      )
+      let propDefs = DefinitionPropMap.get(el.constructor.name)
 
       each(obj, (v, k: string) => {
         if (Ignores.includes(k)) return;
 
         let ck = camelCase(k)
-        let propDef = propDefs[ck]
+        let propDef = propDefs ? propDefs[ck] : undefined
         if (propDef) {
           props[k] = v;
         } else {

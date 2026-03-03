@@ -35,7 +35,7 @@ const MODI_PARAM_DIVIDER = ":";
  *************************************************************/
 const VFN = () => { }
 export type EvHadler = (ev: Event) => any
-export function addEvent(fullName: string, cbk: EvHadler, node: Element, component: CompElem) {
+export function addEvent(fullName: string, cbk: EvHadler, node: Element, component: CompElem<any>) {
   let parts = fullName.split('.');
   let evName = parts.shift()!;
   let isOnce = parts.includes(MODI_EV_ONCE);
@@ -54,8 +54,7 @@ export function addEvent(fullName: string, cbk: EvHadler, node: Element, compone
   }
 
   if (isExtEvent(evName)) {
-    addExtEvent(evName, node, c, parts)
-    return c;
+    return addExtEvent(evName, node, c, parts, component)
   }
 
   let listener = (e: Event) => {
@@ -76,6 +75,7 @@ export function addEvent(fullName: string, cbk: EvHadler, node: Element, compone
       let checkKeys = map(parts, k => MODI_EV_KEYBOARD_KEY_MAP[k] || k)
       if (size(checkKeys) > 0 && !checkKeys.includes(e.key.toLowerCase())) return;
     }
+    console.debug(evName, c.name, node.tagName)
     c(e)
   }
   let capture = parts.includes(MODI_EV_CAPTURE) || false
@@ -84,10 +84,8 @@ export function addEvent(fullName: string, cbk: EvHadler, node: Element, compone
   node.addEventListener(evName, listener, options)
 
   //record
-  component.__regUnbindEvents((remove = false) => {
+  return (remove = false) => {
     node.removeEventListener(evName, listener, options)
     if (remove) node = null as any
-  })
-
-  return listener;
+  }
 }

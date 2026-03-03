@@ -1,6 +1,6 @@
 import { isEqual, last, set } from "myfx";
 import { CompElem } from "../CompElem";
-import { EnterPoint, directive } from "../directive/index";
+import { directive } from "../directive/index";
 import { EnterPointType } from "../types";
 
 /**
@@ -9,20 +9,17 @@ import { EnterPointType } from "../types";
  * @param syncValue 双向绑定的组件变量
  */
 export const sync = directive(function Sync(syncValue: any) {
-  return (point: EnterPoint, newArgs: any[], oldArgs: any[] | undefined, { renderComponent, varChain }: { renderComponent: CompElem, varChain: string[][] }) => {
-    const targetComponent = point.startNode as CompElem
+  return (pointNode: Node, newArgs: any[], oldArgs: any[] | undefined, { renderComponent, varChain, attrName }: { renderComponent: CompElem, varChain: string[], attrName: string }) => {
+    const targetComponent = pointNode as CompElem
     if (oldArgs) {
       if (!isEqual(newArgs, oldArgs)) {
-        let attrName = point.attrName
         targetComponent._updateProps({ [attrName]: newArgs[0] })
       }
       return
     }
 
     let modelPath = last(varChain)
-    let attrName = point.attrName
-    //todo _setParentProps接口不应该外部使用
-    targetComponent._initProps({ [attrName]: syncValue })
+    targetComponent._initProps({ [attrName]: newArgs[0] })
     targetComponent.addEventListener('update:' + attrName, (e: CustomEvent) => {
       set(renderComponent, modelPath, e.detail.value)
     });

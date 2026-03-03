@@ -1,5 +1,4 @@
-import { cloneDeep, has, isEmpty } from "myfx";
-import { DecoratorKey } from "../constants";
+import { DefinitionComputedMap } from "../constants";
 import { showError } from "../utils";
 
 /**
@@ -15,8 +14,8 @@ export function computed(target: any, propertyKey: string, descriptor: PropertyD
   if (!descriptor.get) {
     showError(`Computed '${propertyKey}' must be a getter`)
   }
-  if (!has(target.constructor, DecoratorKey.COMPUTED)) {
-    target.constructor[DecoratorKey.COMPUTED] = isEmpty(target.constructor[DecoratorKey.COMPUTED]) ? {} : cloneDeep(target.constructor[DecoratorKey.COMPUTED])
+  if (!DefinitionComputedMap.has(target.constructor.name)) {
+    DefinitionComputedMap.set(target.constructor.name, {})
   }
-  target.constructor[DecoratorKey.COMPUTED][propertyKey] = descriptor.get!
+  DefinitionComputedMap.get(target.constructor.name)![propertyKey] = descriptor.get!
 }

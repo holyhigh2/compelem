@@ -7,26 +7,30 @@ import {
   trim
 } from "myfx";
 import { EXP_KEY } from "../constants";
-import { EnterPoint, directive } from "../directive/index";
+import { DI_COMMENT_START_NODE_MAP, directive } from "../directive/index";
 import { Template } from "../render/Template";
 import { DirectiveUpdateTag, EnterPointType, TmplFn } from "../types";
-import { showError } from "../utils";
+import { DomUtil, showError } from "../utils";
 
-const LastValueMap = new Map()
-const LastTmplMap = new Map()
+const LastValueMap = new WeakMap()
+const LastTmplMap = new WeakMap()
+
 /**
  * 循环列表并自动优化列表更新
  * foreach循环的只能是节点，且必须有key属性。非节点元素会被过滤掉
  * 使用序号作为key时可能会导致异常问题
  */
 export const forEach = directive(function ForEach(value: any[] | Record<string, any>, cbk: TmplFn) {
-  return (point: EnterPoint, newArgs: any[], oldArgs: any[] | undefined, { varChain }: { varChain: string[][] }) => {
-    let el = point.startNode
+  return (pointNode: Node, newArgs: any[], oldArgs: any[] | undefined, { varChain }: { varChain: string[] }) => {
+    let el = pointNode
     let lastRenderTmpl = comboTmpl(newArgs[0], newArgs[1], el)
     if (oldArgs && oldArgs[0]) {
       //更新
       const lastAry = LastValueMap.get(el)
-      if (isEmpty(point.getNodes()) && (!newArgs || isEmpty(newArgs[0]))) return [DirectiveUpdateTag.NONE, lastRenderTmpl]
+      // const lastRenderTmpl = LastTmplMap.get(el)
+      let startNode = DI_COMMENT_START_NODE_MAP.get(pointNode)!
+      let nodes = DomUtil.getNodes(startNode, pointNode)
+      if (isEmpty(nodes) && (!newArgs || isEmpty(newArgs[0]))) return [DirectiveUpdateTag.NONE, lastRenderTmpl]
       if (lastAry && isMatch(lastAry, newArgs[0]) && lastAry.length === newArgs[0].length) return [DirectiveUpdateTag.NONE, lastRenderTmpl]
     }
 

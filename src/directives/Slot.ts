@@ -1,5 +1,5 @@
 import { CompElem } from "../CompElem";
-import { EnterPoint, directive } from "../directive/index";
+import { directive } from "../directive/index";
 import { EnterPointType, TmplFn } from "../types";
 
 /**
@@ -8,7 +8,7 @@ import { EnterPointType, TmplFn } from "../types";
  * @param slotName 插槽名词，默认default
  */
 export const slot = directive(function Slot(cbk: TmplFn, slotName?: string) {
-  return (point: EnterPoint, newArgs: any[], oldArgs: any[] | undefined, { renderComponent, slotComponent }: { renderComponent: CompElem, slotComponent: CompElem }) => {
+  return (pointNode: Node, [cbk, slotName]: any[], oldArgs: any[] | undefined, { renderComponent, slotComponent }: { renderComponent: CompElem, slotComponent: CompElem }) => {
     if (oldArgs) return
 
     cbk = cbk.bind(renderComponent)

@@ -1,5 +1,5 @@
 import { call, each, findIndex, isFunction } from "myfx";
-import { directive, EnterPoint } from "../directive/index";
+import { directive } from "../directive/index";
 import { html } from "../render/render";
 import { Template } from "../render/Template";
 import { DirectiveUpdateTag, EnterPointType, TmplFn } from "../types";
@@ -25,7 +25,7 @@ import { DirectiveUpdateTag, EnterPointType, TmplFn } from "../types";
  * @param tmpl 模板
  */
 export const when = directive(function When(value: string | number, cases: Array<[(v: any) => boolean, TmplFn]> | Record<string | number, TmplFn>) {
-  return (point: EnterPoint, [value, cases]: [string | number, Array<[(v: any) => boolean, TmplFn]> | Record<string | number, TmplFn>], oldArgs: any[] | undefined) => {
+  return (pointNode: Node, [value, cases]: [string | number, Array<[(v: any) => boolean, TmplFn]> | Record<string | number, TmplFn>], oldArgs: any[] | undefined) => {
     let defaultFn: TmplFn = () => html``;
     let conditionList: any[] = []
     let tmplList: TmplFn[] = []

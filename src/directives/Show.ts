@@ -1,8 +1,8 @@
-import { EnterPoint, directive } from "../directive/index";
+import { directive } from "../directive/index";
 import { EnterPointType } from "../types";
 type Cbk = (node: Element, isVisible: boolean) => void
 
-const DisplayMap = new Map()
+const DisplayMap = new WeakMap()
 /**
  * display的快捷指令
  * 如果
@@ -10,10 +10,10 @@ const DisplayMap = new Map()
  * @param cbk 显示状态变更后调用的回调函数
  */
 export const show = directive(function Show(isVisible: boolean, cbk?: Cbk) {
-  return (point: EnterPoint, [condi]: any[], oldArgs: any[] | undefined) => {
+  return (pointNode: Node, [condi, cbk]: any[], oldArgs: any[] | undefined) => {
     if (oldArgs && condi === oldArgs[0]) return
 
-    let el = point.startNode as HTMLElement;
+    let el = pointNode as HTMLElement;
     if (!DisplayMap.has(el)) {
       let dis = el.style.display
       DisplayMap.set(el, dis == 'none' ? 'unset' : dis)

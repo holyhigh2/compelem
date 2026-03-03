@@ -1,4 +1,4 @@
-import { directive, EnterPoint } from "../directive/index";
+import { directive } from "../directive/index";
 import { html } from "../render/render";
 import { DirectiveUpdateTag, EnterPointType, TmplFn } from "../types";
 
@@ -8,7 +8,7 @@ import { DirectiveUpdateTag, EnterPointType, TmplFn } from "../types";
  * @param tmpl 模板
  */
 export const ifTrue = directive(function IfTrue(condition: boolean, tmplFn: TmplFn) {
-  return (point: EnterPoint, [condi, render]: any[], oldArgs: any[] | undefined) => {
+  return (pointNode: Node, [condi, render]: any[], oldArgs: any[] | undefined) => {
     if (oldArgs) {
       //更新
       if (condi === oldArgs[0]) return [DirectiveUpdateTag.NONE, condi ? render() : html``]

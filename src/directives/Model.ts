@@ -1,7 +1,6 @@
-import { alphaId, find, get, isObject, isString, last, set, toPath, trim } from "myfx";
+import { find, get, isObject, isString, last, set, split, toPath, trim } from "myfx";
 import { CompElem } from "../CompElem";
-import { EnterPoint, directive } from "../directive/index";
-import { ComponentEventsMap } from "../render/render";
+import { directive } from "../directive/index";
 import { EnterPointType } from "../types";
 import { showError } from "../utils";
 
@@ -21,12 +20,13 @@ export const enum ModelTriggerType {
  * @param modelProp 当初始模型路径不存在时可指定路径
  */
 export const model = directive(function Model(modelValue: any, updateProp: string = 'value', modelProp?: string) {
-  return (point: EnterPoint, newArgs: any[], oldArgs: any[] | undefined, { varChain, renderComponent }: { renderComponent: CompElem; varChain: string[][] }) => {
+  return (pointNode: Node, [modelValue, updateProp, modelProp]: any[], oldArgs: any[] | undefined, { varChain, renderComponent }: { renderComponent: CompElem; varChain: string[] }) => {
 
-    const node = point.startNode
+    updateProp = updateProp ?? 'value'
+    const node = pointNode
     if (oldArgs) {
       const oldValue = oldArgs[0]
-      const newValue = newArgs[0]
+      const newValue = modelValue
       let nodeValue = get(node, updateProp)
       if (!isObject(newValue) && Object.is(newValue, oldValue) && Object.is(nodeValue, newValue)) return
 
@@ -71,52 +71,48 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
       return
     }
 
-    let path: string[]
+    let path: string
     if (isString(modelProp)) {
-      path = toPath(modelProp)
+      path = toPath(modelProp)[0]
     } else {
       path = last(varChain)
     }
 
-    const rootPath = path[0]
+    const rootPath = split(path, '.')[0]
     if (!(rootPath in renderComponent) && !renderComponent._wrapperProp[rootPath]) {
       showError(`model - property '${rootPath}' is not defined on the instance of ` + renderComponent.tagName)
     }
 
-    let evMap: Record<string, [string, Function]> | undefined = ComponentEventsMap.get(renderComponent.tagName)!
+    let evList: Array<[string, Function, Node, Function?]> | undefined = renderComponent._eventList
 
-    let evId = alphaId(8)
     if (!isObject(modelValue) && !trim(modelValue)) modelValue = ''
     if (node instanceof CompElem) {
       node._initProps({ [updateProp]: modelValue })
 
-      if (!evMap[evId]) {
-        let evName = 'update:' + updateProp
-        evMap[evId] = [evName, function (e: CustomEvent) {
-          if (process.env.DEV)
-            console.debug('Model =>', path)
-          let ctx = this
-          let pathFromWrapperComponent = ctx._wrapperProp[rootPath]
-          let hasPath = rootPath in ctx
-          if (!hasPath && pathFromWrapperComponent && get(ctx.wrapperComponent, rootPath) === get(ctx, pathFromWrapperComponent)) {
-            ctx = ctx.wrapperComponent || ctx
-          }
-          set(ctx, path, e.detail.value)
-        }]
-        node.toggleAttribute('data-ev-' + evId, true)
-      }
+      let evName = 'update:' + updateProp
+      evList.push([evName, function (e: CustomEvent) {
+        if (process.env.DEV)
+          console.debug('Model =>', path)
+        let ctx = this
+        let pathFromWrapperComponent = ctx._wrapperProp[rootPath]
+        let hasPath = rootPath in ctx
+        if (!hasPath && pathFromWrapperComponent && get(ctx.wrapperComponent, rootPath) === get(ctx, pathFromWrapperComponent)) {
+          ctx = ctx.wrapperComponent || ctx
+        }
+        set(ctx, path, e.detail.value)
+      }, node])
+
     } else if (node instanceof HTMLTextAreaElement) {
       node.setAttribute(updateProp, modelValue + '');
-      if (!evMap[evId]) {
-        let evName = 'input'
-        evMap[evId] = [evName, function (e: Event) {
-          if (process.env.DEV)
-            console.debug('Model =>', path)
-          let t = e.target as any
-          set(this, path, t.value)
-        }]
-        node.toggleAttribute('data-ev-' + evId, true)
-      }
+
+      let evName = 'input'
+      evList.push([evName, function (e: Event) {
+        if (process.env.DEV)
+          console.debug('Model =>', path)
+        let t = e.target as any
+        set(this, path, t.value)
+      }, node])
+
     } else if (node instanceof HTMLInputElement) {
       let propName = '';
       let evName = '';
@@ -142,32 +138,27 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
           break;
       }
       node.setAttribute(updateProp ?? propName, modelValue + '');
-      if (!evMap[evId]) {
-        evMap[evId] = [evName, function (e: Event) {
-          if (process.env.DEV)
-            console.debug('Model =>', path)
-          let t = e.target as any
-          set(this, path, t.value)
-        }]
-        node.toggleAttribute('data-ev-' + evId, true)
-      }
+
+      evList.push([evName, function (e: Event) {
+        if (process.env.DEV)
+          console.debug('Model =>', path)
+        let t = e.target as any
+        set(this, path, t.value)
+      }, node])
     } else if (node instanceof HTMLSelectElement) {
       node.setAttribute(updateProp, modelValue + '');
-      if (!evMap[evId]) {
-        evMap[evId] = ['change', function (e: Event) {
-          if (process.env.DEV)
-            console.debug('Model =>', path)
-          let t = e.target as any
-          let ctx = this;
-          let pathFromWrapperComponent = ctx._wrapperProp[rootPath];
-          let hasPath = rootPath in ctx;
-          if (!hasPath && pathFromWrapperComponent && get(ctx.wrapperComponent, rootPath) === get(ctx, pathFromWrapperComponent)) {
-            ctx = ctx.wrapperComponent || ctx;
-          }
-          set(ctx, path, t.value)
-        }]
-        node.toggleAttribute('data-ev-' + evId, true)
-      }
+      evList.push(['change', function (e: Event) {
+        if (process.env.DEV)
+          console.debug('Model =>', path)
+        let t = e.target as any
+        let ctx = this;
+        let pathFromWrapperComponent = ctx._wrapperProp[rootPath];
+        let hasPath = rootPath in ctx;
+        if (!hasPath && pathFromWrapperComponent && get(ctx.wrapperComponent, rootPath) === get(ctx, pathFromWrapperComponent)) {
+          ctx = ctx.wrapperComponent || ctx;
+        }
+        set(ctx, path, t.value)
+      }, node])
     }
   };
 }, [EnterPointType.TAG])

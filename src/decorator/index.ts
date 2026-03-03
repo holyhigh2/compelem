@@ -1,77 +1,74 @@
-import { concat, get, has, isDefined, isEmpty, isObject, isUndefined } from 'myfx';
+import { concat, get, isDefined, isEmpty, isObject, isUndefined } from 'myfx';
 import { Constructor } from './../types';
 /*************************************************************
  * 装饰器
  * @author holyhigh2
  *************************************************************/
 import { CompElem } from "../CompElem";
+import { DefinitionDecoratorMap } from '../constants';
 import { showError } from '../utils';
 import { Decorator, DecoratorType } from "./Decorator";
 
-export const GetKeyFnName = 'getKey'
-export const _DecoratorsKey = '__decorators'
-export const _DecoratorMap = new WeakMap
 /**
  * 装饰器包装类
  * 用于框架内部，表示class上的一个装饰器属性定义
  * 该定义在实例初始化时会产生装饰器实例属性
  */
 export class DecoratorWrapper {
-  //execute 参数
-  args: any[]
   //装饰器参数
   metadata: any[]
-  decoratorClass: Constructor<Decorator>
-  instanceMap: WeakMap<CompElem, Decorator>
+  decorator: Decorator
   key?: string //装饰器唯一key
   priority: number = 0
 
   constructor(args: any[], metadata: any[], decoratorClass: Constructor<Decorator>) {
-    this.args = args;
     this.metadata = metadata;
-    this.decoratorClass = decoratorClass;
+    this.decorator = new decoratorClass(...args)
     this.priority = get(decoratorClass, 'priority', 0)
-    this.instanceMap = new WeakMap
+  }
+
+  dispose() {
+    //clean up
+    this.metadata = null as any;
+    this.decorator = null as any;
   }
 
   //在组件构造时调用
-  create(comp: CompElem) {
-    let ins = new this.decoratorClass(...this.args)
+  create(comp: CompElem<any>) {
     //1. 校验targets
-    let targets = ins.targets
+    let targets = this.decorator.targets
     let decoType: DecoratorType | undefined = undefined;
-    let descriptor = this.metadata[2]
+    let descriptor = this.metadata[1]
     if (isObject(descriptor) && isDefined(get(descriptor, 'configurable'))) {
       decoType = DecoratorType.METHOD
-    } else if (isUndefined(this.metadata[2])) {
+    } else if (isUndefined(this.metadata[1])) {
       decoType = DecoratorType.FIELD
     }
 
     if (isEmpty(targets) || !decoType || !targets.includes(decoType)) {
-      showError(`Decorator '${this.decoratorClass.name}' is out of targets, expect '${targets.join(',')}' bug got '${decoType}'`);
+      showError(`Decorator '${this.decorator.constructor.name}' is out of targets, expect '${targets.join(',')}' bug got '${decoType}'`);
       return
     }
-    ins.created(comp, ...this.metadata)
-
-    this.instanceMap.set(comp, ins)
+    this.decorator.created(comp, ...this.metadata)
   }
 
-  beforeMount(comp: CompElem, setReactive: (key: string, value: any) => any) {
-    let ins = this.instanceMap.get(comp)!
-    ins.beforeMount(comp, setReactive, ...this.metadata)
+  beforeMount(comp: CompElem<any>, setReactive: (key: string, value: any) => any) {
+    this.decorator.beforeMount(comp, setReactive, ...this.metadata)
   }
 
-  mounted(comp: CompElem, setReactive: (key: string, value: any) => any) {
-    let ins = this.instanceMap.get(comp)!
-    ins.mounted(comp, setReactive, ...this.metadata)
+  mounted(comp: CompElem<any>, setReactive: (key: string, value: any) => any) {
+    this.decorator.mounted(comp, setReactive, ...this.metadata)
   }
 
-  updated(comp: CompElem, changed: Record<string, any>) {
-    this.instanceMap.get(comp)!.updated(comp, changed)
+  updated(comp: CompElem<any>, changed: Record<string, any>) {
+    this.decorator.updated(comp, changed)
+  }
+
+  destroy(comp: CompElem<any>) {
+    this.decorator.beforeDestroy(comp, ...this.metadata)
   }
 }
-//每个装饰器类中不同组件类中的重复key
-const DecoKeyMap = new WeakMap<Constructor<Decorator>, WeakMap<Constructor<CompElem>, Record<string, DecoratorWrapper>>>()
+
 /**
  * 该函数用于创建一个装饰器
  * @param decoClass 装饰器构造
@@ -82,42 +79,19 @@ export function decorator<T extends Array<any>>(decoClass: Constructor<Decorator
     return (...metadata: any[]): any => {
       let ctor = metadata[0].constructor
 
-      let ary: DecoratorWrapper[] | undefined = ctor[_DecoratorsKey]
-      if (!has(ctor, _DecoratorsKey)) {
+      let ary: DecoratorWrapper[] | undefined = DefinitionDecoratorMap.get(ctor.name)//  ctor[_DecoratorsKey]
+      if (!DefinitionDecoratorMap.has(ctor.name)) {
         //继承父类
         let proto = Object.getPrototypeOf(ctor)
-        ary = proto ? concat(proto[_DecoratorsKey] ?? []) : []
+        ary = proto ? concat(DefinitionDecoratorMap.get(proto.name) ?? []) : []
 
-        Reflect.defineProperty(ctor, _DecoratorsKey, {
-          configurable: false,
-          enumerable: false,
-          value: ary
-        })
+        DefinitionDecoratorMap.set(ctor.name, ary)
       }
-      let kMap: Record<string, DecoratorWrapper> = {}
-      let k
-      let getKey = (decoClass as any)[GetKeyFnName] as Function
-      if (getKey) {
-        let compMap = DecoKeyMap.get(decoClass)
-        if (!compMap) {
-          compMap = new WeakMap
-          DecoKeyMap.set(decoClass, compMap)
-        }
-        kMap = compMap.get(ctor)!
-        if (!kMap) {
-          kMap = {}
-          compMap.set(ctor, kMap)
-        }
-        k = getKey(...args)
-        if (kMap[k]) return kMap[k]
-      }
-      let dw = new DecoratorWrapper(args, metadata, decoClass)
-      kMap[k] = dw
+      let dw = new DecoratorWrapper(args, metadata.splice(1), decoClass)
       ary?.push(dw)
       return dw
     };
   }
-  _DecoratorMap.set(fn, true)
   return fn;
 }
 
@@ -127,23 +101,17 @@ export function decoratorWithNoArgs(decoClass: Constructor<Decorator>): (...meta
 
     let ctor = metadata[0].constructor
 
-    let ary: DecoratorWrapper[] | undefined = ctor[_DecoratorsKey]
-    if (!has(ctor, _DecoratorsKey)) {
+    let ary: DecoratorWrapper[] | undefined = DefinitionDecoratorMap.get(ctor.name)//  ctor[_DecoratorsKey]
+    if (!DefinitionDecoratorMap.has(ctor.name)) {
       //继承父类
       let proto = Object.getPrototypeOf(ctor)
-      ary = proto ? concat(proto[_DecoratorsKey] ?? []) : []
+      ary = proto ? concat(DefinitionDecoratorMap.get(proto.name) ?? []) : []
 
-      Reflect.defineProperty(ctor, _DecoratorsKey, {
-        configurable: false,
-        enumerable: false,
-        value: ary
-      })
+      DefinitionDecoratorMap.set(ctor.name, ary)
     }
-    let dw = new DecoratorWrapper([], metadata, decoClass)
-
+    let dw = new DecoratorWrapper([], metadata.splice(1), decoClass)
     ary?.push(dw)
     return dw
   }
-  _DecoratorMap.set(fn, true)
   return fn;
 }

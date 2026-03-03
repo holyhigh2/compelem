@@ -1,6 +1,5 @@
 import { closest, isBlank, isString, isUndefined, some, toPath } from "myfx";
 import { CompElem } from "./CompElem";
-import { ComponentUpdatePointsMap } from "./render/render";
 
 export function showError(msg: string): void {
   console.error(`[CompElem]`, msg);
@@ -71,26 +70,24 @@ export const DomUtil = {
   },
   //清除dom内容并释放内存
   clear(container: Element, comp: CompElem) {
+    if (!container) return
+
     let nodeIterator = document.createNodeIterator(
       container, NodeFilter.SHOW_COMMENT
     );
     //subscopes
-    let subScopeNode: any = nodeIterator.nextNode()
-    let parentUpdatePoint = ComponentUpdatePointsMap.get(comp)
 
     let currentNode: any;
     nodeIterator = document.createNodeIterator(
       container, NodeFilter.SHOW_COMMENT | NodeFilter.SHOW_ELEMENT
     );
     while ((currentNode = nodeIterator.nextNode())) {
+      if (container === currentNode) continue
+
       if (currentNode instanceof Comment) {
-        let ups = parentUpdatePoint?.filter(up => up.node === currentNode || up.textNode === currentNode)
-        ups?.forEach(up => up.destroy(comp))
       } else if (currentNode instanceof CompElem) {
         currentNode.destroy()
       } else {
-        let ups = parentUpdatePoint?.filter(up => up.node === currentNode || up.textNode === currentNode)
-        ups?.forEach(up => up.destroy(comp))
       }
     }
   }

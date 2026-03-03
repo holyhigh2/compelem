@@ -2,7 +2,7 @@
 一个现代化、响应式、快速、轻量的WebComponent开发库。为开发者提供丰富、灵活、可扩展的声明式接口
 
 ## 概览  
-CompElem 基于 Class 进行构建，该模型允许开发者使用装饰器进行声明式编码，核心特性包括：
+CompElem 基于 Class 进行构建，该模型允许开发者使用装饰器进行声明式编码并可使用继承、扩展等高级特性，其核心特性包括：
 - 类JSX的原生模板系统
 - 丰富的装饰器及指令
 - 可选的生命周期
@@ -45,10 +45,10 @@ export class PageTest extends CompElem {
   //动态样式
   get styles() {
     return [
-      () => `h2,p,i,h3{
+      css`h2,p,i,h3{
         background-image:${this.color};
       }`,
-      () => `h2,p,i,h3{
+      css`h2,p,i,h3{
         filter:hue-rotate(${this.rotation}deg);
       }`,
     ]
@@ -106,6 +106,10 @@ export class PageTest extends CompElem {
   render(): Template{
     return html`<div>Hello CompElem</div>`
   }
+  //对于无需内部样式的组件（如容器类）可返回null，此时不会创建Shadow DOM
+  render(){
+    return null
+  }
   ```
 - ### 视图模板-属性表达式
 
@@ -132,20 +136,38 @@ export class PageTest extends CompElem {
   - kebab 短横线
   - snake 下划线
 
+- ### 无视图
+  对于无体组件无需定义渲染函数，常用于layout、grid等结构控制相关组件。无视图组件仅支持global及host样式，如
+  ```ts
+  static get hostStyle(): string {
+    return `
+      l-main{
+        display: block;
+        flex: 1;
+        overflow: hidden;
+      }
+    `;
+  }
+  ```
+  同样，无视图组件的renderRoot/renderRoots/...等属性都为空
+
 - ### 样式
-  使用静态函数定义组件样式或全局样式（如弹框）
+  使用静态函数定义组件样式或全局样式（如弹框），对于包裹在上级组件内的动态样式（如:hover）时，可通过hostStyles进行指定
   ```ts
   static get styles(): Array<string | CSSStyleSheet> {
     return [];
   }
-  static get globalStyles(): Array<string> {
-    return [];
+  static get globalStyle(): string {
+    return '';
+  }
+  static get hostStyle(): string {
+    return '';
   }
   ```
   对于需要动态控制 host 元素样式可以使用组件实例 getter
   ```ts
   get styles(){
-    return [()=>`:host{
+    return [css`:host{
       ${this.border?'border: 1px solid rgb(var(--l-color-border-secondary)); ':''}
     }`]
   }
@@ -171,7 +193,7 @@ export class PageTest extends CompElem {
   }
   ```
 
-  属性可以在组件内修改但默认不会同步父组件，除非显式指定`sync`或自行 emit update 事件
+  属性可以在组件内修改但默认不会同步父组件，除非显式指定`sync`或自行 emit `update:xxx` 事件
   全部注解参数见 `PropOption`
 
 - ### 状态
@@ -237,19 +259,26 @@ export class PageTest extends CompElem {
   - `readonly` rootComponent 根组件引用
   - `readonly` parentComponent 父组件引用，可能为空
   - `readonly` wrapperComponent 包装(组件所在视图归属)组件引用，可能为空
-  - `readonly` renderRoot/renderRoots 渲染根元素/渲染根元素列表
-  - `readonly` shadowRoot 阴影DOM
+  - `readonly` renderRoot/renderRoots 渲染根元素/渲染根元素列表，可能为空
+  - `readonly` shadowRoot 阴影DOM，可能为空
   - `readonly` slots 插槽元素映射
   - `readonly` slotHooks 动态插槽钩子映射
-  - `readonly` css 组件样式对象列表
+  - `readonly` styleSheets 组件样式对象列表
+  - `readonly` globalStyleSheet 通过静态getter创建的全局样式表对象，所有实例共享
   - `readonly` attrs 组件特性
   - `readonly` props 组件属性
+  - `readonly` isMounted 组件是否已挂载
+  - `readonly` isDestroyed 组件是否已销毁
   - slotComponent 所在插槽组件
   - on(evName: string, hook: (e: Event) => void) 在root元素上绑定事件
+  - off(evName: string, hook?: (e: Event) => void) 在root元素上卸载事件
+  - addEvent(node: Node, evName: string, hook: (e: Event) => void) 在指定元素上绑定事件
+  - removeEvent(node: Node, evName: string, hook?: (e: Event) => void) 在指定元素上卸载事件
   - emit(evName: string, arg: Record<string, any>, options?: {event?: Event;bubbles?: boolean;composed?: boolean;}) 抛出自定义事件
   - nextTick(cbk: () => void) 下一帧执行函数
   - forceUpdate() 强制更新一次视图
-  - insertStyleSheet(sheet: string | CSSStyleSheet): CSSStyleSheet 向组件插入样式表
+  - insertStyleSheet(sheet: string | CSSStyleSheet): CSSStyleSheet 向组件ShadowDOM插入样式表
+  - destroy() 销毁组件
 
 ## 组件渲染流程
 
@@ -379,7 +408,8 @@ return html` <l-tooltip>
 | ------- | --------- | ----------------------------------------------------------- | ------------------------------------------------------ |
 | bind    | TAG       | 绑定属性/特性到标签上，根据标签类型及组件 prop 定义自动判断 | `<div a="b" ${bind(obj)}>`                             |
 | show    | TAG       | 隐藏/显示标签（基于 display）                               | `<div a="b" ${show(visible)}>`                         |
-| model   | TAG       | 双向绑定                                                    | `<div a="b" ${model(xx,modelPath?)}>`                             |
+| model   | TAG       | 双向绑定                                                    | `<div a="b" ${model(xx,modelPath?)}>`    
+| sync   | PROP       | 类似Model，实现属性的同步跟踪                                                    | `<l-dialog .visible="${sync(this.visible)}">`                             |
 | classes | CLASS     | 绑定样式类属性，支持对象/数组/字符串。可以和静态字符混用    | `<div class="otherClass ${classes(obj)}>"`             |
 | styles  | STYLE     | 绑定样式规则属性，支持对象/字符串。可以和静态字符混用       | `<div style="a:b;${styles(obj)}>"`                     |
 | forEach | TEXT/SLOT | 输出循环结构                                                | `...>${forEach(ary,(item)=>html`...`)}<...`            |
@@ -388,6 +418,7 @@ return html` <l-tooltip>
 | when    | TEXT/SLOT | 多条件分支，支持 switch/ifelse 两种模式                     | ` ...>${when(condition,{c1:()=>html``,c2:...})}<... `  |
 | slot    | SLOT      | 动态插槽                                                    | ` ...>${slot((args) => html``)}<... `                  |
 | htmlD    | TAG      | 向指定元素插入HTML内容                                                    | `<div a="b" ${htmlD('<b>1</b>')}>`                  |
+| htmlC    | TEXT/SLOT      | 向指定文本位置插入指定HTML内容                                                    | `...>${htmlC('<b>1</b>')}><...`                  |
 
 ## 装饰器 Decorator
 
@@ -396,11 +427,12 @@ return html` <l-tooltip>
   > 设置 getter/setter 后，该属性的`@watch` 将会失效
 - @query/queryAll 定义 CssSelector 查询结果
 - @tag 自定义组件的标签名
-- @event 定义全局事件
 - @watch 监控 state/prop 变更
 - @computed 计算属性，仅在响应变量变更时更新缓存值
 - @debounced 定义函数防抖
-- @bindThis 为组件方法绑定this
+- @event 定义事件，支持修饰符
+- @onced 定义一次性事件
+- @throttled 定义节流函数
 
 #### 继承
   部分指令可由子类继承不会覆盖，包括@state/@prop/@watch/@computed

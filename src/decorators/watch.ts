@@ -1,36 +1,38 @@
-import { cloneDeep, has, isArray, isEmpty } from "myfx";
-import { DecoratorKey } from "../constants";
-import { PATH_SEPARATOR } from "../types";
+import { each, isArray } from "myfx";
+import { CompElem } from "../CompElem";
+import { DefinitionWatchMap } from "../constants";
+import { WatchOptions } from "../types";
+import { _getSuper } from "../utils";
 
 /**
- * 监控定义
+ * 监控prop/state变量值变化
+ * @param source 变量路径支持多级路径
+ * @param options 
+ * @returns 
  */
-export type WatchOptions = {
-  /**
-   * 是否立即执行
-   */
-  immediate?: boolean,
-  /**
-   * 是否深度监控
-   */
-  deep?: boolean,
-  /**
-   * 是否仅执行一次
-   */
-  once?: boolean
-}
 export function watch(source: string | string[], options?: WatchOptions): (target: any, name: any) => void {
   return (target: any, name: string) => {
-    if (!has(target.constructor, DecoratorKey.WATCH)) {
-      target.constructor[DecoratorKey.WATCH] = isEmpty(target.constructor[DecoratorKey.WATCH]) ? {} : cloneDeep(target.constructor[DecoratorKey.WATCH])
+    if (!DefinitionWatchMap.has(target.constructor.name)) {
+      const watchMap: Record<string, Record<string, any>[]> = {}
+      let parentCtor = target.constructor
+      while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
+        if (DefinitionWatchMap.has(parentCtor.name)) {
+          let parentMap = DefinitionWatchMap.get(parentCtor.name)
+          each(parentMap!, (list, k) => {
+            watchMap[k] = list
+          })
+        }
+      }
+
+      DefinitionWatchMap.set(target.constructor.name, watchMap)
     }
 
     const sources = isArray(source) ? source : [source]
     sources.forEach(src => {
-      let watchKey = src.replaceAll('.', PATH_SEPARATOR)
-      let srcList = target.constructor[DecoratorKey.WATCH][watchKey]
+      let srcList = DefinitionWatchMap.get(target.constructor.name)![src]
       if (!isArray(srcList)) {
-        srcList = target.constructor[DecoratorKey.WATCH][watchKey] = []
+        srcList = []
+        DefinitionWatchMap.get(target.constructor.name)![src] = srcList
       }
       srcList.push({ source: src, options, handler: target[name] })
     })

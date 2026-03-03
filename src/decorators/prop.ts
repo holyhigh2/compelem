@@ -1,62 +1,8 @@
-import { cloneDeep, defaults, each, has, isLowerCaseChar, kebabCase, merge, toArray } from "myfx"
+import { defaults, each, has, isLowerCaseChar, kebabCase, merge, set, toArray } from "myfx"
 import { CompElem } from "../CompElem"
-import { DecoratorKey } from "../constants"
-import { Constructor } from "../types"
+import { DefinitionPropMap, ObservedAttrsMap } from "../constants"
+import { PropOption } from "../types"
 import { _getSuper, showError } from "../utils"
-
-/**
- * 属性定义
- */
-export type PropOption = {
-  /**
-   * 参数类型
-   */
-  type: Constructor<any> | Array<Constructor<any>>,
-  /**
-   * 是否必填，默认false
-   */
-  required?: boolean,
-  /**
-   * 是否可以修改属性，默认false
-   */
-  sync?: boolean
-  /**
-   * 是否关联属性，prop会生成dom属性且当属性变动时自动更新值。默认true
-   */
-  attribute?: boolean,
-  /**
-   * 是否发生变更，如果未指定使用严格相等
-   * @param newValue 
-   * @param oldValue 
-   * @returns 
-   */
-  hasChanged?: (newValue: any, oldValue: any, changeChain: string[], subNewValue: any, subOldValue: any) => boolean,
-  /**
-   * 设置属性getter，可以通过 get 函数方式设置
-   * @returns 
-   */
-  getter?: () => any,
-  /**
-   * 设置属性setter，可以通过 set 函数方式设置
-   * @returns 
-   */
-  setter?: (v: any) => void,
-  /**
-   * 当传递参数值为string类型且参数类型不是string时会调用转换器进行转换
-   * @param stringValue 
-   * @returns 
-   */
-  converter?: (stringValue: string) => any,
-  _defaultValue?: any
-  /**
-   * 属性校验器，可动态校验值是否合法
-   * @param value 
-   * @returns 
-   */
-  isValid?: (value: any, props?: Record<string, any>) => boolean
-}
-//每个类需要监控的属性
-const ObservedAttrsMap: WeakMap<Function, Set<string>> = new WeakMap
 
 /**
  * 声明一个由外部传入的单向更新属性
@@ -88,17 +34,12 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
   }
 
   let attrSet: Set<string> | undefined
-  if (!has(target.constructor, DecoratorKey.PROPS)) {
+  if (!DefinitionPropMap.has(target.constructor.name)) {
     const mixinProps: Record<string, PropOption> = {}
     let parentCtor = target.constructor
     while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
-      merge(mixinProps, parentCtor[DecoratorKey.PROPS] ? cloneDeep(parentCtor[DecoratorKey.PROPS]) : {})
+      merge(mixinProps, DefinitionPropMap.get(parentCtor.name) ?? {})
     }
-    Reflect.defineProperty(target.constructor, DecoratorKey.PROPS, {
-      configurable: false,
-      enumerable: false,
-      value: mixinProps
-    })
     attrSet = new Set<string>()
     each(mixinProps, (v, k) => {
       if (v.attribute) {
@@ -106,7 +47,8 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
         attrSet?.add(kbb)
       }
     })
-    ObservedAttrsMap.set(target.constructor, attrSet)
+    ObservedAttrsMap.set(target.constructor.name, attrSet)
+    DefinitionPropMap.set(target.constructor.name, mixinProps)
   }
   if (descriptor) {
     if (descriptor.get) options.getter = descriptor.get
@@ -114,7 +56,7 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
   }
   if (options.attribute) {
     if (!attrSet) {
-      attrSet = ObservedAttrsMap.get(target.constructor)
+      attrSet = ObservedAttrsMap.get(target.constructor.name)
     }
     let kbb = kebabCase(propertyKey)
     attrSet?.add(kbb)
@@ -123,12 +65,13 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
   if (!has(target.constructor, 'observedAttributes')) {
     target.constructor.observedAttributes = []
   }
-  target.constructor.observedAttributes = toArray(attrSet)
-  target.constructor[DecoratorKey.PROPS][propertyKey] = options
+  if (attrSet)
+    target.constructor.observedAttributes = toArray(attrSet)
+  set(DefinitionPropMap.get(target.constructor.name)!, propertyKey, options)
 }
 
 //内部接口
 const emptySet = new Set<string>
 export function _getObservedAttrs(ctor: Function) {
-  return ObservedAttrsMap.get(ctor) ?? emptySet
+  return ObservedAttrsMap.get(ctor.name) ?? emptySet
 }

@@ -1,4 +1,5 @@
-import { closest, get, includes } from "myfx";
+import myfx, { closest, get, includes } from "myfx";
+import { CompElem } from "../CompElem";
 import { EvHadler } from "./event";
 /*************************************************************
  * 扩展事件
@@ -38,11 +39,21 @@ const resizeObserver = new ResizeObserver((entries) => {
     }
   }
 });
-function addResize(node: Element, cbk: EvHadler) {
+function addResize(node: Element, cbk: EvHadler, component: CompElem<any>) {
   if (AllResizeEls.has(node)) return;
 
   AllResizeEls.set(node, cbk)
   resizeObserver.observe(node);
+
+  //record
+  let observer = resizeObserver
+  return (remove = false) => {
+    observer.unobserve(node);
+    AllResizeEls.delete(node)
+    if (remove) {
+      observer = node = null as any
+    }
+  }
 }
 ///////////////////////////////////////////////// mutate
 enum MutationType {
@@ -94,7 +105,7 @@ const mutationObserver = new MutationObserver(mutations => {
     }
   }
 });
-function addMutation(node: Element, cbk: EvHadler, parts: string[]) {
+function addMutation(node: Element, cbk: EvHadler, parts: string[], component: CompElem<any>) {
   let child = includes(parts, 'child')
   let attr = includes(parts, 'attr')
   let char = includes(parts, 'char')
@@ -122,6 +133,14 @@ function addMutation(node: Element, cbk: EvHadler, parts: string[]) {
     characterData: char,
     subtree: tree
   })
+
+  //record
+  return (remove = false) => {
+    AllMutationEls.delete(node)
+    if (remove) {
+      node = null as any
+    }
+  }
 }
 
 ///////////////////////////////////////////////// outside
@@ -176,38 +195,48 @@ document.addEventListener('dblclick', e => {
     }
   })
 }, false)
-function addOutsideMouseDown(node: Element, cbk: EvHadler) {
+function addOutsideMouseDown(node: Element, cbk: EvHadler, component: CompElem<any>) {
   AllOutsideDownEls.push([node, cbk])
+
+  //record
+  return (remove = false) => {
+    myfx.remove(AllOutsideDownEls, el => el[0] === node && el[1] === cbk)
+  }
 }
-function addOutsideClick(node: Element, cbk: EvHadler) {
+function addOutsideClick(node: Element, cbk: EvHadler, component: CompElem<any>) {
   AllOutsideClickEls.push([node, cbk])
+  //record
+  return (remove = false) => {
+    myfx.remove(AllOutsideClickEls, el => el[0] === node && el[1] === cbk)
+  }
 }
-function addOutsideDblClick(node: Element, cbk: EvHadler) {
+function addOutsideDblClick(node: Element, cbk: EvHadler, component: CompElem<any>) {
   AllOutsideDblClickEls.push([node, cbk])
+  //record
+  return (remove = false) => {
+    myfx.remove(AllOutsideDblClickEls, el => el[0] === node && el[1] === cbk)
+  }
 }
 
 export function isExtEvent(evName: string) {
   return ExtEvNames.includes(evName)
 }
 
-export function addExtEvent(evName: string, node: Element, cbk: EvHadler, parts: string[]) {
+export function addExtEvent(evName: string, node: Element, cbk: EvHadler, parts: string[], component: CompElem<any>) {
   if (evName === 'resize') {
-    addResize(node, cbk)
+    return addResize(node, cbk, component)
   } else if (evName === 'outside') {
     switch (parts[0]) {
       case 'mousedown':
-        addOutsideMouseDown(node, cbk)
-        break;
+        return addOutsideMouseDown(node, cbk, component)
       case 'dblclick':
-        addOutsideDblClick(node, cbk)
-        break;
+        return addOutsideDblClick(node, cbk, component)
       case 'click':
       default:
-        addOutsideClick(node, cbk)
-        break;
+        return addOutsideClick(node, cbk, component)
     }
   } else if (evName === 'mutate') {
-    addMutation(node, cbk, parts)
+    return addMutation(node, cbk, parts, component)
   }
 }
 

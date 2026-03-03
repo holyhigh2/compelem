@@ -1,38 +1,24 @@
-import { cloneDeep, has, isEmpty } from "myfx";
+import { concat } from "myfx";
 import { CompElem } from "../CompElem";
-import { DecoratorKey } from "../constants";
-
-/**
- * 事件选项
- */
-export type EventOption = {
-  /**
-   * 事件绑定目标，默认document
-   */
-  target?: Object | ((comp?: CompElem) => (HTMLElement | Promise<HTMLElement>)),
-  /**
-   * 是否在捕获阶段执行
-   */
-  capture?: boolean,
-  /**
-   * 是否仅执行一次
-   */
-  once?: boolean
-  passive?: boolean
-}
+import { DefinitionCompEventMap } from "../constants";
+import { _getSuper } from "../utils";
 
 /**
  * 绑定非视图事件，如window/document等
- * @param eventName 事件名
- * @param immediate 立即执行
- * @param deep 深度监控
+ * @param eventName 事件名，含修饰参数。同视图模板中的事件名
+ * @param eventTarget 事件绑定目标，默认this
  */
-export function event(eventName: string, options?: EventOption) {
+export function event(eventName: string, eventTarget?: (comp?: CompElem) => (HTMLElement | Promise<HTMLElement> | Window)) {
   return (target: any, name: string, descriptor: PropertyDescriptor) => {
-    if (!has(target.constructor, DecoratorKey.EVENTS)) {
-      target.constructor[DecoratorKey.EVENTS] = isEmpty(target.constructor[DecoratorKey.EVENTS]) ? [] : cloneDeep(target.constructor[DecoratorKey.EVENTS])
+    if (!DefinitionCompEventMap.has(target.constructor.name)) {
+      let mixinEvents = []
+      let parentCtor = target.constructor
+      while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
+        mixinEvents = concat(mixinEvents, DefinitionCompEventMap.get(parentCtor.name) ?? [])
+      }
+      DefinitionCompEventMap.set(target.constructor.name, mixinEvents)
     }
 
-    target.constructor[DecoratorKey.EVENTS].push({ name: eventName, options, fn: target[name] })
+    DefinitionCompEventMap.get(target.constructor.name)?.push({ name: eventName, targetFn: eventTarget, fnName: name })
   };
 }

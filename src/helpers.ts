@@ -1,4 +1,4 @@
-import { each, isString, join, kebabCase, map, trim } from "myfx";
+import { isString, join, kebabCase, map, trim } from "myfx";
 /**
  * Css 辅助类
  */
@@ -13,7 +13,7 @@ export class CssHelper {
     return join(map(styles, (v, k: string) => {
       if (k.startsWith('--')) return k + ":" + v + (important ? ' !important' : '')
       return kebabCase(k) + ":" + v + (important ? ' !important' : '')
-    }), ';')
+    }), ';') + ';'
   }
 
   /**
@@ -23,16 +23,8 @@ export class CssHelper {
    * @returns 每个样式的旧值map
    */
   static setStyle(styles: Record<string, string> | string, node: HTMLElement) {
-    if (isString(styles) && !trim(styles)) return {}
+    if (isString(styles) && !trim(styles)) return
     let css = CssHelper.getCssText(styles)
-    let oldValueMap: Record<string, string> = {}
-    each(css.split(';'), prop => {
-      let kv = prop.split(':')
-      let k = trim(kv[0])
-      let v = trim(kv[1])
-      oldValueMap[k] = node.style.getPropertyValue(k)
-      node.style.setProperty(k, v)
-    })
-    return oldValueMap
+    node.style.cssText = css
   }
 }

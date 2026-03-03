@@ -1,10 +1,10 @@
+import { CssTemplate } from './render/CssTemplate';
+import { buildHTML, createRef, css, html } from "./render/render";
 import { Template } from './render/Template';
-import { buildHTML, createRef, html, RefObject } from "./render/render";
 
 //decorators
 export * from "./decorator/Decorator";
 export * from "./decorator/index";
-export * from "./decorators/bindThis";
 export * from "./decorators/computed";
 export * from "./decorators/debounced";
 export * from "./decorators/event";
@@ -31,7 +31,7 @@ export * from "./directives/Styles";
 export * from "./directives/Sync";
 export * from "./directives/When";
 
-export { buildHTML, createRef, html, RefObject, Template };
+export { buildHTML, createRef, css, CssTemplate, html, Template };
 
 export * from './CompElem';
 export * from './types';

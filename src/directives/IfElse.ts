@@ -1,5 +1,5 @@
 import { CompElem } from "../CompElem";
-import { EnterPoint, directive } from "../directive/index";
+import { directive } from "../directive/index";
 import { DirectiveUpdateTag, EnterPointType, TmplFn } from "../types";
 
 const LastTmplMap = new WeakMap()
@@ -9,8 +9,8 @@ const LastTmplMap = new WeakMap()
  * @param tmpl 模板
  */
 export const ifElse = directive(function IfElse(condition: boolean, ifTmpl: TmplFn, elseTmpl: TmplFn) {
-  return (point: EnterPoint, [condi, render]: any[], oldArgs: any[] | undefined, { renderComponent }: { renderComponent: CompElem }) => {
-    let el = point.endNode as HTMLElement
+  return (pointNode: Node, [condi, ifTmpl, elseTmpl]: any[], oldArgs: any[] | undefined, { renderComponent }: { renderComponent: CompElem }) => {
+    let el = pointNode as HTMLElement
 
     if (oldArgs) {
       //更新
@@ -24,7 +24,7 @@ export const ifElse = directive(function IfElse(condition: boolean, ifTmpl: Tmpl
     } else {
       let tmpl = condi ? ifTmpl : elseTmpl
       LastTmplMap.set(el, tmpl)
-      return [DirectiveUpdateTag.APPEND, tmpl.call(renderComponent, condition)]
+      return [DirectiveUpdateTag.APPEND, tmpl.call(renderComponent, condi)]
     }
   };
 }, [EnterPointType.TEXT, EnterPointType.SLOT])

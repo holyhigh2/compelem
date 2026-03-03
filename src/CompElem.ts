@@ -4,6 +4,7 @@ import {
   camelCase,
   cloneDeep,
   closest,
+  concat,
   debounce,
   each,
   filter,
@@ -23,8 +24,8 @@ import {
   isObject,
   isString,
   isUndefined,
-  join,
   kebabCase,
+  keys,
   last,
   merge,
   once,
@@ -34,23 +35,24 @@ import {
   set,
   size,
   some,
+  startsWith,
   test,
   toArray,
-  trim
+  trim,
+  walkTree
 } from "myfx";
-import { CollectorType, DecoratorKey } from "./constants";
-import { _DecoratorsKey, DecoratorWrapper } from "./decorator";
-import { bindThis } from "./decorators/bindThis";
-import { _getObservedAttrs, PropOption } from "./decorators/prop";
-import { StateOption } from "./decorators/state";
+import { ComponentDynamicCssUpdaterMap, DefinitionCompEventMap, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, DefinitionWatchMap, PATH_SEPARATOR, SLOT_NAME_DEFAULT } from "./constants";
+import { DecoratorWrapper } from "./decorator";
+import { _getObservedAttrs } from "./decorators/prop";
 import { WatchHandler } from "./decorators/watch";
 import { addEvent } from "./events/event";
 import { IComponent } from "./IComponent";
-import { Collector, OBJECT_VAR_PATH, Queue, reactive } from "./reactive";
-import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildView, ComponentEventsMap, ComponentUpdatePointsMap, updateDirectiveView, updateView } from "./render/render";
+import { Collector, EXTRA_CONTEXT_OF_VAR, OBJECT_VAR_PATH, PROXY_MAP, Queue, reactive } from "./reactive";
+import { CssTemplate } from "./render/CssTemplate";
+import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildView, updateSubScopeView, updateView } from "./render/render";
 import { Template } from "./render/Template";
-import { Constructor, DefaultProps, Getter, PATH_SEPARATOR, SlotOptions, TmplFn } from "./types";
-import { _toUpdatePath, getBooleanValue, isBooleanProp, showTagError } from "./utils";
+import { Constructor, DefaultProps, PropOption, SlotOptions, StateOption, TmplFn, UpdatePoint } from "./types";
+import { _getSuper, _toUpdatePath, getBooleanValue, isBooleanProp, showTagError } from "./utils";
 const PropTypeMap: Record<string, Constructor<any>> = {
   boolean: Boolean,
   string: String,
@@ -60,24 +62,24 @@ const PropTypeMap: Record<string, Constructor<any>> = {
   function: Function,
   undefined: Object
 }
-const PrivatePreffix = '#'
 //组件静态样式
-const ComponentStyleMap = new Map<string, CSSStyleSheet[]>()
+const ComponentStaticStyleMap = new WeakMap<CompElem<any>, CSSStyleSheet[]>()
 let DefaultCss: CSSStyleSheet[] = []
 let DefaultGlobalProps = {}
 let DefaultComponentProps: Record<string, any> = {}
 let CompElemSn = 0
 const SlotCompMap = new WeakMap()
-const GlobalStyleAppendedSet = new Set<string>()
-const HostStyleMap = new WeakMap<WeakKey, Constructor<any>[]>()
-export const PROP_OBJECT_KEY_MAP_SYMBOL = Symbol.for('PROP_OBJECT_KEY_MAP_SYMBOL')
+const EMPTY_SLOTS = {}
+const PROP_NAME_SLOTS = 'slots'
+
 /**
  * CompElem基类，意为组件元素。提供了基本内置属性及生命周期等必备接口
  * 每个组件都需要继承自该类
  *
  * @author holyhigh2
  */
-export class CompElem extends HTMLElement implements IComponent {
+export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent<T> {
+  static __l_globalRule = document.createElement("style");
   //设置全局/组件默认属性
   static defaults(options: DefaultProps) {
     DefaultCss = flatMap<string | CSSStyleSheet, CSSStyleSheet>(options.css!, c => {
@@ -101,12 +103,32 @@ export class CompElem extends HTMLElement implements IComponent {
 
   #cid: number
   #slotPropsMap: Record<string, Partial<SlotOptions>> = {}
-  #data: Record<string, any> = { '#slots': {} };
-  #reactiveData: Record<string, any> = {};
-  #updateSources: Record<string, { value: any; chain?: string[], oldValue?: any, end?: boolean }> = {};
+  #data: Record<string, any> = {};
+  #updateSources: Record<string, { value: any; chain?: string[], oldValue?: any, end?: boolean, subNewValue?: any, subOldValue?: any }> = {};
   #shadow: ShadowRoot;
   //保存所有渲染上下文 {CompElem/Directive}
-  __updateMap: Record<string, Set<Node | null>>
+  __updateTree: Array<UpdatePoint>
+  __cssSheets: Array<CSSStyleSheet>
+  _eventList: Array<[string, Function, Node, Function?]>
+  __docoEventMap: Map<string, Function>
+
+  __updateCssDeps: Array<string>
+  __updateSubViewDeps: Map<string, Set<UpdatePoint>>
+  __updateViewDeps: string[]
+
+  _watchUpdateMap: Record<string, Set<Function>>
+  _watchDeepUpdateMap: Record<string, Set<Function>>
+  _watchKeys: string[]
+  _watchKeysDeep: string[]
+  _watchUpdateSetInNextTick: Set<Function>
+  _watchUpdateArgsInNextTick: Map<Function, Record<string, any>>
+
+  _computedUpdateDeps: Map<string, Set<Function>>
+  _computedUpdateSetInNextTick: Set<Function>
+
+  _hasChangedPropOrStateMap: Map<string, Function>
+  _hasSyncPropSet: Set<string>
+  _hasShallowStateSet: Set<string>
 
   get [Symbol.toStringTag]() {
     return this.constructor.name;
@@ -114,50 +136,52 @@ export class CompElem extends HTMLElement implements IComponent {
   get cid() {
     return this.#cid
   }
-  get reactiveData() {
-    return this.#reactiveData
-  }
   get attrs(): Record<string, string> {
     return this.#attrs
   }
   get props(): Record<string, any> {
     return this.#props
   }
-  get renderRoot(): HTMLElement {
-    return this.#renderRoot;
+  get renderRoot(): T | undefined {
+    return this.#renderRoot?.deref() as T;
   }
   get renderRoots(): HTMLElement[] {
-    return this.#renderRoots;
+    return this.#renderRoots.flatMap(wr => wr.deref() ?? []);
   }
-  get parentComponent(): CompElem | null {
-    return this.#parentComponent;
+  get parentComponent(): CompElem | undefined {
+    return this.#parentComponent?.deref();
   }
-  get wrapperComponent(): CompElem | null {
-    return this.#wrapperComponent;
+  get wrapperComponent(): CompElem | undefined {
+    return this.#wrapperComponent?.deref();
   }
   get slotHooks() {
     return this.#slotHooks;
   }
   get styleSheets() {
-    return ComponentStyleMap.get(this.tagName)!
+    return ComponentStaticStyleMap.get(this)!
+  }
+  get globalStyleSheet() {
+    return CompElem.__l_globalRule.sheet!
   }
   get isMounted() {
     return this.#mounted
   }
-  //slots列表中绝对不会出现slot元素
-  get slots() {
-    return this.#data['#slots'] as Record<string, Array<Node>>
+  get slots(): Record<string, Array<Node>> {
+    return EMPTY_SLOTS
   }
   #attrs: Record<string, string>
   #props: Record<string, any>
-  #renderRoot: HTMLElement
-  #renderRoots: HTMLElement[]
-  #parentComponent: CompElem | null
-  #wrapperComponent: CompElem | null
+  #renderRoot: WeakRef<HTMLElement> | undefined
+  #renderRoots: WeakRef<HTMLElement>[]
+  #parentComponent: WeakRef<CompElem> | undefined
+  #wrapperComponent: WeakRef<CompElem> | undefined
   #slotsEl: Record<string, HTMLSlotElement> = {};
   #slotHooks: Record<string, (...args: any[]) => Template> = {};
   #slotNodes: Record<string, Node[]> = {};
   #mounted: boolean = false
+
+  #updateViewImmediately = false
+  #updateNextImmediatelyQ: Function[]
 
   //////////////////////////////////// styles
   /**
@@ -166,13 +190,13 @@ export class CompElem extends HTMLElement implements IComponent {
   static get styles(): Array<string | CSSStyleSheet> {
     return [];
   }
-  static get globalStyle(): string {
-    return '';
+  static get globalStyle(): string | undefined {
+    return undefined;
   }
-  static get hostStyles(): Array<string | CSSStyleSheet> {
-    return [];
+  static get hostStyle(): string | CSSStyleSheet | undefined {
+    return undefined;
   }
-  get styles(): Array<() => string> {
+  get styles(): Array<CssTemplate> {
     return []
   }
 
@@ -182,7 +206,7 @@ export class CompElem extends HTMLElement implements IComponent {
     super();
     this.#cid = CompElemSn++
 
-    this.__updateMap = {}
+    this.__updateTree = []
 
     //init props via constructor
     if (size(args) === 1) {
@@ -190,63 +214,17 @@ export class CompElem extends HTMLElement implements IComponent {
       assign(this.#props, first(args))
     }
 
-    let render = this.render.bind(this);
-    this.render = function () {
-      let rs
-      Collector.startRender(this);
-      rs = render();
-      Collector.endRender(this);
-      return rs;
-    }
-
-    /////////////////////////////////////////////////// styles
-    //global styles
-    let globalTextContent = get<string>(this.constructor, "globalStyle")
-    if (!isEmpty(globalTextContent)) {
-      let appended = GlobalStyleAppendedSet.has(globalTextContent)
-      if (isString(globalTextContent) && !appended) {
-        let style = document.createElement('style')
-        style.textContent += globalTextContent;
-        document.head.appendChild(style);
-
-        GlobalStyleAppendedSet.add(globalTextContent)
-      }
-    }
-    //component styles
-    let beAttached = ComponentStyleMap.get(this.tagName)
-    let styleSheets: CSSStyleSheet[] = beAttached ?? [];
-    if (!beAttached) {
-      each(get<[]>(this.constructor, "styles"), (st) => {
-        if (isString(st)) {
-          let sheet = new CSSStyleSheet();
-          sheet.replaceSync(st)
-          styleSheets.push(sheet);
-        } else {
-          styleSheets.push(st);
-        }
-      });
-      ComponentStyleMap.set(this.tagName, styleSheets)
-    }
-
-    /////////////////////////////////////////////////// shadow
-    this.#shadow = this.attachShadow({
-      mode: "open"
-    });
-
-    this.#shadow.adoptedStyleSheets = [...DefaultCss, ...styleSheets];
-
     /////////////////////////////////////////////////// slots
-    this.#updateSlotsAry()
-    //slots prop map
-    // this._slotsPropMap = { default: [] }
+    // this.#updateSlotsAry()
 
     /////////////////////////////////////////////////// decorators create
-    let ary: DecoratorWrapper[] = get(this.constructor, _DecoratorsKey)
+    let ary: DecoratorWrapper[] = DefinitionDecoratorMap.get(this.constructor.name) ?? DefinitionDecoratorMap.get(_getSuper(this.constructor as any).name)!
     ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => dw.create(this))
 
     this.#updatedD = this.#update.bind(this)
   }
-  insertStyleSheet(sheet: string | CSSStyleSheet): CSSStyleSheet {
+  insertStyleSheet(sheet: string | CSSStyleSheet): CSSStyleSheet | null {
+    if (!this.#shadow) return null
     let cssSheet: CSSStyleSheet;
     if (isString(sheet)) {
       cssSheet = new CSSStyleSheet();
@@ -255,15 +233,15 @@ export class CompElem extends HTMLElement implements IComponent {
       } catch (e) {
       }
     } else {
-      if (this.shadowRoot!.adoptedStyleSheets.includes(sheet)) return sheet
+      if (this.#shadow.adoptedStyleSheets.includes(sheet)) return sheet
 
       cssSheet = sheet;
     }
 
-    this.shadowRoot!.adoptedStyleSheets = [...this.shadowRoot!.adoptedStyleSheets, cssSheet]
+    this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, cssSheet]
 
     // Keep ComponentStyleMap in sync for this constructor
-    const cur = ComponentStyleMap.get(this.tagName) ?? [];
+    const cur = ComponentStaticStyleMap.get(this) ?? [];
     cur.push(cssSheet)
 
     return cssSheet;
@@ -272,7 +250,7 @@ export class CompElem extends HTMLElement implements IComponent {
    * Returns the root component in the parent chain, or itself if it's the top-level component.
    */
   get rootComponent(): CompElem {
-    let comp: CompElem = this;
+    let comp: CompElem<any> = this;
     while (comp.parentComponent) {
       comp = comp.parentComponent;
     }
@@ -290,44 +268,106 @@ export class CompElem extends HTMLElement implements IComponent {
     );
     this.#parentComponent = node
       ? node instanceof CompElem
-        ? node
-        : (node as ShadowRoot)!.host as CompElem
-      : null;
+        ? new WeakRef(node)
+        : new WeakRef((node as ShadowRoot)!.host as CompElem)
+      : undefined;
+
+    if (!CompElem.__l_globalRule.parentNode) {
+      document.head.appendChild(CompElem.__l_globalRule)
+    }
+
+    //host styles
+    let hostStyle = get<string | CSSStyleSheet>(this.constructor, "hostStyle")
+    let styleSheet: CSSStyleSheet = get(this.constructor, 'hostStyleSheet')
+    if (hostStyle) {
+      if (!styleSheet) {
+        if (isString(hostStyle)) {
+          styleSheet = new CSSStyleSheet();
+          styleSheet.replaceSync(hostStyle)
+        } else {
+          styleSheet = hostStyle
+        }
+        set(this.constructor, 'hostStyleSheet', styleSheet)
+      }
+      let styleRoot = this.#wrapperComponent?.deref()?.shadowRoot ?? this.#parentComponent?.deref()?.shadowRoot ?? this.ownerDocument
+      //detached el
+      if (this.#wrapperComponent && !this.#wrapperComponent.deref()?.shadowRoot?.contains(this)) {
+        styleRoot = closest(this, n => n instanceof HTMLDocument || n instanceof ShadowRoot, 'parentNode')!
+      }
+      if (styleRoot && styleSheet && !styleRoot.adoptedStyleSheets.includes(styleSheet)) {
+        styleRoot.adoptedStyleSheets = [...styleRoot.adoptedStyleSheets, styleSheet]
+      }
+    }
 
     this.__init();
     this.__bindEvents()
   }
 
   disconnectedCallback() {
-    each(this.#unbinders, cbk => cbk())
+    this.__unbindEvents()
   }
-
   __bindEvents() {
-    let evs = ComponentEventsMap.get(this.tagName)!
-    each(evs, ([evName, cbk], evId) => {
-      let el = this.renderRoot.querySelector('[data-ev-' + evId + ']')
-      if (!el) return
-      addEvent(evName, cbk ? cbk.bind(this) : cbk, el, this)
+    let evs = this._eventList
+    each(evs, (v: any) => {
+      let [evName, cbk, node, binded] = v
+      if (binded) return
+      if (!node) return
+      let handler = cbk ? cbk.bind(this) : cbk
+      let unbinder = addEvent(evName, handler, node, this)
+      v[3] = unbinder
     })
+
+    //event decoration
+    let events = DefinitionCompEventMap.get(this.constructor.name)!
+    if (size(events) > 0) {
+      if (!this.__docoEventMap)
+        this.__docoEventMap = new Map()
+      each(events, ({ name, targetFn, fnName }) => {
+        if (this.__docoEventMap.has(name + "@" + fnName)) return
+
+        let eventTarget = targetFn ? targetFn(this) : this
+        let cbk = get(this, fnName) as Function
+        let handler = cbk ? cbk.bind(this) : cbk
+        let unbinder = addEvent(name, handler, eventTarget, this)
+        this.__docoEventMap.set(name + "@" + fnName, unbinder!)
+      })
+    }
   }
-  #unbinders: Function[] = []
-  __regUnbindEvents(cbk: Function) {
-    this.#unbinders.push(cbk)
+  __unbindEvents() {
+    each(this._eventList, (v: any) => {
+      let [, , , unbinder] = v
+      if (unbinder) unbinder()
+      v[3] = null
+    })
+    let delDecoKeys: string[] = []
+    each(this.__docoEventMap, (unbinder: any, k: string) => {
+      if (unbinder) unbinder()
+      delDecoKeys.push(k)
+    })
+    delDecoKeys.forEach(k => this.__docoEventMap.delete(k))
   }
   beforeDestroyed() {
   }
-  get destroyed() {
+  destroyed() {
+  }
+  get isDestroyed() {
     return this.#destroyed
   }
   #destroyed = false
   destroy() {
+    if (this.#destroyed) return
+
     this.#destroyed = true
+
+    let ary: DecoratorWrapper[] = DefinitionDecoratorMap.get(this.constructor.name) ?? DefinitionDecoratorMap.get(_getSuper(this.constructor as any).name)!
+    ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
+      dw.destroy(this)
+    })
 
     this.beforeDestroyed()
 
     //events
-    each(this.#unbinders, cbk => cbk(true))
-    this.#unbinders = null as any
+    this.__unbindEvents()
 
     each(this.#rootEvs, (hooks, evName) => {
       each(hooks, hook => {
@@ -335,41 +375,92 @@ export class CompElem extends HTMLElement implements IComponent {
       })
       this.#rootEvs[evName] = null as any
     })
+
+    each(this.#nodeEvs, (hooks, evName) => {
+      each(hooks, ([hook, ref]) => {
+        ref.deref()?.removeEventListener(evName, hook);
+      })
+      this.#nodeEvs[evName] = null as any
+    })
+
+    this.__docoEventMap?.clear()
+    this.__docoEventMap = this._eventList = null as any
+
     //styles
-    ComponentStyleMap.delete(this.tagName)
+    ComponentStaticStyleMap.delete(this)
+    ComponentDynamicCssUpdaterMap.get(this)?.clear()
+    ComponentDynamicCssUpdaterMap.delete(this)
+
+    //reactive
+    this._watchUpdateArgsInNextTick?.clear()
+    this._watchUpdateSetInNextTick?.clear()
+    this._watchUpdateMap = this._watchDeepUpdateMap = this._watchKeys = this._watchKeysDeep = null as any
+
+    this._computedUpdateDeps?.clear()
+    this._computedUpdateSetInNextTick?.clear()
+    this._computedUpdateDeps = this._computedUpdateSetInNextTick = null as any
+
+    this.__updateCssDeps = this.__updateViewDeps = null as any
+    this.__updateSubViewDeps?.clear()
+
+    this._hasChangedPropOrStateMap?.clear()
+    this._hasShallowStateSet?.clear()
+    this._hasSyncPropSet?.clear()
+    this._hasChangedPropOrStateMap = this._hasShallowStateSet = this._hasSyncPropSet = null as any
 
     //sup scope
     if (this.#parentComponent) {
-      let pComp = this.#parentComponent
-      let parentUpdatePoint = ComponentUpdatePointsMap.get(pComp)
-      let ups = parentUpdatePoint?.filter(up => up.node === this || up.textNode === this)
-      ups?.forEach(up => up.destroy(pComp))
+      let pComp = this.#parentComponent.deref()
+      pComp && walkTree(pComp.__updateTree, (up) => {
+        if (up.__destroyed) return
+        if (up.node?.deref() === this) {
+          up.destroy(pComp)
+          remove(up.parent ? up.parent.children! : pComp.__updateTree, c => c === up)
+        }
+      })
     }
     //sub scopes
-    let updatePoint = ComponentUpdatePointsMap.get(this)
-    updatePoint?.forEach(up => up.destroy(this))
+    each(this.__updateTree, up => up?.destroy(this))
 
     //slots
-    each(this.#slotsEl, slot => {
-      slot.removeEventListener('slotchange', this.__onSlotChangeHook)
+    each(this.#slotsEl, (slotEl) => {
+      SlotCompMap.delete(slotEl)
+      slotEl.remove()
     })
+    each(this.#slotNodes, (nodes) => {
+      each(nodes, (node: Element) => node.remove())
+    })
+    each(this.#data.slots, (nodes: Node[], k) => {
+      each(nodes, (node: Element) => node.remove())
+    })
+    this.#updateSlots.clear();
+    this.#updateSlots = this.#slotPropsMap = this.#data.slots = null as any
+
+    this.remove()
+
     //data
-    this.#rootEvs =
+    this._wrapperProp =
+      this.#slotNodes =
+      this.#propsReady =
+      this.#renderRoot = this.#renderRoots = this.#shadow =
+      this.#rootEvs =
+      this.#nodeEvs =
       this.#updateSources =
-      this.#reactiveData =
       this.#attrs =
       this.#props =
       this.#renderRoot =
       this.#renderRoots =
       this.#slotHooks =
+      this.#updatedD =
       this.#data =
       this.#slotsEl =
-      this.__updateMap =
+      this.__updateTree =
       this.#parentComponent =
+      this._asyncDirectives =
       this.#wrapperComponent = null as any
     //unmount
-    this.remove()
 
+    this.destroyed()
   }
 
   //////////////////////////////////// lifecycles
@@ -381,10 +472,35 @@ export class CompElem extends HTMLElement implements IComponent {
     if (this.#initiating) return;
     this.#initiating = true;
 
-    /////////////////////////////////////////////////// slots
-    this.#updateSlotsAry()
+    let thisRef = new WeakRef(this);
+    /////////////////////////////////////////////////// styles
+    let dynamicStyleAry: Function[] = []
+    //global styles
+    let globalTextContent = get<string>(this.constructor, "globalStyle")
+    if (!isEmpty(globalTextContent) && isString(globalTextContent) && !get(this.constructor, '_globalRuleInserted')) {
+      CompElem.__l_globalRule.textContent += globalTextContent//.sheet?.insertRule(globalTextContent, 0)
+      set(this.constructor, '_globalRuleInserted', true)
+    }
+    //component styles
+    let beAttached2 = ComponentStaticStyleMap.get(this)
+    let styleSheets: CSSStyleSheet[] = beAttached2 ?? [];
+    if (!beAttached2) {
+      each(get<[]>(this.constructor, "styles"), (st) => {
+        if (isString(st)) {
+          let sheet = new CSSStyleSheet();
+          sheet.replaceSync(st)
+          styleSheets.push(sheet);
+        } else if (isFunction(st)) {
+          dynamicStyleAry.push(st)
+        } else {
+          styleSheets.push(st);
+        }
+      });
+      ComponentStaticStyleMap.set(this, styleSheets)
 
-    //1. Props & States
+    }
+
+    ////////////////////////////////////////////////// Props & States
     const props = this.#initProps();
 
     this.propsReady(props)
@@ -396,18 +512,69 @@ export class CompElem extends HTMLElement implements IComponent {
     this.#initStates();
 
     //2. Data
+    this.#data.slots = {}
     each(this.#data, (v, k: string) => {
       let descr = Reflect.getOwnPropertyDescriptor(this.#data, k);
       Reflect.defineProperty(this, k, {
         get() {
-          let v: any = Reflect.get(this.#reactiveData, k);
-          return descr?.get ? descr?.get() : v;
+          let thisHost = thisRef.deref()!
+          let v = descr?.get ? descr?.get() : Reflect.get(thisHost.#data, k)
+
+          if (Collector.__collecting) {
+            Collector.__varPathList.push(k)
+          }
+          if (PROXY_MAP.has(v)) {
+            let contextList = EXTRA_CONTEXT_OF_VAR.get(v)
+            if (!contextList) {
+              contextList = new Set()
+              EXTRA_CONTEXT_OF_VAR.set(v, contextList)
+            }
+            contextList.add(thisHost)
+            return PROXY_MAP.get(v)!
+          }
+
+          if (isObject(v) && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v)) {
+            let shallow = thisHost._hasShallowStateSet?.has(k)
+            v = shallow || k === PROP_NAME_SLOTS ? v : reactive(v, this, k)
+          }
+
+          return v
         },
         set(v) {
           if (descr?.set) {
             descr?.set(v)
           } else {
-            Reflect.set(this.#reactiveData, k, v);
+            let thisHost = thisRef.deref()!
+            if (!thisHost.#inited) {
+              Reflect.set(thisHost.#data, k, v);
+              return
+            }
+            let oldValue = thisHost.#data[k]
+
+            let hasChanged = thisHost._hasChangedPropOrStateMap?.get(k)
+            if (hasChanged) {
+              if (!hasChanged.call(thisHost, v, oldValue, [k], v, oldValue)) return true;
+            } else {
+              //默认对比算法
+              if (Object.is(oldValue, v)) {
+                return true;
+              }
+            }
+
+            //check watch
+            thisHost._requestWatchUpdate(v, oldValue, k)
+
+            //check computed
+            thisHost._requestComputedUpdate(k)
+
+            Reflect.set(thisHost.#data, k, v);
+
+            thisHost._notify(oldValue, [k])
+
+            //update sync
+            if (thisHost._hasSyncPropSet?.has(k)) {
+              thisHost.emit('update' + ":" + k, { value: v })
+            }
           }
         },
       });
@@ -417,172 +584,181 @@ export class CompElem extends HTMLElement implements IComponent {
       enumerable: false,
       value: true
     })
-    this.#reactiveData = reactive(this.#data, this);
 
-    //3. Computed
-    let computedMap: Record<string, Getter> =
-      get(this.constructor, DecoratorKey.COMPUTED);
-    each(computedMap, (getter, propKey) => {
-      Collector.startCollect(this, CollectorType.COMPUTED);
-      Collector.setUpdater(() => {
-        this.#reactiveData[propKey] = getter.call(this)
-      });
-      this.#data[propKey] = getter.call(this)
-      Collector.endCollect();
+    //3. Watch
+    let watchMap = DefinitionWatchMap.get(this.constructor.name) ?? DefinitionWatchMap.get(_getSuper(this.constructor as any).name)
+    if (watchMap) {
+      this._watchUpdateMap = {}
+      this._watchDeepUpdateMap = {}
+      this._watchKeys = []
+      this._watchKeysDeep = []
+      this._watchUpdateSetInNextTick = new Set()
+      this._watchUpdateArgsInNextTick = new Map()
+      each(watchMap, (watchList: Record<string, any>[], k: string) => {
+        watchList.forEach(v => {
+          let { source, options, handler } = v
+          let fn = handler.bind(this) as WatchHandler
+          let onceWatch = get(options, "once", false);
+          if (onceWatch) {
+            fn = once(fn)
+          }
+          let deep = get(options, "deep", false);
+          this._watchKeys.push(k)
 
-      Reflect.defineProperty(this, propKey, {
-        get() {
-          return Reflect.get(this.#reactiveData, propKey);
-        },
-        set(v) {
-          showTagError(this.tagName, "Cannot set a computed property '" + propKey + "'");
-        },
-      });
-    })
+          if (deep) {
+            this._watchDeepUpdateMap[k] = this._watchDeepUpdateMap[k] ?? new Set()
+            this._watchDeepUpdateMap[k].add(fn)
+            this._watchKeysDeep.push(k)
+          } else {
+            this._watchUpdateMap[k] = this._watchUpdateMap[k] ?? new Set()
+            this._watchUpdateMap[k].add(fn)
+          }
 
-    //4. Watch
-    let watchMap = get<Record<string, any>[]>(this.constructor, DecoratorKey.WATCH)
-    each(watchMap, (watchList: Record<string, any>[], k: string) => {
-      watchList.forEach(v => {
-        let { source, options, handler } = v
-        let fn = handler.bind(this) as WatchHandler
-        let onceWatch = get(options, "once", false);
-        if (onceWatch) {
-          fn = once(fn)
-        }
-        const updater = (function (path: string[], oldValue: any, subNewValue: any, subOldValue: any) {
-          let nv = get(this, source.replaceAll(PATH_SEPARATOR, '.'));
-          fn(nv, oldValue, join(path, '.'), subNewValue, subOldValue);
-        }).bind(this)
-        let deep = get(options, "deep", false);
-        updater.deep = deep
-        Collector.collectWatch(this, () => updater, k)
+          let immediate = get(options, "immediate", false);
+          if (!immediate) return
 
-        let immediate = get(options, "immediate", false);
-        if (!immediate) return
-
-        let nv = get(this, source.replaceAll(PATH_SEPARATOR, '.'));
-        fn(nv, undefined, source);
+          let nv = get(this, source);
+          fn(nv, undefined, source);
+        })
       })
-    })
-
-    //5. Render
-    let tmpl = this.render()
-    let nodes = buildView(tmpl, this)
-
-    if (nodes) {
-      this.#shadow.append(...nodes)
-
-      this.#renderRoots = filter<HTMLElement>(this.#shadow.childNodes, (n: Node) => n.nodeType === Node.ELEMENT_NODE);
-      this.#renderRoot = this.#renderRoots[0] as HTMLElement;
     }
 
-    /////////////////////////////////////////////////// before mount
+    //4. Computed
+    let computedMap = DefinitionComputedMap.get(this.constructor.name) ?? DefinitionComputedMap.get(_getSuper(this.constructor as any).name)
+    if (computedMap) {
+      this._computedUpdateDeps = new Map()
+      this._computedUpdateSetInNextTick = new Set()
+      each(computedMap, (getter, propKey) => {
+        set(getter, 'key', propKey)
+        Collector.start();
+        this.#data[propKey] = getter.call(this)
+        Collector.end();
+        let computedDeps = Collector.popVarPathList()
+        computedDeps.forEach(dep => {
+          let list = this._computedUpdateDeps.get(dep)
+          if (!list) {
+            list = new Set()
+            this._computedUpdateDeps.set(dep, list)
+          }
+          list.add(getter)
+        })
 
+        Reflect.defineProperty(this, propKey, {
+          get() {
+            let v = Reflect.get(thisRef.deref()!.#data, propKey)
+            if (Collector.__collecting) {
+              Collector.__varPathList.push(propKey)
+            }
+            return v
+          }
+        });
+      })
+    }
+
+    //5. Render
+    Collector.start();
+    let tmpl = this.render()
+    Collector.end();
+
+    let nodes: NodeListOf<ChildNode> | undefined
+    if (tmpl === null) {
+      this.#renderRoots = []
+      this.#renderRoot = undefined
+    } else {
+      /////////////////////////////////////////////////// shadow dom
+      this.#shadow = this.attachShadow({
+        mode: "open"
+      });
+      let viewDeps = Collector.popVarPathList()
+      this.__updateViewDeps = viewDeps
+
+      this.#shadow.adoptedStyleSheets = [...DefaultCss, ...(ComponentStaticStyleMap.get(this) ?? [])];
+      nodes = buildView(tmpl, this)
+      if (nodes) {
+        this.#renderRoots = filter<HTMLElement>(nodes, (n: Node) => n.nodeType === Node.ELEMENT_NODE).map<WeakRef<HTMLElement>>(n => new WeakRef(n))
+        this.#renderRoot = new WeakRef(nodes[0] as HTMLElement)
+      }
+    }
+
+    this.#inited = true;
+
+    /////////////////////////////////////////////////// slots
+    this.#updateSlotsAry()
     //slot hook
     each(this.#slotHooks, (v, k: string) => {
       this.#updateSlot(k)
     })
 
     const that = this
-    let ary: DecoratorWrapper[] = get(this.constructor, _DecoratorsKey)
+    let ary: DecoratorWrapper[] = DefinitionDecoratorMap.get(this.constructor.name) ?? DefinitionDecoratorMap.get(_getSuper(this.constructor as any).name)!
     ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
       dw.beforeMount(this, (key, value) => {
-        that.#reactiveData[key] = value
-        return that.#reactiveData[key]
+        that.#data[key] = value
+        return that.#data[key]
       })
     })
 
-    //host styles
-    let hostStyles = get<[]>(this.constructor, "hostStyles")
-    let styleRoot = this.#wrapperComponent?.shadowRoot ?? this.ownerDocument
-    let cls = HostStyleMap.get(styleRoot)
-    if (!HostStyleMap.get(styleRoot)) {
-      cls = []
-      HostStyleMap.set(styleRoot, cls)
-    }
-    if (!cls?.includes(this.constructor as any) && hostStyles.length > 0) {
-      let styleSheets: CSSStyleSheet[] = [];
-      each(hostStyles, (st) => {
-        if (isString(st)) {
-          let sheet = new CSSStyleSheet();
-          sheet.replaceSync(st)
-          styleSheets.push(sheet);
-        } else {
-          styleSheets.push(st);
-        }
-      });
-      styleRoot.adoptedStyleSheets = [...styleRoot.adoptedStyleSheets, ...styleSheets]
-      cls?.push(this.constructor as any)
-    }
-
     this.beforeMount();
-
-    //events
-    let eventList = get<Record<string, any>[]>(this.constructor, DecoratorKey.EVENTS)
-    eventList && eventList.forEach(async (ev) => {
-      let name = ev.name;
-      let options = assign({ target: document, once: false, passive: false, capture: false }, ev.options);
-      let listener = bind(ev.fn, this)
-      let target = options.target;
-      if (isFunction(target)) {
-        target = await target.call(this, this)
-      }
-      if (!target) {
-        showTagError(this.tagName, "The target of @event('" + name + "',...) is invalid");
+    setTimeout(() => {
+      if (this.isDestroyed) {
+        console.debug('Component is destroyed before mount', this.tagName)
         return
       }
-      target.addEventListener(name, listener, options)
-    })
-
-    setTimeout(() => {
 
       this.#mounted = true;
 
-      //instance dynamic style
-      Collector.startCollect(this, CollectorType.CSS);
-      let cssAry: CSSStyleSheet[] = []
-      this.styles.forEach(st => {
-        if (!isFunction(st)) return;
-        let cssss = new CSSStyleSheet()
-        cssAry.push(cssss)
+      if (this.#shadow) {
+        //instance dynamic style
+        let cssAry: CSSStyleSheet[] = []
+        Collector.start()
+        let cssTmpls = this.styles
+        Collector.end()
+        this.__updateCssDeps = Collector.popVarPathList()
+        cssTmpls.forEach(cssTmpl => {
+          let cssss = new CSSStyleSheet()
+          cssAry.push(cssss)
+          let css = cssTmpl.getCss(this)
+          if (isBlank(css)) return
 
-        Collector.setUpdater(() => {
-          let css = st() ?? ''
           cssss.replaceSync(css)
         })
-        let css = st()
-        if (isBlank(css)) return
 
-        cssss.replaceSync(css)
-      })
-      Collector.endCollect()
-
-      if (cssAry.length > 0) {
-        this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, ...cssAry];
+        if (cssAry.length > 0) {
+          this.__cssSheets = cssAry
+          this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, ...cssAry];
+        }
       }
 
-      this.mounted();
+      if (nodes)
+        this.#shadow.append(...nodes)
 
       ary && ary.forEach(dw => {
         dw.mounted(this, (key, value) => {
-          that.#reactiveData[key] = value
-          return that.#reactiveData[key]
+          that.#data[key] = value
+          return that.#data[key]
         })
       })
-    }, 0);
 
-    this.#inited = true;
+      if (this.#updateNextImmediatelyQ) {
+        this.#updateNextImmediatelyQ.forEach((cbk) => Queue.pushNext(cbk as any))
+      }
+      if (this.#updateViewImmediately) {
+        Queue.pushNext(this.#updatedD)
+      }
+
+      this.__bindEvents()
+
+      this.mounted();
+    }, 0)
   }
 
   propsReady(props: Record<string, any>) { }
-  render(): Template {
-    throw Error(`[CompElem <${this.tagName}>] Missing render()`)
+  render(): Template | null {
+    return null
   }
   beforeMount(): void { }
   mounted(): void { }
 
-  @bindThis
   __onSlotChangeHook(e: Event) {
     let t = e.currentTarget as HTMLSlotElement
     let name = ''
@@ -593,7 +769,7 @@ export class CompElem extends HTMLElement implements IComponent {
       }
     })
     if (this.#inited)
-      this.#onSlotChange(t, name === 'default' ? '' : name)
+      this.#onSlotChange(t, name === SLOT_NAME_DEFAULT ? '' : name)
   }
   #onSlotChange(slot: HTMLSlotElement, name: string) {
     //1. 更新 _slotsPropMap & slots
@@ -611,7 +787,7 @@ export class CompElem extends HTMLElement implements IComponent {
             if (node instanceof HTMLSlotElement) {
               let compOfSlot = SlotCompMap.get(node)
               if (compOfSlot) {
-                let sname = node.name || 'default'
+                let sname = node.name || SLOT_NAME_DEFAULT
                 let slotMap = compOfSlot.#slotPropsMap[sname]
                 if (!slotMap) {
                   slotMap = compOfSlot.#slotPropsMap[sname] = { props: {} }
@@ -638,17 +814,18 @@ export class CompElem extends HTMLElement implements IComponent {
   }
   slotChange(slot: HTMLSlotElement, name: string) { }
   attributeChangedCallback(attributeName: string, oldValue: string | null, newValue: string | null) {
+    if (!this.#inited) return
     if (Object.is(newValue, oldValue)) return
 
     let propName = camelCase(attributeName)
-    let propDef: PropOption = get(this.constructor, [DecoratorKey.PROPS, propName])
+    let propDef: PropOption = DefinitionPropMap.get(this.constructor.name)![propName]
 
     if (isBooleanProp(propDef.type)) {
       let v = isNull(newValue) ? false : getBooleanValue(newValue)
       if (get<boolean>(this, propName) === v) return
     }
 
-    this.#attrChanged(attributeName, oldValue, newValue)
+    this.__attrChanged(attributeName, oldValue, newValue)
   }
   //********************************** 更新
   /**
@@ -668,6 +845,7 @@ export class CompElem extends HTMLElement implements IComponent {
   updated(changed: Record<string, any>) { }
 
   #rootEvs: Record<string, any[]> = {};
+  #nodeEvs: Record<string, any[]> = {};
 
   /**
    * 由监控变量调用
@@ -676,62 +854,121 @@ export class CompElem extends HTMLElement implements IComponent {
    * @param rootStateKey 如果是对象内部属性变更，会返回根属性名
    * @returns
    */
-  _notify(ov: any, chain: string[]) {
-    //todo  1. 取消data - 0这个层级的监控；需要验证删除行时的路径
+  _notify(ov: any, chain: string[], subNewValue?: any, subOldValue?: any) {
     let varPath = [];
     for (let i = 0; i < chain.length; i++) {
       const seg = chain[i];
       varPath.push(seg);
       let v = get(this, varPath);
       let pathStr = _toUpdatePath(varPath);
-      this.#updateSources[pathStr] = { value: v, chain: pathStr === "slots" ? ['slots'] : varPath, oldValue: ov, end: varPath.length === chain.length };
+      this.#updateSources[pathStr] = { value: v, chain: pathStr === PROP_NAME_SLOTS ? [PROP_NAME_SLOTS] : varPath, oldValue: ov, end: varPath.length === chain.length, subNewValue, subOldValue };
     }
 
-    return this.#updatedD
+    if (!this.isMounted) {
+      console.debug('target update...', this.tagName)
+      this.#updateViewImmediately = true
+      return
+    }
+    Queue.pushNext(this.#updatedD)
   }
+
+  _requestWatchUpdate(newValue: any, oldValue: any, fullPath: string) {
+    this._watchKeys?.forEach(wk => {
+      if (fullPath === wk ||
+        (startsWith(wk, fullPath + '.') && !Object.is(get(this._getPrivateData(), wk), get(newValue, wk))) ||
+        (startsWith(fullPath, wk + '.') && this._watchKeysDeep.includes(wk) && !Object.is(get(this._getPrivateData(), wk), get(newValue, wk)))
+      ) {
+        concat(toArray(this._watchUpdateMap[wk]), toArray(this._watchDeepUpdateMap[wk])).forEach(fn => {
+          if (!fn) return
+          this._watchUpdateArgsInNextTick.set(fn, { newValue, oldValue, chain: fullPath.split('.') })
+          this._watchUpdateSetInNextTick.add(fn)
+        })
+      }
+    })
+  }
+  _requestComputedUpdate(fullPath: string) {
+    if (this._computedUpdateDeps?.has(fullPath)) {
+      this._computedUpdateDeps.get(fullPath)?.forEach(fn => {
+        this._computedUpdateSetInNextTick.add(fn)
+      })
+    }
+  }
+
   #update() {
-    if (size(this.#updateSources) < 1) return;
+    if (size(this.#updateSources) < 1) return
     if (!this.isMounted) return
 
     const changed = this.#updateSources
     this.#updateSources = {}
 
-    let toBreak = !this.shouldUpdate(changed);
-    if (toBreak) return;
+    let toBreak = !this.shouldUpdate(changed)
+    if (toBreak) return
 
     const changedKeys = Object.keys(changed)
     //update decorators
-    let ary: DecoratorWrapper[] = get(this.constructor, _DecoratorsKey)
+    let ary: DecoratorWrapper[] = DefinitionDecoratorMap.get(this.constructor.name) ?? DefinitionDecoratorMap.get(_getSuper(this.constructor as any).name)!
     ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
       dw.updated(this, changed)
     })
 
-    let updateList: Set<Node | null> = new Set()
-
     //1. filter update point
-    const rcl = this.__updateMap
+    let toUpdateCss = false
+    let toUpdateView = false
+    let toUpdateUps = new Set<UpdatePoint>()
     each(changed, (x, k: string) => {
-      if (rcl[k]) {
-        rcl[k].forEach(cx => {
-          updateList.add(cx)
-        })
+      if (this.__updateCssDeps?.includes(k)) {
+        toUpdateCss = true
+      }
+
+      if (!toUpdateView && this.__updateViewDeps?.includes(k)) {
+        toUpdateView = true
+      }
+      if (this.__updateSubViewDeps?.has(k)) {
+        let ups = this.__updateSubViewDeps.get(k)
+        if (ups) toUpdateUps = toUpdateUps.union(ups)
       }
     });
+    //update watch
+    this._watchUpdateSetInNextTick?.forEach((fn) => {
+      let { newValue, oldValue, chain } = this._watchUpdateArgsInNextTick.get(fn)!
+      fn(newValue, oldValue, chain)
+    })
+    this._watchUpdateSetInNextTick?.clear()
+    this._watchUpdateArgsInNextTick?.clear()
+    // update computed
+    this._computedUpdateSetInNextTick?.forEach(fn => {
+      let k = get<string>(fn, 'key')
+      let oldValue = this.#data[k]
+      let newValue = fn.call(this)
+      if (!isObject(newValue) && newValue === oldValue) return
+
+      this.#data[k] = newValue
+      this._notify(oldValue, [k])
+    })
+    this._computedUpdateSetInNextTick?.clear()
 
     //2. update view
-    updateList.forEach(context => {
-      if (context === null) {
-        updateView(this.render(), this, undefined, changedKeys);
-      } else {
-        //指令在这里仅更新视图
-        updateDirectiveView(context, this, undefined, undefined, changedKeys)
+    if (this.#renderRoot?.deref()) {
+      if (toUpdateView) {
+        console.debug('update view....', this.constructor.name)
+        updateView(this.render()!, this, this.__updateTree, changedKeys);
       }
-    })
+      if (size(toUpdateUps) > 0) {
+        toUpdateUps.forEach(up => {
+          updateSubScopeView(up, this, undefined, changedKeys)
+        })
+      }
+    }
 
     //update slot view
     this.#updateSlots.forEach((v) => {
       this.#updateSlot(v)
     })
+
+    //update dcss
+    if (toUpdateCss) {
+      this.#updateCss()
+    }
 
     this.updated(changed);
   }
@@ -743,10 +980,7 @@ export class CompElem extends HTMLElement implements IComponent {
    * @returns 非props的attr集合
    */
   #initProps() {
-    let propDefs: Record<string, PropOption> = get(
-      this.constructor,
-      DecoratorKey.PROPS
-    );
+    let propDefs = DefinitionPropMap.get(this.constructor.name) ?? DefinitionPropMap.get(_getSuper(this.constructor as any).name)
     let attrs = this.attributes;
     let tagName = this.tagName;
     let parentProps = this.#props;
@@ -786,6 +1020,18 @@ export class CompElem extends HTMLElement implements IComponent {
           let inferredType = PropTypeMap[type]
           propDef.type = inferredType
         }
+      }
+      if (propDef.hasChanged) {
+        if (!this._hasChangedPropOrStateMap) {
+          this._hasChangedPropOrStateMap = new Map()
+        }
+        this._hasChangedPropOrStateMap.set(key, propDef.hasChanged)
+      }
+      if (propDef.sync) {
+        if (!this._hasSyncPropSet) {
+          this._hasSyncPropSet = new Set()
+        }
+        this._hasSyncPropSet.add(key)
       }
 
       let val = undefined;
@@ -939,21 +1185,31 @@ export class CompElem extends HTMLElement implements IComponent {
     return val;
   }
   #initStates() {
-    let stateDefs: Record<string, StateOption> = get(
-      this.constructor,
-      DecoratorKey.STATES
-    );
+    let stateDefs = DefinitionStateMap.get(this.constructor.name) ?? DefinitionStateMap.get(_getSuper(this.constructor as any).name)
+    if (stateDefs)
+      each<StateOption, string>(stateDefs, (def, key) => {
+        let stateDef = stateDefs[key];
+        let val = get(this, key);
+        if (stateDef) {
+          let propName = stateDef.prop;
+          val = propName ? cloneDeep(this.#data[propName]) : get(this, key);
+        }
 
-    each<StateOption, string>(stateDefs, (def, key) => {
-      let stateDef = stateDefs[key];
-      let val = get(this, key);
-      if (stateDef) {
-        let propName = stateDef.prop;
-        val = propName ? cloneDeep(this.#data[propName]) : get(this, key);
-      }
+        if (stateDef.hasChanged) {
+          if (!this._hasChangedPropOrStateMap) {
+            this._hasChangedPropOrStateMap = new Map()
+          }
+          this._hasChangedPropOrStateMap.set(key, stateDef.hasChanged)
+        }
+        if (stateDef.shallow) {
+          if (!this._hasShallowStateSet) {
+            this._hasShallowStateSet = new Set()
+          }
+          this._hasShallowStateSet.add(key)
+        }
 
-      this.#data[key] = val;
-    });
+        this.#data[key] = val;
+      });
   }
   /**
    * 由外部调用，在初始化及更新时。
@@ -963,10 +1219,8 @@ export class CompElem extends HTMLElement implements IComponent {
   #propsReady = debounce(this.propsReady, 100)
   //todo 这里需要直接修改prop
   _updateProps(props: Record<string, any>) {
-    let propDefs: Record<string, PropOption> = get(
-      this.constructor,
-      DecoratorKey.PROPS
-    );
+    let propDefs = DefinitionPropMap.get(this.constructor.name)
+    if (!propDefs) return
     let need2UpdateAttrs: Array<any> = []
     //存在attrs表示已初始化完成
     each(props, (v, k: string) => {
@@ -979,9 +1233,7 @@ export class CompElem extends HTMLElement implements IComponent {
         need2UpdateAttrs.push([propDef, ck, v])
       }
 
-      Collector.__skipCheck = true;
       set(this, ck, v)
-      Collector.__skipCheck = false;
     })
     assign(this.#props, props)
 
@@ -1003,11 +1255,11 @@ export class CompElem extends HTMLElement implements IComponent {
         if (fromPath) {
           let propPath = fromPath.join(PATH_SEPARATOR)
           this._wrapperProp[propPath] = k
-          let parentStateDefs = get<Record<string, any>>(this.wrapperComponent?.constructor, DecoratorKey.STATES)
+          let parentStateDefs = this.wrapperComponent ? DefinitionStateMap.get(this.wrapperComponent?.constructor!.name) : null
           let parentStateKey = fromPath[0]
           if (parentStateDefs && parentStateDefs[parentStateKey]) {
-            let propDefs = get<Record<string, any>>(this.constructor, DecoratorKey.PROPS)
-            set(propDefs, [k, 'shallow'], parentStateDefs[parentStateKey].shallow)
+            let propDefs = DefinitionPropMap.get(this.constructor.name)
+            set(propDefs!, [k, 'shallow'], parentStateDefs[parentStateKey].shallow)
           }
         }
       }
@@ -1023,7 +1275,7 @@ export class CompElem extends HTMLElement implements IComponent {
       SlotCompMap.set(slot, this)
     }
 
-    slot.addEventListener('slotchange', this.__onSlotChangeHook)
+    this.addEvent(slot, 'slotchange', this.__onSlotChangeHook)
 
     //3. 保存参数
     if (!isEmpty(props)) {
@@ -1064,6 +1316,10 @@ export class CompElem extends HTMLElement implements IComponent {
     }
   }
   #updateSlotsAry() {
+    if (!this.#renderRoot) return
+    let slotKeys = keys(this.#slotsEl)
+    if (isEmpty(slotKeys)) return
+
     const cs = flatMap(this.childNodes, node => {
       if (node.nodeType === Node.COMMENT_NODE) return []
       if (node instanceof HTMLSlotElement) return node.assignedNodes({ flatten: true })
@@ -1071,16 +1327,15 @@ export class CompElem extends HTMLElement implements IComponent {
     })
 
     let groups = groupBy<Node>(cs, node => {
-      if (node.nodeType === Node.TEXT_NODE) return 'default'
+      if (node.nodeType === Node.TEXT_NODE && slotKeys.includes(SLOT_NAME_DEFAULT)) return SLOT_NAME_DEFAULT
       if (node instanceof Element) {
-        return node.getAttribute('slot') || 'default'
+        let sName = node.getAttribute('slot') || SLOT_NAME_DEFAULT
+        if (slotKeys.includes(sName))
+          return sName
       }
     })
     if (isEmpty(groups)) {
-      if (!isEmpty(this.#data['#slots'])) {
-        this.#inited ? this.#reactiveData['#slots'] = {} : this.#data['#slots'] = {};
-      }
-
+      (this as any).slots = {};
       return;
     }
 
@@ -1115,14 +1370,14 @@ export class CompElem extends HTMLElement implements IComponent {
       }
     })
 
-    this.#inited ? this.#reactiveData['#slots'] = rs : this.#data['#slots'] = rs;
+      ; (this as any).slots = rs;
   }
   #updateSlot(name: string) {
     let hook = this.#slotHooks[name]
     if (!hook) return;
     let slotMap = this.#slotPropsMap[name]
-
-    let slot = this.#data['#slots'][name]
+    if (!this.#data.slots) return
+    let slot = this.#data.slots[name]
     //slot not ready yet
     //1. 可能是if/each等指令还未插入
     if (!slot) return
@@ -1152,50 +1407,49 @@ export class CompElem extends HTMLElement implements IComponent {
   }
   _asyncDirectives = new WeakMap<TmplFn, any>()
   renderAsync(cbk: TmplFn, ...args: any[]) {
-
   }
 
-  #attrChanged(name: string, oldValue: string | null, newValue: string | null) {
+  #updateCss() {
+    let cssTmpls = this.styles
+
+    cssTmpls.forEach((cssTmpl, i) => {
+      let cssss = this.__cssSheets[i]
+      let css = cssTmpl.getCss(this)
+      cssss.replaceSync(css)
+    })
+  }
+
+  __attrChanged(name: string, oldValue: string | null, newValue: string | null) {
     if (!this.#inited) return;
     let observedAttrs = _getObservedAttrs(this.constructor)
     if (observedAttrs.has(name)) {
       let camelName = camelCase(name)
       if (isNull(newValue)) {
-        let propDefs: Record<string, PropOption> = get(
-          this.constructor,
-          DecoratorKey.PROPS
-        );
+        let propDefs = DefinitionPropMap.get(this.constructor.name)
         //使用默认值
-        newValue = propDefs[camelName]._defaultValue
+        if (propDefs)
+          newValue = propDefs[camelName]._defaultValue
       }
       this._updateProps({ [camelName]: newValue })
     }
   }
-  /**
-   * todo 
-   * 1. 取消上溯递归路径
-   */
-  _regDeps(varPath: string, renderContext: Node) {
-    let list = this.__updateMap[varPath]
-    if (!list) {
-      list = this.__updateMap[varPath] = new Set<Node>()
-    }
 
-    list.add(this === renderContext ? null : renderContext)
-
-    let restPath = varPath.split(PATH_SEPARATOR)
-    restPath.pop()
-    if (restPath.length < 1) return;
-    let upperPath = restPath.join(PATH_SEPARATOR)
-
-    list = this.__updateMap[upperPath]
-    if (!list) {
-      list = this.__updateMap[upperPath] = new Set<Node>()
-    }
-    list.add(this === renderContext ? null : renderContext)
-  }
   _regWrapper(wrapperComponent: CompElem) {
-    this.#wrapperComponent = wrapperComponent
+    this.#wrapperComponent = new WeakRef(wrapperComponent)
+  }
+  _regSubViewDeps(props: string[], up: UpdatePoint) {
+    if (!this.__updateSubViewDeps) {
+      this.__updateSubViewDeps = new Map()
+    }
+    props.forEach(prop => {
+      let depSet = this.__updateSubViewDeps.get(prop)
+      if (!depSet) {
+        depSet = new Set()
+        this.__updateSubViewDeps.set(prop, depSet)
+      }
+      depSet.add(up)
+    })
+
   }
   _getPrivateData() {
     return this.#data
@@ -1255,18 +1509,48 @@ export class CompElem extends HTMLElement implements IComponent {
       this.#rootEvs[evName] = []
     }
   }
+  addEvent(node: Node, evName: string, hook: (e: Event) => void) {
+    if (!this.#nodeEvs[evName]) {
+      this.#nodeEvs[evName] = [];
+    }
+    let cbk = hook.bind(this);
+    this.#nodeEvs[evName].push([cbk, new WeakRef(node)]);
+    node.addEventListener(evName, cbk);
+    return cbk
+  }
+  removeEvent(node: Node, evName: string, hook?: (e: Event) => void) {
+    if (hook) {
+      node.removeEventListener(evName, hook);
+      remove(this.#nodeEvs[evName], ([cbk]) => cbk === hook)
+    } else {
+      each(this.#nodeEvs[evName], ([cbk]) => {
+        node.removeEventListener(evName, cbk);
+      })
+      this.#nodeEvs[evName] = []
+    }
+  }
   /**
    * 下一帧执行
    * @param cbk
    */
-  nextTick(cbk: () => void, key?: string) {
-    Queue.pushNext(cbk, key)
+  nextTick(cbk: () => void) {
+    if (!this.isMounted) {
+      if (!this.#updateNextImmediatelyQ) {
+        this.#updateNextImmediatelyQ = []
+      }
+
+      console.debug('target update...', this.tagName)
+      this.#updateNextImmediatelyQ.push(cbk)
+      return
+    }
+
+    Queue.pushNext(cbk)
   }
   /**
    * 强制更新一次视图
    */
   forceUpdate() {
-    each(this.#reactiveData, (v, k: string) => {
+    each(this.#data, (v, k: string) => {
       this.#updateSources[k] = {
         value: undefined,
         chain: undefined,

@@ -1,25 +1,8 @@
-import { cloneDeep, has, merge } from "myfx";
+import { merge, set } from "myfx";
 import { CompElem } from "../CompElem";
-import { DecoratorKey } from "../constants";
+import { DefinitionStateMap } from "../constants";
+import { StateOption } from "../types";
 import { _getSuper } from "../utils";
-
-export type StateOption = {
-  /**
-   * 是否浅层监控，默认false
-   */
-  shallow?: boolean,
-  /**
-   * 指定prop进行初始化，如果时对象类型时
-   */
-  prop?: string,
-  /**
-   * 是否发生变更，如果未指定使用严格相等
-   * @param newValue 
-   * @param oldValue 
-   * @returns 
-   */
-  hasChanged?: (newValue: any, oldValue: any, changeChain: string[], subNewValue: any, subOldValue: any) => boolean
-};
 
 /**
  * 声明一个可双向变动的属性
@@ -42,20 +25,16 @@ export function state(options: StateOption) {
 }
 
 function defineState(target: any, stateKey: string, options: StateOption) {
-  if (!has(target.constructor, DecoratorKey.STATES)) {
+  if (!DefinitionStateMap.has(target.constructor.name)) {
     const mixinStates = {}
     let parentCtor = target.constructor
     while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
-      merge(mixinStates, parentCtor[DecoratorKey.STATES] ? cloneDeep(parentCtor[DecoratorKey.STATES]) : {})
+      merge(mixinStates, DefinitionStateMap.get(parentCtor.name) ?? {})
     }
-    Reflect.defineProperty(target.constructor, DecoratorKey.STATES, {
-      configurable: false,
-      enumerable: false,
-      value: mixinStates
-    })
+    DefinitionStateMap.set(target.constructor.name, mixinStates)
   }
   options.shallow = options.shallow || false;
-  target.constructor[DecoratorKey.STATES][stateKey] = options;
+  set(DefinitionStateMap.get(target.constructor.name)!, stateKey, options)
 }
 
 /**

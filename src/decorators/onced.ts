@@ -9,7 +9,6 @@ import { Decorator, DecoratorType } from "../decorator/Decorator";
  * @example
  *  @onced
  *
- * @param wait 抖动间隔，单位ms
  */
 class OncedDecorator extends Decorator {
   static get priority(): number {
@@ -18,25 +17,15 @@ class OncedDecorator extends Decorator {
   created(component: CompElem, classProto: CompElem, fieldName: string, ...args: any[]) {
     let fn = bind(get(component, fieldName), component)
     set(component, fieldName, once(fn as any))
+    set(component, fieldName + '_$__', fn)
 
-    let proto = Reflect.getPrototypeOf(component)
-    if (proto && !get(proto, fieldName + '_$__')) {
-      set(proto, fieldName + '_$__', fn)
-    }
   }
-  beforeMount(component: CompElem, setReactive: (key: string, value: any) => any, ...args: any[]) {
-  }
-  mounted(component: CompElem, setReactive: (key: string, value: any) => any, ...args: any[]) {
-  }
-  updated(component: CompElem, changed: Record<string, any>) {
+  beforeDestroy(component: CompElem, fieldName: string): void {
+    set(component, fieldName, null)
+    set(component, fieldName + '_$__', null)
   }
   get targets(): DecoratorType[] {
     return [DecoratorType.METHOD]
-  }
-  wait: number
-  result: any;
-  constructor() {
-    super();
   }
 }
 
