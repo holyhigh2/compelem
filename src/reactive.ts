@@ -128,7 +128,7 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
 
       let k = subChain.join('.')
       //check watch
-      context._requestWatchUpdate(nv, ov, k)
+      context._requestWatchUpdate(nv, ov, k, rootObjNew, rootObjOld)
       //check computed
       context._requestComputedUpdate(k)
 

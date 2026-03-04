@@ -28,7 +28,6 @@ import {
   keys,
   last,
   merge,
-  once,
   parseJSON,
   reject,
   remove,
@@ -44,7 +43,6 @@ import {
 import { ComponentDynamicCssUpdaterMap, DefinitionCompEventMap, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, DefinitionWatchMap, PATH_SEPARATOR, SLOT_NAME_DEFAULT } from "./constants";
 import { DecoratorWrapper } from "./decorator";
 import { _getObservedAttrs } from "./decorators/prop";
-import { WatchHandler } from "./decorators/watch";
 import { addEvent } from "./events/event";
 import { IComponent } from "./IComponent";
 import { Collector, EXTRA_CONTEXT_OF_VAR, OBJECT_VAR_PATH, PROXY_MAP, Queue, reactive } from "./reactive";
@@ -119,6 +117,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   _watchUpdateMap: Record<string, Set<Function>>
   _watchDeepUpdateMap: Record<string, Set<Function>>
   _watchKeys: string[]
+  _watchKeysOnceMap: Map<string, boolean>
   _watchKeysDeep: string[]
   _watchUpdateSetInNextTick: Set<Function>
   _watchUpdateArgsInNextTick: Map<Function, Record<string, any>>
@@ -394,7 +393,8 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     //reactive
     this._watchUpdateArgsInNextTick?.clear()
     this._watchUpdateSetInNextTick?.clear()
-    this._watchUpdateMap = this._watchDeepUpdateMap = this._watchKeys = this._watchKeysDeep = null as any
+    this._watchKeysOnceMap?.clear()
+    this._watchUpdateMap = this._watchDeepUpdateMap = this._watchKeys = this._watchKeysDeep = this._watchKeysOnceMap = null as any
 
     this._computedUpdateDeps?.clear()
     this._computedUpdateSetInNextTick?.clear()
@@ -594,13 +594,14 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       this._watchKeysDeep = []
       this._watchUpdateSetInNextTick = new Set()
       this._watchUpdateArgsInNextTick = new Map()
+      this._watchKeysOnceMap = new Map()
       each(watchMap, (watchList: Record<string, any>[], k: string) => {
         watchList.forEach(v => {
           let { source, options, handler } = v
-          let fn = handler.bind(this) as WatchHandler
+          let fn = handler
           let onceWatch = get(options, "once", false);
           if (onceWatch) {
-            fn = once(fn)
+            this._watchKeysOnceMap.set(k, false)
           }
           let deep = get(options, "deep", false);
           this._watchKeys.push(k)
@@ -618,7 +619,10 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
           if (!immediate) return
 
           let nv = get(this, source);
-          fn(nv, undefined, source);
+          fn.call(this, nv, undefined, source);
+          if (onceWatch) {
+            this._watchKeysOnceMap.set(k, true)
+          }
         })
       })
     }
@@ -872,7 +876,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     Queue.pushNext(this.#updatedD)
   }
 
-  _requestWatchUpdate(newValue: any, oldValue: any, fullPath: string) {
+  _requestWatchUpdate(newValue: any, oldValue: any, fullPath: string, rootObjNew?: any, rootObjOld?: any) {
     this._watchKeys?.forEach(wk => {
       if (fullPath === wk ||
         (startsWith(wk, fullPath + '.') && !Object.is(get(this._getPrivateData(), wk), get(newValue, wk))) ||
@@ -880,8 +884,13 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       ) {
         concat(toArray(this._watchUpdateMap[wk]), toArray(this._watchDeepUpdateMap[wk])).forEach(fn => {
           if (!fn) return
-          this._watchUpdateArgsInNextTick.set(fn, { newValue, oldValue, chain: fullPath.split('.') })
+          if (this._watchKeysOnceMap.get(wk) === true) return
+          this._watchUpdateArgsInNextTick.set(fn, {
+            newValue, oldValue, chain: fullPath.split('.'), rootObjNew, rootObjOld, fullMatch: wk === fullPath
+          })
           this._watchUpdateSetInNextTick.add(fn)
+          if (this._watchKeysOnceMap.has(wk))
+            this._watchKeysOnceMap.set(wk, true)
         })
       }
     })
@@ -930,8 +939,10 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     });
     //update watch
     this._watchUpdateSetInNextTick?.forEach((fn) => {
-      let { newValue, oldValue, chain } = this._watchUpdateArgsInNextTick.get(fn)!
-      fn(newValue, oldValue, chain)
+      let { newValue, oldValue, chain, rootObjNew, rootObjOld, fullMatch } = this._watchUpdateArgsInNextTick.get(fn)!
+      let nv = fullMatch ? newValue : rootObjNew
+      let ov = fullMatch ? oldValue : rootObjOld
+      fn.call(this, nv, ov, chain, newValue, oldValue)
     })
     this._watchUpdateSetInNextTick?.clear()
     this._watchUpdateArgsInNextTick?.clear()
