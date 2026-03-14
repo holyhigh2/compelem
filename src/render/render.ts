@@ -34,7 +34,6 @@ import {
 import { Collector } from "../reactive";
 import { DirectiveInstance, EnterPointType, UpdatePoint } from "../types";
 import { DomUtil, getSlotComponent, showError, showTagError } from "../utils";
-import { CssTemplate } from "./CssTemplate";
 import { Template } from "./Template";
 
 export const ATTR_PREFIX_EVENT = "@";
@@ -50,7 +49,7 @@ const EXP_ATTR_CONVERT = /\s+([\.?@*])?((?:[a-zA-Z]*[A-Z][^\s<>="']+))(?=[\s=>])
 const EXP_ATTR_CHECK = /[.?-a-z]+\s*=\s*(['"])\s*([^='"]*<\!--c_ui-pl_df-->){2,}.*?\1/ims;
 const EXP_PLACEHOLDER = /<\s*[a-z0-9-]+([^>]*<\!--c_ui-pl_df-->)*[^>]*?(?<!-)>/imgs;
 const SLOT_KEY_PROPS = 'slot-props'
-const HTML_TMPL_CACHE: Record<string, string> = {}
+const HTML_TMPL_CACHE: Map<Function, string> = new Map()
 
 /**
  * 提供渲染函数相关操作
@@ -148,15 +147,14 @@ export function buildTmplate(
   updatePoints: Array<UpdatePoint>,
   html: string,
   vars: any[],
-  renderComponent: CompElem,
-  isDirective = false
+  renderComponent: CompElem
 ): NodeListOf<ChildNode> {
   const container = document.createElement("div");
   container.innerHTML = html
   let NodeSn = 0
-  let evList: Array<[string, Function, Node, Function?]> | undefined = renderComponent._eventList
+  let evList: Array<[string, Function, Node, Function?]> | undefined = renderComponent._eventBindList
   if (!evList) {
-    evList = renderComponent._eventList = []
+    evList = renderComponent._eventBindList = []
   }
 
   //遍历dom
@@ -411,7 +409,7 @@ export function buildTmplate(
         }//endif
       }//endfor
       if (currentNode instanceof CompElem) {
-        currentNode._regWrapper(renderComponent)
+        setWrapper(currentNode, renderComponent)
         if (size(props) > 0)
           currentNode._initProps(props)
       } else if (currentNode instanceof HTMLSlotElement) {
@@ -435,7 +433,6 @@ export function buildTmplate(
 
       let val = vars[varIndex];
 
-      let varCacheObj: Record<string, any> | null = null
       if (isArray(val) && isSymbol(val[0])) {
         const diName = Symbol.keyFor(val[0] as symbol)
         //插入start占位符
@@ -503,13 +500,13 @@ export function buildView(
 
   let updatePoints: UpdatePoint[] = []
   let nodes
-  if (HTML_TMPL_CACHE[component.tagName]) {
-    let htmlTmpl = HTML_TMPL_CACHE[component.tagName]
+  if (HTML_TMPL_CACHE.has(component.constructor)) {
+    let htmlTmpl = HTML_TMPL_CACHE.get(component.constructor)!
     let vars = buildVars(component, tmpl)
     nodes = buildTmplate(updatePoints, htmlTmpl, vars, component);
   } else {
     let [html, vars] = buildHTML(component, tmpl);
-    HTML_TMPL_CACHE[component.tagName] = html
+    HTML_TMPL_CACHE.set(component.constructor, html)
     nodes = buildTmplate(updatePoints, html, vars, component);
   }
 
@@ -519,7 +516,7 @@ export function buildView(
 export function buildSubView(pointNode: Comment, tmpl: Template, component: CompElem<any>, po: UpdatePoint, bindEvent = false) {
   let [html, vars] = buildHTML(component, tmpl!);
   let updatePoints: UpdatePoint[] = []
-  let nodes = buildTmplate(updatePoints, html, vars, component, true);
+  let nodes = buildTmplate(updatePoints, html, vars, component);
 
   if (bindEvent)
     component.__bindEvents()
@@ -659,21 +656,6 @@ export function html(
   );
 }
 
-/**
- * 标签函数，用于构建样式
- * @param strings
- * @param vars
- */
-export function css(
-  strings: TemplateStringsArray,
-  ...vars: any
-): CssTemplate {
-  return new CssTemplate(
-    isString(strings) ? ([strings] as any) : strings,
-    vars
-  );
-}
-
 const EXP_STR = /([a-z0-9"'])\s*>\s*</img
 
 class RefObject<T extends Node> {
@@ -694,4 +676,8 @@ class RefObject<T extends Node> {
  */
 export function createRef<T extends Node>() {
   return new RefObject<T>()
+}
+
+function setWrapper(target: CompElem, wrapperComponent: CompElem) {
+  target.__wrapperComponent = new WeakRef(wrapperComponent)
 }

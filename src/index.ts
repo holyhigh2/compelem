@@ -1,5 +1,4 @@
-import { CssTemplate } from './render/CssTemplate';
-import { buildHTML, createRef, css, html } from "./render/render";
+import { buildHTML, createRef, html } from "./render/render";
 import { Template } from './render/Template';
 
 //decorators
@@ -31,7 +30,7 @@ export * from "./directives/Styles";
 export * from "./directives/Sync";
 export * from "./directives/When";
 
-export { buildHTML, createRef, css, CssTemplate, html, Template };
+export { buildHTML, createRef, html, Template };
 
 export * from './CompElem';
 export * from './types';

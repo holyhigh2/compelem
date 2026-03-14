@@ -1,5 +1,4 @@
 import { concat } from "myfx";
-import { CompElem } from "../CompElem";
 
 /**
  * 样式模板
@@ -8,12 +7,14 @@ import { CompElem } from "../CompElem";
 export class CssTemplate {
     strings: Array<string>;
     vars: Array<any>;
-    constructor(strings: Array<string>, vars: Array<any>) {
+    deps: Array<string> | undefined
+    constructor(strings: Array<string>, vars: Array<any>, deps?: Array<string>) {
         this.strings = concat(strings)
         this.vars = vars
+        this.deps = deps
     }
 
-    getCss(comp: CompElem<any>) {
+    getCss() {
         let str = '';
         this.strings.forEach((s, i) => {
             str = str + s + (this.vars[i] ?? '')

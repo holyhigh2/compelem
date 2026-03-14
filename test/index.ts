@@ -1,7 +1,7 @@
-import { CompElem, Template, computed, forEach, html, prop, query, state, tag, watch } from '../src/index';
+import { CompElem, Template, computed, html, prop, query, state, tag, watch } from '../src/index';
 
+const Slogan = ['complete', 'componentize', 'compact', 'companion']
 
-import './testComp';
 @tag("page-test")
 export class PageTest extends CompElem {
   //////////////////////////////////// props
@@ -11,8 +11,7 @@ export class PageTest extends CompElem {
   @state colorG = Math.random() * 255 % 255 >> 0;
   @state colorB = Math.random() * 255 % 255 >> 0;
   @state rotation = 0
-  @state({ shallow: false }) test: Record<string, any> = { a: 1 }
-  @state ary = [1, 2, 3, 4, 56, 34, 323, 88, 23, 45, 67, 89, 12, 78, 90]
+  @state test = { a: 1 }
 
   //////////////////////////////////// computed
   @computed
@@ -22,14 +21,14 @@ export class PageTest extends CompElem {
   }
 
   //////////////////////////////////// watch
-  @watch('test', { deep: true })
-  function(nv: Record<string, any>) {
-    console.log('父组件变更...', nv)
+  @watch('rotation')
+  function(ov: number, nv: number, src: string) {
+    console.log('watch...', ov, nv, src)
   }
 
   //////////////////////////////////// styles
   //静态样式
-  static get styles(): Array<string | CSSStyleSheet> {
+  static get css(): Array<string | CSSStyleSheet> {
     return [`:host{
         font-size:16px;
         background:gray;
@@ -62,34 +61,25 @@ export class PageTest extends CompElem {
         font-size:2rem;
         background-clip: text;
         transition:all .3s;
+        background-image:var(--test-color);
+        filter:hue-rotate(var(--test-hue-rotate));
       }`];
   }
-  //动态样式
-  get styles() {
-    // console.log('styles......')
-    return [
-      () => {
-        console.log('styles......color')
-        return `h2,p,i,h3{
-        background-image:${this.color};
-      }`
-      },
-      () => {
-        console.log('styles......rotation')
-        return `h2,p,i,h3{
-        filter:hue-rotate(${this.rotation}deg);
-      }`
-      },
-    ]
+  //动态样式变量
+  get cssVars() {
+    return {
+      testColor: this.color,
+      testHueRotate: `${this.rotation}deg`
+    }
   }
 
   @query('i[name="text"]')
-  text: HTMLElement = null!
+  text: HTMLElement | undefined
   sloganIndex = 0
 
   //////////////////////////////////// lifecycles
   updated(changed: Record<string, any>): void {
-    // console.log('updated......')
+    console.log('updated......')
   }
   mounted(): void {
     console.warn('starting to change...')
@@ -106,50 +96,33 @@ export class PageTest extends CompElem {
       console.log('nextTick......')
     });
     setInterval(() => {
-      // this.rotation++
-    }, 100);
+      this.rotation++
+    }, 20);
 
     setInterval(() => {
-      // this.test.a++
-    }, 1000);
-
-    (window as any).xx = this
-
-    // setInterval(() => {
-    //   this.text.classList.add('hide')
-    //   setTimeout(() => {
-    //     this.text.innerHTML = Slogan[this.sloganIndex % 4]
-    //     this.sloganIndex++
-    //     this.text.classList.remove('hide')
-    //   }, 500);
-    // }, 5000);
+      this.text?.classList.add('hide')
+      setTimeout(() => {
+        if (this.text) this.text.innerHTML = Slogan[this.sloganIndex % 4]
+        this.sloganIndex++
+        this.text?.classList.remove('hide')
+      }, 500);
+    }, 5000);
   }
   render(): Template {
-    console.log('父组件视图......')
+    console.log('render......')
     return html`<div>
-            <h2>父组件 ${JSON.stringify(this.test)}</h2>
-            <TestComp .childData="${this.test}"></TestComp>
-            <button @click="${this.changeTest}">修改父组件并更新子组件</button>
-            <button @click="${this.changeTest2}">新增父组件属性并更新子组件</button>
-<button @click="${this.changeFor}">更新for</button>
-            ${forEach(this.ary, (item: any) => html`<span key="${item}">${item}, </span>`)}
+            <i>Welcome to</i>
+            <br>
+            <h2>CompElem</h2>
+            <br>
+            <i>A modern, reactive, fast and lightweight library</i>
+            <br>
+            <i>for building</i>
+            <h3>Web Components</h3>
+            <p>
+              &lt;comp-element&gt; <i name="text">...</i> &lt;/comp-element&gt;
+            </p>
+            ${this.arg}
         </div>`
-  }
-  changeTest() {
-    this.test.a = Math.random() * 100 >> 0
-  }
-  changeTest2() {
-    this.test.b = Math.random() * 100 >> 0
-  }
-  changeFor() {
-    this.ary = []
-    setTimeout(() => {
-      this.ary.push(1)
-      this.ary.push(2)
-      this.ary.push(3)
-      this.ary.push(4)
-      this.ary.push(5)
-    }, 100);
-    // this.ary = [1, 2, 3, 4, 5]
   }
 }

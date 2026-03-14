@@ -79,13 +79,13 @@ export function decorator<T extends Array<any>>(decoClass: Constructor<Decorator
     return (...metadata: any[]): any => {
       let ctor = metadata[0].constructor
 
-      let ary: DecoratorWrapper[] | undefined = DefinitionDecoratorMap.get(ctor.name)//  ctor[_DecoratorsKey]
-      if (!DefinitionDecoratorMap.has(ctor.name)) {
+      let ary: DecoratorWrapper[] | undefined = DefinitionDecoratorMap.get(ctor)//  ctor[_DecoratorsKey]
+      if (!DefinitionDecoratorMap.has(ctor)) {
         //继承父类
         let proto = Object.getPrototypeOf(ctor)
-        ary = proto ? concat(DefinitionDecoratorMap.get(proto.name) ?? []) : []
+        ary = proto ? concat(DefinitionDecoratorMap.get(proto) ?? []) : []
 
-        DefinitionDecoratorMap.set(ctor.name, ary)
+        DefinitionDecoratorMap.set(ctor, ary)
       }
       let dw = new DecoratorWrapper(args, metadata.splice(1), decoClass)
       ary?.push(dw)
@@ -101,13 +101,13 @@ export function decoratorWithNoArgs(decoClass: Constructor<Decorator>): (...meta
 
     let ctor = metadata[0].constructor
 
-    let ary: DecoratorWrapper[] | undefined = DefinitionDecoratorMap.get(ctor.name)//  ctor[_DecoratorsKey]
-    if (!DefinitionDecoratorMap.has(ctor.name)) {
+    let ary: DecoratorWrapper[] | undefined = DefinitionDecoratorMap.get(ctor)//  ctor[_DecoratorsKey]
+    if (!DefinitionDecoratorMap.has(ctor)) {
       //继承父类
       let proto = Object.getPrototypeOf(ctor)
-      ary = proto ? concat(DefinitionDecoratorMap.get(proto.name) ?? []) : []
+      ary = proto ? concat(DefinitionDecoratorMap.get(proto) ?? []) : []
 
-      DefinitionDecoratorMap.set(ctor.name, ary)
+      DefinitionDecoratorMap.set(ctor, ary)
     }
     let dw = new DecoratorWrapper([], metadata.splice(1), decoClass)
     ary?.push(dw)

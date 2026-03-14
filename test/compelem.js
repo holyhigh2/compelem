@@ -1,4 +1,4 @@
-/* compelem 0.8.0-b1 @holyhigh2 https://github.com/holyhigh2/compelem */
+/* compelem 0.20.0 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
 (function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
@@ -7126,38 +7126,50 @@
     }
     ctx.myfx = myfx;
 
+    const SLOT_NAME_DEFAULT = 'default';
     /**
      * 共享内容
      */
     const EXP_KEY = /\s+\.?key\s*=/;
     var CollectorType;
     (function (CollectorType) {
-        CollectorType[CollectorType["CSS"] = 1] = "CSS";
+        CollectorType[CollectorType["RENDER"] = 1] = "RENDER";
         CollectorType[CollectorType["COMPUTED"] = 2] = "COMPUTED";
+        CollectorType[CollectorType["DIRECTIVE"] = 3] = "DIRECTIVE";
     })(CollectorType || (CollectorType = {}));
-    var DecoratorKey;
-    (function (DecoratorKey) {
-        DecoratorKey["PROPS"] = "__deco_props";
-        DecoratorKey["STATES"] = "__deco_states";
-        DecoratorKey["COMPUTED"] = "__deco_computed";
-        DecoratorKey["WATCH"] = "__deco_watch";
-        DecoratorKey["EVENTS"] = "__deco_events";
-    })(DecoratorKey || (DecoratorKey = {}));
     var Mode;
     (function (Mode) {
         Mode["Prod"] = "prod";
         Mode["Dev"] = "dev";
     })(Mode || (Mode = {}));
-    const DEFINED_TAG_MAP = {};
+    const DefinitionCompEventMap = new Map();
+    const DefinitionTagMap = {};
+    const DefinitionComputedMap = new WeakMap();
+    const DefinitionStateMap = new WeakMap();
+    const DefinitionPropMap = new WeakMap();
+    const DefinitionDecoratorMap = new Map();
+    const ObservedAttrsMap = new Map();
+    const WatchKeysOnceMap = new WeakMap();
+    const WatchKeysDeepListMap = new WeakMap();
+    const WatchKeysListMap = new WeakMap();
+    const WatchUpdateMap = new WeakMap();
+    const WatchDeepUpdateMap = new WeakMap();
+    const WatchImmediateListMap = new WeakMap();
+    const PropSyncKeySetMap = new WeakMap();
+    const StateShallowKeySetMap = new WeakMap();
+    const HasChangedPropOrStateMap = new WeakMap();
+    const ComputedUpdateDepsMap = new WeakMap();
+    const CssUpdateDepsMap = new WeakMap();
+    const ComponentDynamicCssUpdaterMap = new WeakMap();
+    const PATH_SEPARATOR = '-';
+    const PROP_NAME_SLOTS$1 = 'slots';
+    const DATA_KEY = '__data_';
 
     function showError(msg) {
         console.error(`[CompElem]`, msg);
     }
     function showTagError(tagName, msg) {
         console.error(`[CompElem <${tagName}>]`, msg);
-    }
-    function showWarn(...args) {
-        console.warn(`[CompElem]`, ...args);
     }
     //为依赖收集提供标准地址
     function _toUpdatePath(varPath) {
@@ -7181,135 +7193,359 @@
         }
         return val;
     }
-
-    //装饰器类型
-    var DecoratorType;
-    (function (DecoratorType) {
-        DecoratorType["CLASS"] = "class";
-        DecoratorType["FIELD"] = "field";
-        DecoratorType["METHOD"] = "method";
-    })(DecoratorType || (DecoratorType = {}));
-    /**
-     * 用于构造装饰器
-     * @author holyhigh2
-     */
-    class Decorator {
-        /**
-         * 优先级，越大越先执行
-         */
-        static get priority() {
-            return 0;
-        }
-    }
-
-    const GetKeyFnName = 'getKey';
-    const _DecoratorsKey = '__decorators';
-    const _DecoratorMap = new WeakMap;
-    /**
-     * 装饰器包装类
-     * 用于框架内部，表示class上的一个装饰器属性定义
-     * 该定义在实例初始化时会产生装饰器实例属性
-     */
-    class DecoratorWrapper {
-        //execute 参数
-        args;
-        //装饰器参数
-        metadata;
-        decoratorClass;
-        instanceMap;
-        key; //装饰器唯一key
-        priority = 0;
-        constructor(args, metadata, decoratorClass) {
-            this.args = args;
-            this.metadata = metadata;
-            this.decoratorClass = decoratorClass;
-            this.priority = get(decoratorClass, 'priority', 0);
-            this.instanceMap = new WeakMap;
-        }
-        //在组件构造时调用
-        create(comp) {
-            let ins = new this.decoratorClass(...this.args);
-            //1. 校验targets
-            let targets = ins.targets;
-            let decoType = undefined;
-            let descriptor = this.metadata[2];
-            if (isObject(descriptor) && isDefined(get(descriptor, 'configurable'))) {
-                decoType = DecoratorType.METHOD;
+    const DomUtil = {
+        getNodes(startNode, endNode) {
+            let nextNode = startNode.nextSibling;
+            if (!endNode)
+                return [nextNode];
+            let rs = [];
+            while (nextNode && nextNode !== endNode) {
+                rs.push(nextNode);
+                nextNode = nextNode?.nextSibling;
             }
-            else if (isUndefined(this.metadata[2])) {
-                decoType = DecoratorType.FIELD;
-            }
-            if (isEmpty(targets) || !decoType || !targets.includes(decoType)) {
-                showError(`Decorator '${this.decoratorClass.name}' is out of targets, expect '${targets.join(',')}' bug got '${decoType}'`);
+            return rs;
+        },
+        insertBefore: function (node, newNodes) {
+            if (!node.parentNode)
+                return;
+            let fragment = document.createDocumentFragment();
+            fragment.append(...newNodes);
+            node.parentNode.insertBefore(fragment, node);
+        },
+        remove: function (startNode, endNode) {
+            if (startNode === endNode) {
+                startNode?.parentNode?.removeChild(startNode);
                 return;
             }
-            ins.created(comp, ...this.metadata);
-            this.instanceMap.set(comp, ins);
-        }
-        beforeMount(comp, setReactive) {
-            let ins = this.instanceMap.get(comp);
-            ins.beforeMount(comp, setReactive, ...this.metadata);
-        }
-        mounted(comp, setReactive) {
-            let ins = this.instanceMap.get(comp);
-            ins.mounted(comp, setReactive, ...this.metadata);
-        }
-        updated(comp, changed) {
-            this.instanceMap.get(comp).updated(comp, changed);
-        }
-    }
-    //每个装饰器类中不同组件类中的重复key
-    const DecoKeyMap = new WeakMap();
-    /**
-     * 该函数用于创建一个装饰器
-     * @param decoClass 装饰器构造
-     * @returns 装饰器函数
-     */
-    function decorator(decoClass) {
-        let fn = (...args) => {
-            return (...metadata) => {
-                let ctor = metadata[0].constructor;
-                let ary = ctor[_DecoratorsKey];
-                if (!has(ctor, _DecoratorsKey)) {
-                    //继承父类
-                    let proto = Object.getPrototypeOf(ctor);
-                    ary = proto ? concat(proto[_DecoratorsKey] ?? []) : [];
-                    Reflect.defineProperty(ctor, _DecoratorsKey, {
-                        configurable: false,
-                        enumerable: false,
-                        value: ary
-                    });
+            let nextNode = startNode.nextSibling;
+            while (nextNode && nextNode !== endNode) {
+                nextNode?.parentNode?.removeChild(nextNode);
+                nextNode = startNode.nextSibling;
+            }
+        },
+        //清除dom内容并释放内存
+        clear(container, comp) {
+            if (!container)
+                return;
+            let nodeIterator = document.createNodeIterator(container, NodeFilter.SHOW_COMMENT);
+            //subscopes
+            let currentNode;
+            nodeIterator = document.createNodeIterator(container, NodeFilter.SHOW_COMMENT | NodeFilter.SHOW_ELEMENT);
+            while ((currentNode = nodeIterator.nextNode())) {
+                if (container === currentNode)
+                    continue;
+                if (currentNode instanceof Comment) ;
+                else if (currentNode instanceof CompElem) {
+                    currentNode.destroy();
                 }
-                let kMap = {};
-                let k;
-                let getKey = decoClass[GetKeyFnName];
-                if (getKey) {
-                    let compMap = DecoKeyMap.get(decoClass);
-                    if (!compMap) {
-                        compMap = new WeakMap;
-                        DecoKeyMap.set(decoClass, compMap);
-                    }
-                    kMap = compMap.get(ctor);
-                    if (!kMap) {
-                        kMap = {};
-                        compMap.set(ctor, kMap);
-                    }
-                    k = getKey(...args);
-                    if (kMap[k])
-                        return kMap[k];
-                }
-                let dw = new DecoratorWrapper(args, metadata, decoClass);
-                kMap[k] = dw;
-                ary?.push(dw);
-                return dw;
-            };
-        };
-        _DecoratorMap.set(fn, true);
-        return fn;
+                else ;
+            }
+        }
+    };
+    function getSlotComponent(node, renderComponent) {
+        let documentFragment = closest(node, (n) => n.host && n.host instanceof CompElem, 'parentNode');
+        if (documentFragment && documentFragment.host === renderComponent)
+            return undefined;
+        return documentFragment ? documentFragment.host : undefined;
     }
 
-    //每个类需要监控的属性
-    const ObservedAttrsMap = new WeakMap;
+    /**
+     * 用于提供全局state状态管理
+     * @author holyhigh2
+     */
+    function getterValue(getter, propertyKey, context) {
+        let thisHost = context;
+        let v = getter ? getter.call(thisHost) : Reflect.get(thisHost[DATA_KEY], propertyKey);
+        if (Collector.__collecting) {
+            Collector.__varPathList.push(propertyKey);
+        }
+        if (PROXY_MAP.has(v)) {
+            let contextList = EXTRA_CONTEXT_OF_VAR.get(v);
+            if (!contextList) {
+                contextList = new Set();
+                EXTRA_CONTEXT_OF_VAR.set(v, contextList);
+            }
+            contextList.add(thisHost.__thisRef);
+            return PROXY_MAP.get(v);
+        }
+        if (isObject(v) && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v)) {
+            let keySet = StateShallowKeySetMap.get(thisHost.constructor);
+            let shallow = keySet?.has(propertyKey);
+            v = shallow || propertyKey === PROP_NAME_SLOTS$1 ? v : reactive(v, thisHost, propertyKey);
+        }
+        return v;
+    }
+    function setterValue(propertyKey, v, context) {
+        let thisHost = context;
+        if (!thisHost.__inited) {
+            Reflect.set(thisHost[DATA_KEY], propertyKey, v);
+            return;
+        }
+        let oldValue = thisHost[DATA_KEY][propertyKey];
+        let stateMap = HasChangedPropOrStateMap.get(thisHost.constructor);
+        let hasChanged = stateMap?.get(propertyKey);
+        if (hasChanged) {
+            if (!hasChanged.call(thisHost, v, oldValue, [propertyKey], v, oldValue))
+                return true;
+        }
+        else {
+            //默认对比算法
+            if (Object.is(oldValue, v)) {
+                return true;
+            }
+        }
+        //check watch
+        requestWatchUpdate(thisHost, v, oldValue, propertyKey);
+        //check computed
+        requestComputedUpdate(thisHost, propertyKey);
+        //check css
+        requestCssUpdate(thisHost, propertyKey);
+        Reflect.set(thisHost[DATA_KEY], propertyKey, v);
+        thisHost._notify(oldValue, [propertyKey]);
+        //update sync
+        let syncKeySet = PropSyncKeySetMap.get(thisHost.constructor);
+        if (syncKeySet?.has(propertyKey)) {
+            thisHost.emit('update' + ":" + propertyKey, { value: v });
+        }
+    }
+    function requestWatchUpdate(context, newValue, oldValue, fullPath, rootObjNew, rootObjOld) {
+        let superComp = _getSuper(context.constructor);
+        let watchKeys = WatchKeysListMap.get(context.constructor) ?? WatchKeysListMap.get(superComp);
+        let watchKeysDeep = WatchKeysDeepListMap.get(context.constructor) ?? WatchKeysDeepListMap.get(superComp);
+        let watchDeepUpdateMap = WatchDeepUpdateMap.get(context.constructor) ?? WatchDeepUpdateMap.get(superComp);
+        let watchUpdateMap = WatchUpdateMap.get(context.constructor) ?? WatchUpdateMap.get(superComp);
+        let onceMap = WatchKeysOnceMap.get(context.constructor) ?? WatchKeysOnceMap.get(superComp);
+        watchKeys?.forEach(wk => {
+            if (fullPath === wk ||
+                (startsWith(wk, fullPath + '.') && !Object.is(get(context._getPrivateData(), wk), get(newValue, wk))) ||
+                (startsWith(fullPath, wk + '.') && watchKeysDeep?.includes(wk) && !Object.is(get(context._getPrivateData(), wk), get(newValue, wk)))) {
+                concat(toArray(watchUpdateMap[wk]), toArray(watchDeepUpdateMap[wk])).forEach(fn => {
+                    if (!fn)
+                        return;
+                    if (onceMap.get(wk) === true)
+                        return;
+                    context._watchUpdateArgsInNextTick.set(fn, {
+                        newValue, oldValue, chain: fullPath.split('.'), rootObjNew, rootObjOld, fullMatch: wk === fullPath
+                    });
+                    context._watchUpdateSetInNextTick.add(fn);
+                    if (onceMap.has(wk))
+                        onceMap.set(wk, true);
+                });
+            }
+        });
+    }
+    function requestComputedUpdate(context, fullPath) {
+        let depMap = ComputedUpdateDepsMap.get(context.constructor);
+        if (depMap?.has(fullPath)) {
+            depMap.get(fullPath)?.forEach(fn => {
+                context._computedUpdateSetInNextTick.add(fn);
+            });
+        }
+    }
+    function requestCssUpdate(context, fullPath) {
+        let deps = CssUpdateDepsMap.get(context.constructor);
+        if (!deps)
+            return;
+        let pathChain = fullPath.split('.');
+        let path = '';
+        pathChain.forEach(p => {
+            path = path ? path + '.' + p : p;
+            if (deps.has(path)) {
+                context._cssUpdateInNextTick = true;
+            }
+        });
+    }
+    const Collector = {
+        popDirectiveQ() {
+            let rs = this.__varPathList.reduceRight((acc, p) => {
+                if (!acc.includes(p)) {
+                    acc.unshift(p);
+                }
+                return acc;
+            }, []);
+            return rs;
+        },
+        start() {
+            this.__collecting = true;
+            this.__varPathList = [];
+        },
+        end(renderComponent, up) {
+            if (renderComponent && up) {
+                renderComponent._regSubViewDeps(Collector.popVarPathList(), up);
+            }
+            this.__collecting = false;
+        },
+        popVarPathList() {
+            let rs = Array.from(new Set(this.__varPathList));
+            this.__varPathList = [];
+            return rs;
+        },
+        __varPathList: [],
+        __collecting: false,
+    };
+    //对象值在不同上下文的根路径
+    const OBJECT_VAR_ROOT_PATH_IN_CONTEXT = new WeakMap();
+    const OBJECT_VAR_PATH = new WeakMap();
+    //缓存已经创建的proxy对象
+    const PROXY_MAP = new WeakMap();
+    //对象值的创建上下文
+    const OBJECT_VAR_ROOT_CONTEXT = new WeakMap();
+    //上级对象所在的扩展context
+    const EXTRA_CONTEXT_OF_VAR = new WeakMap();
+    function reactive(obj, context, rootProp) {
+        if (PROXY_MAP.has(obj))
+            return PROXY_MAP.get(obj);
+        if (OBJECT_VAR_ROOT_CONTEXT.has(obj)) {
+            if (rootProp) {
+                let pathMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(context);
+                if (!pathMap) {
+                    pathMap = new WeakMap();
+                    OBJECT_VAR_ROOT_PATH_IN_CONTEXT.set(context, pathMap);
+                }
+                pathMap.set(obj, rootProp);
+                let contextList = EXTRA_CONTEXT_OF_VAR.get(obj);
+                if (!contextList) {
+                    contextList = new Set();
+                    EXTRA_CONTEXT_OF_VAR.set(obj, contextList);
+                }
+                if (!contextList.values().some(v => v.deref() === context)) {
+                    contextList.add(new WeakRef(context));
+                }
+            }
+            return obj;
+        }
+        const proxyObject = new Proxy(obj, {
+            get(target, prop, receiver) {
+                if (!prop)
+                    return undefined;
+                const value = Reflect.get(target, prop, receiver);
+                if (isSymbol(prop))
+                    return value;
+                if (isFunction(value))
+                    return value;
+                if (prop === 'length' && isArray(target))
+                    return value;
+                if (Collector.__collecting) {
+                    let supPath = OBJECT_VAR_PATH.has(receiver) ? concat(OBJECT_VAR_PATH.get(receiver)) : [];
+                    supPath.push(prop);
+                    let propPath = supPath.join('.');
+                    Collector.__varPathList.push(propPath);
+                }
+                if (PROXY_MAP.has(value))
+                    return PROXY_MAP.get(value);
+                let reactiveVal = value;
+                if (isObject(value) && !isFunction(value) && !(value instanceof Node) && !Object.isFrozen(value)) {
+                    reactiveVal = reactive(value, context);
+                    let supPath = OBJECT_VAR_PATH.has(receiver) ? concat(OBJECT_VAR_PATH.get(receiver)) : [];
+                    supPath.push(prop);
+                    OBJECT_VAR_PATH.set(reactiveVal, supPath);
+                    PROXY_MAP.set(value, reactiveVal);
+                }
+                return reactiveVal;
+            },
+            set(target, prop, newValue, receiver) {
+                if (!prop)
+                    return false;
+                let ov = target[prop];
+                let chain = OBJECT_VAR_PATH.get(receiver) ?? [];
+                let subChain = concat(chain, [prop]);
+                let stateMap = HasChangedPropOrStateMap.get(context.constructor);
+                let hasChanged = stateMap?.get(subChain[0]);
+                let moreThan1 = subChain.length > 1;
+                let rootObjNew = newValue;
+                let rootObjOld = ov;
+                if (moreThan1) {
+                    rootObjOld = rootObjNew = context._getPrivateData()[subChain[0]];
+                }
+                if (hasChanged) {
+                    if (!hasChanged.call(context, rootObjNew, rootObjOld, subChain, newValue, ov))
+                        return true;
+                }
+                else {
+                    //默认对比算法
+                    if (Object.is(ov, newValue)) {
+                        return true;
+                    }
+                }
+                let nv = newValue;
+                let rs = Reflect.set(target, prop, nv);
+                let extraContext = EXTRA_CONTEXT_OF_VAR.get(receiver);
+                let k = subChain.join('.');
+                //check watch
+                requestWatchUpdate(context, nv, ov, k, rootObjNew, rootObjOld);
+                //check computed
+                requestComputedUpdate(context, k);
+                //check css
+                requestCssUpdate(context, k);
+                notifyUpdate(context, rootObjOld, subChain);
+                extraContext?.forEach(ctxRef => {
+                    let ctx = ctxRef.deref();
+                    if (!ctx)
+                        return;
+                    let ctxRootPath = ctx._wrapperProp[subChain[0]];
+                    let ck = subChain.join('.');
+                    ck = ck.replace(subChain[0], ctxRootPath);
+                    //check watch
+                    requestWatchUpdate(ctx, nv, ov, ck);
+                    //check computed
+                    requestComputedUpdate(ctx, ck);
+                    //check css
+                    requestCssUpdate(ctx, ck);
+                    notifyUpdate(ctx, rootObjOld, ck.split('.'));
+                });
+                return rs;
+            }
+        });
+        if (!OBJECT_VAR_PATH.has(proxyObject)) {
+            OBJECT_VAR_PATH.set(proxyObject, rootProp ? [rootProp] : []);
+        }
+        PROXY_MAP.set(obj, proxyObject);
+        if (rootProp) {
+            OBJECT_VAR_ROOT_CONTEXT.set(proxyObject, context);
+            if (!OBJECT_VAR_ROOT_PATH_IN_CONTEXT.has(context)) {
+                let pathMap = new WeakMap();
+                pathMap.set(proxyObject, rootProp);
+                OBJECT_VAR_ROOT_PATH_IN_CONTEXT.set(context, pathMap);
+            }
+        }
+        return proxyObject;
+    }
+    function notifyUpdate(context, oldValue, path, subNewValue, subOldValue) {
+        let i = size(path);
+        eachRight(path, (p) => {
+            let varPath = slice(path, 0, i--);
+            context._notify(oldValue, varPath);
+        });
+    }
+    const QMap = new Map();
+    class Queue {
+        static nextSet = new Set();
+        static nextPending = false;
+        static next;
+        static flush() {
+            Queue.nextPending = false;
+            let nq = Array.from(Queue.nextSet);
+            Queue.nextSet.clear();
+            QMap.clear();
+            nq.forEach(u => u());
+            nq = null;
+        }
+        static pushNext(updater) {
+            Queue.nextSet.add(updater);
+            if (!Queue.nextPending) {
+                Queue.nextPending = true;
+                Queue.next();
+            }
+        }
+    }
+    (() => {
+        const p = Promise.resolve();
+        const nextFn = Queue.flush;
+        Queue.next = () => {
+            p.then(nextFn);
+        };
+    })();
+
     function prop(options) {
         if (arguments.length === 1) {
             return (target, propertyKey, descriptor) => {
@@ -7331,17 +7567,12 @@
             showError(`Prop '${propertyKey}' must be in CamelCase`);
         }
         let attrSet;
-        if (!has(target.constructor, DecoratorKey.PROPS)) {
+        if (!DefinitionPropMap.has(target.constructor)) {
             const mixinProps = {};
             let parentCtor = target.constructor;
             while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
-                merge(mixinProps, parentCtor[DecoratorKey.PROPS] ? cloneDeep(parentCtor[DecoratorKey.PROPS]) : {});
+                merge(mixinProps, DefinitionPropMap.get(parentCtor) ?? {});
             }
-            Reflect.defineProperty(target.constructor, DecoratorKey.PROPS, {
-                configurable: false,
-                enumerable: false,
-                value: mixinProps
-            });
             attrSet = new Set();
             each(mixinProps, (v, k) => {
                 if (v.attribute) {
@@ -7350,6 +7581,7 @@
                 }
             });
             ObservedAttrsMap.set(target.constructor, attrSet);
+            DefinitionPropMap.set(target.constructor, mixinProps);
         }
         if (descriptor) {
             if (descriptor.get)
@@ -7368,8 +7600,40 @@
         if (!has(target.constructor, 'observedAttributes')) {
             target.constructor.observedAttributes = [];
         }
-        target.constructor.observedAttributes = toArray(attrSet);
-        target.constructor[DecoratorKey.PROPS][propertyKey] = options;
+        if (attrSet)
+            target.constructor.observedAttributes = toArray(attrSet);
+        set(DefinitionPropMap.get(target.constructor), propertyKey, options);
+        //cache tags
+        if (options.hasChanged) {
+            let changeMap = HasChangedPropOrStateMap.get(target.constructor);
+            if (!changeMap) {
+                changeMap = new Map();
+                HasChangedPropOrStateMap.set(target.constructor, changeMap);
+            }
+            changeMap.set(propertyKey, options.hasChanged);
+        }
+        if (options.sync) {
+            let keySet = PropSyncKeySetMap.get(target.constructor);
+            if (!keySet) {
+                keySet = new Set();
+                PropSyncKeySetMap.set(target.constructor, keySet);
+            }
+            keySet.add(propertyKey);
+        }
+        //setters & getters
+        Reflect.defineProperty(target, propertyKey, {
+            get() {
+                return getterValue(descriptor?.get, propertyKey, this);
+            },
+            set(v) {
+                if (descriptor?.set) {
+                    descriptor.set(v);
+                }
+                else {
+                    setterValue(propertyKey, v, this);
+                }
+            },
+        });
     }
     //内部接口
     const emptySet = new Set;
@@ -7377,422 +7641,305 @@
         return ObservedAttrsMap.get(ctor) ?? emptySet;
     }
 
-    /**
-     * 属性定义
-     */
-    var EnterPointType;
-    (function (EnterPointType) {
-        EnterPointType["ATTR"] = "attr";
-        EnterPointType["PROP"] = "prop";
-        EnterPointType["TEXT"] = "text";
-        EnterPointType["CLASS"] = "class";
-        EnterPointType["STYLE"] = "style";
-        EnterPointType["SLOT"] = "slot";
-        EnterPointType["TAG"] = "tag"; //在标签内但不是属性内
-    })(EnterPointType || (EnterPointType = {}));
-    var DirectiveUpdateTag;
-    (function (DirectiveUpdateTag) {
-        DirectiveUpdateTag["NONE"] = "NONE";
-        DirectiveUpdateTag["REMOVE"] = "REMOVE";
-        DirectiveUpdateTag["REPLACE"] = "REPLACE";
-        DirectiveUpdateTag["UPDATE"] = "UPDATE";
-        DirectiveUpdateTag["APPEND"] = "APPEND";
-    })(DirectiveUpdateTag || (DirectiveUpdateTag = {}));
-    /**
-     * 视图更新点
-     */
-    class UpdatePoint {
-        //在子视图中的平级key
-        key;
-        //表达式对应的vars位置
-        varIndex;
-        value;
-        isText = false;
-        //是否模板
-        // isTmpl: boolean = false;
-        isDirective = false;
-        //表达式所在节点，可能是元素/文本
-        node;
-        //如果是文本位置，与node一起构成插入范围
-        textNode;
-        //是否组件
-        isComponent = false;
-        //如果在属性中，属性名
-        attrName;
-        //属性值模板
-        attrTmpl;
-        //是否组件属性
-        isProp = false;
-        //是否布尔属性
-        isToggleProp = false;
-        //是否被更新，对于 key，event，ref等属性不需要更新，仅用于占位
-        notUpdated;
-        constructor(varIndex, node, attrName, attrTmpl) {
-            this.varIndex = varIndex;
-            this.node = node;
-            if (attrName)
-                this.attrName = attrName;
-            if (attrTmpl) {
-                this.attrTmpl = attrTmpl;
+    /*************************************************************
+     * 扩展事件
+     * @author holyhigh2
+     *
+     * resize
+     * outside[.mousedown/mouseup/click/dblclick] 默认click
+     * mutate[.attr/child/char/tree]
+     *
+     *************************************************************/
+    const ExtEvNames = ['resize', 'outside', 'mutate'];
+    ///////////////////////////////////////////////// resize
+    const AllResizeEls = new WeakMap;
+    const AllOutsideDownEls = [];
+    const AllOutsideClickEls = [];
+    const AllOutsideDblClickEls = [];
+    const ResizeTargetInitSet = new WeakSet();
+    const resizeObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+            const contentBoxSize = Array.isArray(entry.contentBoxSize)
+                ? entry.contentBoxSize[0]
+                : entry.contentBoxSize;
+            const borderBoxSize = Array.isArray(entry.borderBoxSize)
+                ? entry.borderBoxSize[0]
+                : entry.borderBoxSize;
+            if (!ResizeTargetInitSet.has(entry.target)) {
+                ResizeTargetInitSet.add(entry.target);
+                continue;
+            }
+            let cbk = AllResizeEls.get(entry.target);
+            if (cbk) {
+                cbk({ target: entry.target, contentBoxSize, borderBoxSize, type: 'resize' });
             }
         }
+    });
+    function addResize(node, cbk, component) {
+        if (AllResizeEls.has(node))
+            return;
+        AllResizeEls.set(node, cbk);
+        resizeObserver.observe(node);
+        //record
+        let observer = resizeObserver;
+        return (remove = false) => {
+            observer.unobserve(node);
+            AllResizeEls.delete(node);
+            if (remove) {
+                observer = node = null;
+            }
+        };
     }
-    const PATH_SEPARATOR = '-';
-
-    /**
-     * 用于提供全局state状态管理
-     * @author holyhigh2
-     */
-    const EVENT_UPDATE = 'update';
-    const Collector = {
-        collectWatch(comp, updater, subPath) {
-            let collectVarMap = WATCH_MAP.get(comp);
-            if (!collectVarMap) {
-                collectVarMap = {};
-                WATCH_MAP.set(comp, collectVarMap);
-            }
-            let list = collectVarMap[subPath];
-            if (!list)
-                list = collectVarMap[subPath] = [];
-            list.push(updater);
-        },
-        startCollect(comp, type) {
-            this.__collectType = type;
-            this.__collecting = comp;
-        },
-        setUpdater(updater) {
-            this.__updater = updater;
-        },
-        endCollect() {
-            this.__collecting = null;
-        },
-        //仅用于指令在构造时获取
-        __directiveQ: [],
-        setDirectiveQ(val) {
-            let lastVar = last(this.__directiveQ);
-            const vj = val ? val.join(',') : '';
-            const lj = lastVar ? lastVar.join(',') : '';
-            if (lastVar && vj === lj)
+    ///////////////////////////////////////////////// mutate
+    var MutationType;
+    (function (MutationType) {
+        MutationType["Child"] = "child";
+        MutationType["Tree"] = "tree";
+        MutationType["Attr"] = "attr";
+        MutationType["Char"] = "char";
+    })(MutationType || (MutationType = {}));
+    const AllMutationEls = new WeakMap;
+    const mutationObserver = new MutationObserver(mutations => {
+        for (let i = 0; i < mutations.length; i++) {
+            const mutation = mutations[i];
+            let map = AllMutationEls.get(mutation.target);
+            if (!map)
                 return;
-            if (lastVar && lastVar.length < val.length && startsWith(vj, lj)) {
-                this.__directiveQ[this.__directiveQ.length - 1] = val;
-                return;
+            let detail = {
+                target: mutation.target
+            };
+            let cbk = null;
+            switch (mutation.type) {
+                case 'subtree':
+                    detail.type = MutationType.Tree;
+                    cbk = map[MutationType.Tree];
+                    break;
+                case "childList":
+                    detail.type = MutationType.Child;
+                    detail.addedNodes = mutation.addedNodes;
+                    detail.removedNodes = mutation.removedNodes;
+                    cbk = map[MutationType.Child];
+                    break;
+                case "attributes":
+                    detail.type = MutationType.Attr;
+                    detail.attributeName = mutation.attributeName;
+                    detail.oldValue = mutation.oldValue;
+                    cbk = map[MutationType.Attr];
+                    break;
+                case "characterData":
+                    detail.type = MutationType.Char;
+                    detail.oldValue = mutation.oldValue;
+                    cbk = map[MutationType.Char];
+                    break;
             }
-            this.__directiveQ.push(val);
-        },
-        popDirectiveQ() {
-            let rs = concat(this.__directiveQ);
-            this.__directiveQ = [];
-            return rs;
-        },
-        startRender(context) {
-            this.__renderCollecting = true;
-            this.__renderContext = context;
-        },
-        endRender(component) {
-            //注册依赖
-            this.__renderCollection.forEach((varPath) => {
-                component._regDeps(varPath, this.__renderContext);
-            });
-            this.__renderCollection.clear();
-            this.__renderCollecting = false;
-            this.__renderContext = null;
-        },
-        collect(prop) {
-            this.__renderCollection.add(prop);
-        },
-        clear() {
-            this.__directiveQ = [];
-        },
-        __updater: null,
-        __collecting: null,
-        __collectType: -1,
-        __renderCollection: new Set(),
-        __renderContext: null,
-        __renderCollecting: false,
-        __skipCheck: false
-    };
-    const OBJECT_META_DATA = new WeakMap();
-    const OBJECT_VAR_PATH = new WeakMap();
-    //存储每个组件的computed/css/watch依赖
-    const COMPUTED_MAP = new WeakMap();
-    const CSS_MAP = new WeakMap();
-    const WATCH_MAP = new WeakMap();
-    //缓存已经创建的proxy对象，避免重复创建
-    const PROXY_MAP = new WeakMap();
-    /**
-     * @param obj
-     * @param context
-     * @returns
-     */
-    function reactive(obj, context) {
-        if (!isObject(obj))
-            return obj;
-        if (PROXY_MAP.has(obj))
-            return PROXY_MAP.get(obj);
-        if (OBJECT_META_DATA.has(obj))
-            return obj;
-        const proxyObject = new Proxy(obj, {
-            get(target, prop, receiver) {
-                if (!prop)
-                    return undefined;
-                const value = Reflect.get(target, prop, receiver);
-                if (isSymbol(prop))
-                    return value;
-                if (isFunction(value))
-                    return value;
-                if (prop === 'length' && isArray(target))
-                    return value;
-                let chain = OBJECT_VAR_PATH.get(receiver) ?? [];
-                let subChain = concat(chain, [prop]);
-                let hasProp = prop in target;
-                if ((Collector.__renderCollecting || Collector.__collecting) && ((hasProp && target.hasOwnProperty(prop)) || !hasProp)) {
-                    let subChainStr = subChain.join(PATH_SEPARATOR);
-                    if (Collector.__renderCollecting) {
-                        Collector.collect(_toUpdatePath(subChain));
-                        Collector.setDirectiveQ(subChain);
-                    }
-                    else if (Collector.__collecting) {
-                        let collectVarMap;
-                        switch (Collector.__collectType) {
-                            case CollectorType.COMPUTED:
-                                collectVarMap = COMPUTED_MAP.get(Collector.__collecting);
-                                if (!collectVarMap) {
-                                    collectVarMap = {};
-                                    COMPUTED_MAP.set(Collector.__collecting, collectVarMap);
-                                }
-                                break;
-                            case CollectorType.CSS:
-                                collectVarMap = CSS_MAP.get(Collector.__collecting);
-                                if (!collectVarMap) {
-                                    collectVarMap = {};
-                                    CSS_MAP.set(Collector.__collecting, collectVarMap);
-                                }
-                                break;
-                        }
-                        let list = collectVarMap[subChainStr];
-                        if (!list)
-                            list = collectVarMap[subChainStr] = [];
-                        list.push(Collector.__updater);
-                    }
-                }
-                const meta = OBJECT_META_DATA.get(receiver);
-                let sourceContext = meta.from;
-                if (PROXY_MAP.has(value))
-                    return PROXY_MAP.get(value);
-                let stateDefs = get(sourceContext.constructor, DecoratorKey.STATES);
-                let shallowDef = get(stateDefs, [subChain[0]]);
-                if (!shallowDef) {
-                    let propDefs = get(sourceContext.constructor, DecoratorKey.PROPS);
-                    shallowDef = get(propDefs, [subChain[0]]);
-                }
-                if (!shallowDef)
-                    return value;
-                let shallow = get(shallowDef, 'shallow');
-                if (shallow && subChain.length > 1)
-                    return value;
-                let reactiveVal = value;
-                if (isObject(value) && !isFunction(value) && !(value instanceof Node) && !Object.isFrozen(value)) {
-                    let pathMap = meta.pathMap;
-                    let deps = meta.contextSet;
-                    deps.forEach(dep => {
-                        let pathAry = pathMap?.get(dep);
-                        if (!pathAry)
-                            return;
-                        reactiveVal = reactive(value, dep);
-                        PROXY_MAP.set(value, reactiveVal);
-                        if (!OBJECT_VAR_PATH.has(reactiveVal))
-                            OBJECT_VAR_PATH.set(reactiveVal, subChain);
-                    });
-                }
-                return reactiveVal;
-            },
-            set(target, prop, newValue, receiver) {
-                if (!prop)
-                    return false;
-                let ov = target[prop];
-                let chain = OBJECT_VAR_PATH.get(receiver) ?? [];
-                let subChain = concat(chain, [prop]);
-                let propDefs = get(context.constructor, DecoratorKey.PROPS);
-                let stateDefs = get(context.constructor, DecoratorKey.STATES);
-                let hasChanged = get(propDefs, [subChain[0], 'hasChanged']) || get(stateDefs, [subChain[0], 'hasChanged']);
-                let moreThan1 = subChain.length > 1;
-                let rootObjNew = newValue;
-                let rootObjOld = ov;
-                if (moreThan1) {
-                    rootObjOld = rootObjNew = context._getPrivateData()[subChain[0]];
-                }
-                if (hasChanged) {
-                    if (!hasChanged.call(context, rootObjNew, rootObjOld, subChain, newValue, ov))
-                        return true;
-                }
-                else {
-                    //默认对比算法
-                    if (Object.is(ov, newValue)) {
-                        return true;
-                    }
-                }
-                if (propDefs && propDefs[prop] && target.__isData) {
-                    if (propDefs[prop].sync) {
-                        context.emit(EVENT_UPDATE + ":" + prop, { value: newValue });
-                    }
-                }
-                //get oldValue from sourceContext
-                let nv = newValue;
-                let rs = Reflect.set(target, prop, nv);
-                notifyUpdate(context, rootObjOld, subChain, newValue, ov);
-                return rs;
+            if (cbk) {
+                detail.type = 'mutate';
+                cbk(detail);
+            }
+        }
+    });
+    function addMutation(node, cbk, parts, component) {
+        let child = includes(parts, 'child');
+        let attr = includes(parts, 'attr');
+        let char = includes(parts, 'char');
+        let tree = includes(parts, 'tree');
+        let map = AllMutationEls.get(node);
+        if (map)
+            return;
+        map = {};
+        AllMutationEls.set(node, map);
+        if (child) {
+            map[MutationType.Child] = cbk;
+        }
+        if (attr) {
+            map[MutationType.Attr] = cbk;
+        }
+        if (char) {
+            map[MutationType.Char] = cbk;
+        }
+        if (tree) {
+            map[MutationType.Tree] = cbk;
+        }
+        mutationObserver.observe(node, {
+            childList: child,
+            attributes: attr,
+            characterData: char,
+            subtree: tree
+        });
+        //record
+        return (remove = false) => {
+            AllMutationEls.delete(node);
+            if (remove) {
+                node = null;
+            }
+        };
+    }
+    ///////////////////////////////////////////////// outside
+    document.addEventListener('mousedown', e => {
+        let t = get(e.composedPath(), 0, e.target);
+        AllOutsideDownEls.forEach(([node, cbk]) => {
+            if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
+                cbk({ type: 'outside', target: node, modifier: 'mousedown', event: e });
             }
         });
-        let chain = OBJECT_VAR_PATH.get(obj) ?? [];
-        if (Object.isExtensible(obj) && !OBJECT_META_DATA.get(proxyObject)) {
-            let contextSet = new Set();
-            contextSet.add(context);
-            //对象所属context
-            let pathMap = new WeakMap();
-            pathMap.set(context, chain);
-            OBJECT_META_DATA.set(proxyObject, {
-                from: context,
-                contextSet,
-                pathMap
-            });
-        }
-        else {
-            let deps = OBJECT_META_DATA.get(proxyObject).contextSet;
-            deps.add(context);
-            let pathMap = OBJECT_META_DATA.get(proxyObject).pathMap;
-            let chains = pathMap.get(context);
-            let subChain = concat(chain);
-            if (chains && chains.join('') !== subChain.join('')) {
-                let parentVar = get(context, initial(chains));
-                //处理数组元素更新，如 ary.1 -> ary.0
-                if (!isArray(parentVar)) {
-                    showWarn(`The object is referenced by more than one @state '${subChain.join('.')},${chains.join('.')}'`);
-                }
-                chains = subChain;
+    }, false);
+    document.addEventListener('click', e => {
+        let t = get(e.composedPath(), 0, e.target);
+        AllOutsideClickEls.forEach(([node, cbk]) => {
+            if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
+                cbk({ type: 'outside', target: node, modifier: 'click', event: e });
             }
-            else {
-                pathMap.set(context, subChain);
+        });
+    }, false);
+    document.addEventListener('dblclick', e => {
+        let t = get(e.composedPath(), 0, e.target);
+        AllOutsideDblClickEls.forEach(([node, cbk]) => {
+            if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
+                cbk({ type: 'outside', target: node, modifier: 'dblclick', event: e });
             }
-        }
-        PROXY_MAP.set(obj, proxyObject);
-        return proxyObject;
-    }
-    function notifyUpdate(context, oldValue, path, subNewValue, subOldValue) {
-        //computed
-        let computedMap = COMPUTED_MAP.get(context);
-        //css
-        let cssMap = CSS_MAP.get(context);
-        //watch
-        let watchMap = WATCH_MAP.get(context);
-        //recur path
-        if (computedMap || cssMap || watchMap) {
-            let i = path.length;
-            while (i) {
-                let subPath = path.slice(0, i).join(PATH_SEPARATOR);
-                if (watchMap) {
-                    const watchList = watchMap[subPath];
-                    if (i === path.length) {
-                        watchList?.forEach((wk) => {
-                            let updater = wk();
-                            updater.oldValue = oldValue;
-                            updater.subNewValue = subNewValue;
-                            updater.subOldValue = subOldValue;
-                            updater.path = path;
-                            Queue.pushWatch(updater);
-                        });
-                    }
-                    else {
-                        watchList?.forEach((wk) => {
-                            let updater = wk();
-                            if (get(updater, 'deep')) {
-                                updater.oldValue = oldValue;
-                                updater.subNewValue = subNewValue;
-                                updater.subOldValue = subOldValue;
-                                updater.path = path;
-                                Queue.pushWatch(updater);
-                            }
-                        });
-                    }
-                }
-                if (computedMap) {
-                    let computedList = computedMap[subPath];
-                    if (!isEmpty(computedList)) {
-                        for (let l = 0; l < computedList.length; l++) {
-                            const updater = computedList[l];
-                            Queue.pushComputed(updater);
-                        }
-                    }
-                }
-                if (cssMap) {
-                    let computedCssList = cssMap[subPath];
-                    if (!isEmpty(computedCssList)) {
-                        for (let l = 0; l < computedCssList.length; l++) {
-                            const updater = computedCssList[l];
-                            Queue.pushCss(updater);
-                        }
-                    }
-                }
-                i--;
-            }
-        }
-        let updater = context._notify(oldValue, path);
-        Queue.pushNext(updater, context.cid);
-    }
-    const QMap = new Map();
-    class Queue {
-        static watchSet = new Set();
-        static computedSet = new Set();
-        static cssSet = new Set();
-        static nextSet = new Set();
-        static nextPending = false;
-        static next;
-        static flush() {
-            Queue.nextPending = false;
-            let wq = Array.from(Queue.watchSet);
-            Queue.watchSet.clear();
-            let cq = Array.from(Queue.computedSet);
-            Queue.computedSet.clear();
-            let sq = Array.from(Queue.cssSet);
-            Queue.cssSet.clear();
-            let nq = Array.from(Queue.nextSet);
-            Queue.nextSet.clear();
-            QMap.clear();
-            wq.forEach(u => u(get(u, 'path'), get(u, 'oldValue'), get(u, 'subNewValue'), get(u, 'subOldValue')));
-            cq.forEach(u => u());
-            sq.forEach(u => u());
-            nq.forEach(u => u());
-        }
-        static pushWatch(updater) {
-            Queue.watchSet.add(updater);
-        }
-        static pushComputed(updater) {
-            Queue.computedSet.add(updater);
-        }
-        static pushCss(updater) {
-            Queue.cssSet.add(updater);
-        }
-        static pushNext(updater, key) {
-            if (key) {
-                if (QMap.has(key)) {
-                    return;
-                }
-                QMap.set(key, updater);
-            }
-            Queue.nextSet.add(updater);
-            if (!Queue.nextPending) {
-                Queue.nextPending = true;
-                Queue.next();
-            }
-        }
-    }
-    (() => {
-        const p = Promise.resolve();
-        const nextFn = Queue.flush;
-        Queue.next = () => {
-            p.then(nextFn);
+        });
+    }, false);
+    function addOutsideMouseDown(node, cbk, component) {
+        AllOutsideDownEls.push([node, cbk]);
+        //record
+        return (remove = false) => {
+            myfx.remove(AllOutsideDownEls, el => el[0] === node && el[1] === cbk);
         };
-    })();
+    }
+    function addOutsideClick(node, cbk, component) {
+        AllOutsideClickEls.push([node, cbk]);
+        //record
+        return (remove = false) => {
+            myfx.remove(AllOutsideClickEls, el => el[0] === node && el[1] === cbk);
+        };
+    }
+    function addOutsideDblClick(node, cbk, component) {
+        AllOutsideDblClickEls.push([node, cbk]);
+        //record
+        return (remove = false) => {
+            myfx.remove(AllOutsideDblClickEls, el => el[0] === node && el[1] === cbk);
+        };
+    }
+    function isExtEvent(evName) {
+        return ExtEvNames.includes(evName);
+    }
+    function addExtEvent(evName, node, cbk, parts, component) {
+        if (evName === 'resize') {
+            return addResize(node, cbk);
+        }
+        else if (evName === 'outside') {
+            switch (parts[0]) {
+                case 'mousedown':
+                    return addOutsideMouseDown(node, cbk);
+                case 'dblclick':
+                    return addOutsideDblClick(node, cbk);
+                case 'click':
+                default:
+                    return addOutsideClick(node, cbk);
+            }
+        }
+        else if (evName === 'mutate') {
+            return addMutation(node, cbk, parts);
+        }
+    }
+
+    const MODI_EV_DEBOUNCE = /,|^(debounce:.+)|(debounce$)/;
+    const MODI_EV_THROTTLE = /,|^(throttle:.+)|(throttle$)/;
+    const MODI_EV_NATIVE = 'native';
+    const MODI_EV_SELF = 'self';
+    const MODI_EV_STOP = 'stop';
+    const MODI_EV_PREVENT = 'prevent';
+    const MODI_EV_ONCE = 'once';
+    const MODI_EV_CAPTURE = 'capture';
+    const MODI_EV_PASSIVE = 'passive';
+    const MODI_EV_MOUSE_LEFT = 'left';
+    const MODI_EV_MOUSE_RIGHT = 'right';
+    const MODI_EV_MOUSE_MIDDLE = 'middle';
+    const MODI_EV_KEYBOARD_COMBO_CTRL = 'ctrl';
+    const MODI_EV_KEYBOARD_COMBO_ALT = 'alt';
+    const MODI_EV_KEYBOARD_COMBO_SHIFT = 'shift';
+    const MODI_EV_KEYBOARD_COMBO_META = 'meta';
+    const MODI_EV_KEYBOARD_KEY_MAP = {
+        'esc': 'escape'
+    };
+    const MODI_PARAM_DIVIDER = ":";
+    /*************************************************************
+     * 事件修饰符
+     * @author holyhigh2
+     *
+     * 全部通用 debounce/once/throttle/capture/passive 可组合
+     * 原生通用 stop/prevent/self 可组合
+     * 鼠标 left/right/middle 不可组合
+     * 键盘 ctrl/alt/shift/meta 可组合 esc/letters... 不可组合,多个key并列式表示可选
+     * 组件 native 监听组件元素原生事件
+     *
+     * 部分修饰符支持参数，使用冒号传参如：throttle:100 / debounce:100
+     *************************************************************/
+    const VFN = () => { };
+    function addEvent(fullName, cbk, node, component) {
+        let parts = fullName.split('.');
+        let evName = parts.shift();
+        let isOnce = parts.includes(MODI_EV_ONCE);
+        let c = cbk ?? VFN;
+        let modi;
+        if (modi = find(parts, x => MODI_EV_DEBOUNCE.test(x))) {
+            let params = modi.split(MODI_PARAM_DIVIDER);
+            c = debounce(c, parseInt(params[1]) || 100);
+        }
+        if (modi = find(parts, x => MODI_EV_THROTTLE.test(x))) {
+            let params = modi.split(MODI_PARAM_DIVIDER);
+            c = throttle(c, parseInt(params[1]) || 100);
+        }
+        if (isOnce) {
+            c = once(c);
+        }
+        if (node instanceof CompElem && !parts.includes(MODI_EV_NATIVE)) {
+            return node._addEvent(evName, cbk);
+        }
+        if (isExtEvent(evName)) {
+            return addExtEvent(evName, node, c, parts);
+        }
+        let listener = (e) => {
+            if (parts.includes(MODI_EV_PREVENT))
+                e.preventDefault();
+            if (parts.includes(MODI_EV_STOP))
+                e.stopPropagation();
+            if (parts.includes(MODI_EV_SELF) && e.target !== e.currentTarget)
+                return;
+            if (e instanceof MouseEvent) {
+                if (parts.includes(MODI_EV_MOUSE_LEFT) && e.button != 0)
+                    return;
+                if (parts.includes(MODI_EV_MOUSE_RIGHT) && e.button != 2)
+                    return;
+                if (parts.includes(MODI_EV_MOUSE_MIDDLE) && e.button != 1)
+                    return;
+            }
+            else if (e instanceof KeyboardEvent) {
+                if (remove(parts, p => p == MODI_EV_KEYBOARD_COMBO_CTRL)[0] && !e.ctrlKey)
+                    return;
+                if (remove(parts, p => p == MODI_EV_KEYBOARD_COMBO_ALT)[0] && !e.altKey)
+                    return;
+                if (remove(parts, p => p == MODI_EV_KEYBOARD_COMBO_SHIFT)[0] && !e.shiftKey)
+                    return;
+                if (remove(parts, p => p == MODI_EV_KEYBOARD_COMBO_META)[0] && !e.metaKey)
+                    return;
+                let checkKeys = map(parts, k => MODI_EV_KEYBOARD_KEY_MAP[k] || k);
+                if (size(checkKeys) > 0 && !checkKeys.includes(e.key.toLowerCase()))
+                    return;
+            }
+            c(e);
+        };
+        let capture = parts.includes(MODI_EV_CAPTURE) || false;
+        let passive = parts.includes(MODI_EV_PASSIVE) || false;
+        let options = { capture, passive };
+        node.addEventListener(evName, listener, options);
+        //record
+        return (remove = false) => {
+            node.removeEventListener(evName, listener, options);
+            if (remove)
+                node = null;
+        };
+    }
 
     const PropTypeMap = {
         boolean: Boolean,
@@ -7804,11 +7951,12 @@
         undefined: Object
     };
     //组件静态样式
-    const ComponentStyleMap = new WeakMap();
+    const ComponentStaticStyleMap = new WeakMap();
     let DefaultCss = [];
     let CompElemSn = 0;
-    const GlobalStyleMap = new Map();
-    const HostStyleMap = new WeakMap();
+    const SlotCompMap = new WeakMap();
+    const EMPTY_SLOTS = {};
+    const PROP_NAME_SLOTS = 'slots';
     /**
      * CompElem基类，意为组件元素。提供了基本内置属性及生命周期等必备接口
      * 每个组件都需要继承自该类
@@ -7838,21 +7986,26 @@
         }
         #cid;
         #slotPropsMap = {};
-        #data = { '#slots': {} };
-        #reactiveData = {};
+        __data_ = {};
         #updateSources = {};
         #shadow;
         //保存所有渲染上下文 {CompElem/Directive}
-        #renderContextList = {};
-        __events = {};
+        __updateTree;
+        _eventBindList;
+        _listerners = {};
+        __docoEventMap;
+        __updateSubViewDeps;
+        _cssUpdateInNextTick = false;
+        _cssVarOldValueMap;
+        __cssSheets;
+        _watchUpdateSetInNextTick;
+        _watchUpdateArgsInNextTick;
+        _computedUpdateSetInNextTick;
         get [Symbol.toStringTag]() {
             return this.constructor.name;
         }
         get cid() {
             return this.#cid;
-        }
-        get reactiveData() {
-            return this.#reactiveData;
         }
         get attrs() {
             return this.#attrs;
@@ -7861,126 +8014,94 @@
             return this.#props;
         }
         get renderRoot() {
-            return this.#renderRoot;
+            return this.#renderRoot?.deref();
         }
         get renderRoots() {
-            return this.#renderRoots;
+            return this.#renderRoots.flatMap(wr => wr.deref() ?? []);
         }
         get parentComponent() {
-            return this.#parentComponent;
+            return this.#parentComponent?.deref();
         }
         get wrapperComponent() {
-            return this.#wrapperComponent;
+            return this.__wrapperComponent?.deref();
         }
         get slotHooks() {
             return this.#slotHooks;
         }
-        get css() {
-            return ComponentStyleMap.get(this.constructor);
+        get cssSheets() {
+            return ComponentStaticStyleMap.get(this.constructor);
         }
-        get globalStyleSheet() {
-            return GlobalStyleMap.get(this.constructor)?.sheet;
+        get globalCssSheet() {
+            return CompElem.__l_globalRule.sheet;
         }
         get isMounted() {
             return this.#mounted;
         }
-        //slots列表中绝对不会出现slot元素
         get slots() {
-            return this.#data['#slots'];
+            return EMPTY_SLOTS;
         }
         #attrs;
         #props;
         #renderRoot;
         #renderRoots;
         #parentComponent;
-        #wrapperComponent;
+        __wrapperComponent;
         #slotsEl = {};
         #slotHooks = {};
         #slotNodes = {};
         #mounted = false;
+        #updateViewImmediately = false;
+        #updateNextImmediatelyQ;
         //////////////////////////////////// styles
         /**
          * 组件样式，CSSStyleSheet可动态变更
          */
-        static get styles() {
+        static get css() {
             return [];
         }
-        static get globalStyles() {
-            return [];
+        static get globalCss() {
+            return undefined;
         }
-        static get hostStyles() {
-            return [];
+        static get hostCss() {
+            return undefined;
         }
-        get styles() {
-            return [];
+        get cssVars() {
+            return {};
         }
-        #inited = false;
+        __inited = false;
         #initiating = false;
+        #onSlotChangeHookBindThis;
+        __thisRef;
         constructor(...args) {
             super();
             this.#cid = CompElemSn++;
+            this.__updateTree = [];
+            this.__thisRef = new WeakRef(this);
+            this.#onSlotChangeHookBindThis = this.#onSlotChangeHook.bind(this);
             //init props via constructor
             if (size(args) === 1) {
                 this.#props = {};
                 assign(this.#props, first(args));
             }
-            let render = this.render.bind(this);
-            this.render = function () {
-                let rs;
-                Collector.startRender(this);
-                rs = render();
-                Collector.endRender(this);
-                return rs;
-            };
-            /////////////////////////////////////////////////// styles
-            //global styles
-            let globalStyles = get(this.constructor, "globalStyles");
-            // let beAttached = get(this.constructor, '_global_style_attached')
-            let beAttached = GlobalStyleMap.has(this.constructor);
-            if (!isEmpty(globalStyles) && !beAttached) {
-                let globalTextContent = "";
-                globalStyles.forEach((st) => {
-                    if (isString(st)) {
-                        globalTextContent += st + "\n";
-                    }
-                });
-                let style = document.createElement('style');
-                style.textContent += globalTextContent;
-                GlobalStyleMap.set(this.constructor, style);
-                document.head.appendChild(style);
-                // set(this.constructor, '_global_style_attached', '1')
-            }
-            //component styles
-            let beAttached2 = ComponentStyleMap.get(this.constructor);
-            let styleSheets = beAttached2 ?? [];
-            if (!beAttached2) {
-                each(get(this.constructor, "styles"), (st) => {
-                    if (isString(st)) {
-                        let sheet = new CSSStyleSheet();
-                        sheet.replaceSync(st);
-                        styleSheets.push(sheet);
-                    }
-                    else {
-                        styleSheets.push(st);
-                    }
-                });
-                ComponentStyleMap.set(this.constructor, styleSheets);
-            }
-            /////////////////////////////////////////////////// shadow
-            this.#shadow = this.attachShadow({
-                mode: "open"
-            });
-            this.#shadow.adoptedStyleSheets = [...DefaultCss, ...styleSheets];
             /////////////////////////////////////////////////// slots
-            this.#updateSlotsAry();
-            //slots prop map
-            // this._slotsPropMap = { default: [] }
+            if (!Reflect.getOwnPropertyDescriptor(this.constructor.prototype, 'slots')) {
+                Reflect.defineProperty(this.constructor.prototype, 'slots', {
+                    get() {
+                        return getterValue(undefined, 'slots', this);
+                    },
+                    set(v) {
+                        setterValue('slots', v, this);
+                    }
+                });
+            }
             /////////////////////////////////////////////////// decorators create
-            let ary = get(this.constructor, _DecoratorsKey);
+            let ary = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(_getSuper(this.constructor));
             ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => dw.create(this));
             this.#updatedD = this.#update.bind(this);
         }
         insertStyleSheet(sheet) {
+            if (!this.#shadow)
+                return null;
             let cssSheet;
             if (isString(sheet)) {
                 cssSheet = new CSSStyleSheet();
@@ -7991,13 +8112,13 @@
                 }
             }
             else {
-                if (this.shadowRoot.adoptedStyleSheets.includes(sheet))
+                if (this.#shadow.adoptedStyleSheets.includes(sheet))
                     return sheet;
                 cssSheet = sheet;
             }
-            this.shadowRoot.adoptedStyleSheets = [...this.shadowRoot.adoptedStyleSheets, cssSheet];
+            this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, cssSheet];
             // Keep ComponentStyleMap in sync for this constructor
-            const cur = ComponentStyleMap.get(this.constructor) ?? [];
+            const cur = ComponentStaticStyleMap.get(this.constructor) ?? [];
             cur.push(cssSheet);
             return cssSheet;
         }
@@ -8017,194 +8138,365 @@
             let node = closest(this.parentNode, (node) => node instanceof CompElem || node.host instanceof CompElem, "parentNode");
             this.#parentComponent = node
                 ? node instanceof CompElem
-                    ? node
-                    : node.host
-                : null;
+                    ? new WeakRef(node)
+                    : new WeakRef(node.host)
+                : undefined;
+            if (!CompElem.__l_globalRule.parentNode) {
+                document.head.appendChild(CompElem.__l_globalRule);
+            }
+            //host styles
+            let hostStyle = get(this.constructor, "hostCss");
+            let styleSheet = get(this.constructor, 'hostCssSheet');
+            if (hostStyle) {
+                if (!styleSheet) {
+                    if (isString(hostStyle)) {
+                        styleSheet = new CSSStyleSheet();
+                        styleSheet.replaceSync(hostStyle);
+                    }
+                    else {
+                        styleSheet = hostStyle;
+                    }
+                    set(this.constructor, 'hostCssSheet', styleSheet);
+                }
+                let styleRoot = this.__wrapperComponent?.deref()?.shadowRoot ?? this.#parentComponent?.deref()?.shadowRoot ?? this.ownerDocument;
+                //detached el
+                if (this.__wrapperComponent && !this.__wrapperComponent.deref()?.shadowRoot?.contains(this)) {
+                    styleRoot = closest(this, n => n instanceof HTMLDocument || n instanceof ShadowRoot, 'parentNode');
+                }
+                if (styleRoot && styleSheet && !styleRoot.adoptedStyleSheets.includes(styleSheet)) {
+                    styleRoot.adoptedStyleSheets = [...styleRoot.adoptedStyleSheets, styleSheet];
+                }
+            }
             this.__init();
+            this.__bindEvents();
         }
         disconnectedCallback() {
+            this.__unbindEvents();
+        }
+        __bindEvents() {
+            let evs = this._eventBindList;
+            each(evs, (v) => {
+                let [evName, cbk, node, binded] = v;
+                if (binded)
+                    return;
+                if (!node)
+                    return;
+                let handler = cbk ? cbk.bind(this) : cbk;
+                let unbinder = addEvent(evName, handler, node);
+                v[3] = unbinder;
+            });
+            //event decoration
+            let events = DefinitionCompEventMap.get(this.constructor);
+            if (size(events) > 0) {
+                if (!this.__docoEventMap)
+                    this.__docoEventMap = new Map();
+                each(events, ({ name, targetFn, fnName }) => {
+                    if (this.__docoEventMap.has(name + "@" + fnName))
+                        return;
+                    let eventTarget = targetFn ? targetFn(this) : this;
+                    let cbk = get(this, fnName);
+                    let handler = cbk ? cbk.bind(this) : cbk;
+                    let unbinder = addEvent(name, handler, eventTarget);
+                    this.__docoEventMap.set(name + "@" + fnName, unbinder);
+                });
+            }
+        }
+        __unbindEvents() {
+            each(this._eventBindList, (v) => {
+                let [, , , unbinder] = v;
+                if (unbinder)
+                    unbinder();
+                v[3] = null;
+            });
+            let delDecoKeys = [];
+            each(this.__docoEventMap, (unbinder, k) => {
+                if (unbinder)
+                    unbinder();
+                delDecoKeys.push(k);
+            });
+            delDecoKeys.forEach(k => this.__docoEventMap.delete(k));
+        }
+        beforeDestroyed() {
+        }
+        destroyed() {
+        }
+        get isDestroyed() {
+            return this.#destroyed;
+        }
+        #destroyed = false;
+        destroy() {
+            if (this.#destroyed)
+                return;
+            this.#destroyed = true;
+            let ary = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(_getSuper(this.constructor));
+            ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
+                dw.destroy(this);
+            });
+            this.beforeDestroyed();
+            //events
+            this.__unbindEvents();
+            this._listerners = null;
+            this.__docoEventMap?.clear();
+            this.__docoEventMap = this._eventBindList = null;
+            //styles
+            ComponentDynamicCssUpdaterMap.get(this)?.clear();
+            ComponentDynamicCssUpdaterMap.delete(this);
+            //reactive
+            this._watchUpdateArgsInNextTick?.clear();
+            this._watchUpdateSetInNextTick?.clear();
+            this._computedUpdateSetInNextTick?.clear();
+            this._computedUpdateSetInNextTick = null;
+            this.__cssSheets = null;
+            this.__updateSubViewDeps?.clear();
+            //sup scope
+            if (this.#parentComponent) {
+                let pComp = this.#parentComponent.deref();
+                pComp && walkTree(pComp.__updateTree, (up) => {
+                    if (up.__destroyed)
+                        return;
+                    if (up.node?.deref() === this) {
+                        up.destroy(pComp);
+                        remove(up.parent ? up.parent.children : pComp.__updateTree, c => c === up);
+                    }
+                });
+            }
+            //sub scopes
+            each(this.__updateTree, up => up?.destroy(this));
+            //slots
+            each(this.#slotsEl, (slotEl) => {
+                SlotCompMap.delete(slotEl);
+                slotEl.remove();
+            });
+            each(this.#slotNodes, (nodes) => {
+                each(nodes, (node) => node.remove());
+            });
+            each(this.__data_.slots, (nodes, k) => {
+                each(nodes, (node) => node.remove());
+            });
+            this.#updateSlots.clear();
+            this.#slotNodes = this.#slotsEl = this.#updateSlots = this.#slotPropsMap = this.__data_.slots = null;
+            this.remove();
+            //data
+            this._wrapperProp =
+                this.#propsReady =
+                    this.#renderRoot = this.#renderRoots = this.#shadow =
+                        this.#updateSources =
+                            this.#attrs =
+                                this.#props =
+                                    this.#renderRoot =
+                                        this.#renderRoots =
+                                            this.#slotHooks =
+                                                this.#updatedD =
+                                                    this.__data_ =
+                                                        this.__updateTree =
+                                                            this.#parentComponent =
+                                                                this._asyncDirectives =
+                                                                    this.__wrapperComponent = null;
+            //unmount
+            this.destroyed();
         }
         //////////////////////////////////// lifecycles
         //********************************** 首次渲染
         //构造时上级传递的参数
         __init() {
-            if (this.#inited)
+            if (this.__inited)
                 return;
             //防止在钩子中出现重新挂载的情况
             if (this.#initiating)
                 return;
             this.#initiating = true;
-            /////////////////////////////////////////////////// slots
-            this.#updateSlotsAry();
-            //1. Props & States
-            const props = this.#initProps();
-            this.propsReady(props);
-            for (const key in props) {
-                const v = props[key];
-                this.#data[key] = v;
+            //global styles
+            let globalTextContent = get(this.constructor, "globalCss");
+            if (!isEmpty(globalTextContent) && isString(globalTextContent) && !get(this.constructor, '_globalRuleInserted')) {
+                CompElem.__l_globalRule.textContent += globalTextContent; //.sheet?.insertRule(globalTextContent, 0)
+                set(this.constructor, '_globalRuleInserted', true);
             }
-            this.#initStates();
-            //2. Data
-            each(this.#data, (v, k) => {
-                let descr = Reflect.getOwnPropertyDescriptor(this.#data, k);
-                Reflect.defineProperty(this, k, {
-                    get() {
-                        let v = Reflect.get(this.#reactiveData, k);
-                        return descr?.get ? descr?.get() : v;
-                    },
-                    set(v) {
-                        if (descr?.set) {
-                            descr?.set(v);
-                        }
-                        else {
-                            Reflect.set(this.#reactiveData, k, v);
-                        }
-                    },
-                });
-            });
-            Reflect.defineProperty(this.#data, '__isData', {
-                enumerable: false,
-                value: true
-            });
-            this.#reactiveData = reactive(this.#data, this);
-            //3. Computed
-            let computedMap = get(this.constructor, DecoratorKey.COMPUTED);
-            each(computedMap, (getter, propKey) => {
-                Collector.startCollect(this, CollectorType.COMPUTED);
-                Collector.setUpdater(() => {
-                    this.#reactiveData[propKey] = getter.call(this);
-                });
-                this.#data[propKey] = getter.call(this);
-                Collector.endCollect();
-                Reflect.defineProperty(this, propKey, {
-                    get() {
-                        return Reflect.get(this.#reactiveData, propKey);
-                    },
-                    set(v) {
-                        showTagError(this.tagName, "Cannot set a computed property '" + propKey + "'");
-                    },
-                });
-            });
-            //4. Watch
-            let watchMap = get(this.constructor, DecoratorKey.WATCH);
-            each(watchMap, (watchList, k) => {
-                watchList.forEach(v => {
-                    let { source, options, handler } = v;
-                    let fn = handler.bind(this);
-                    let onceWatch = get(options, "once", false);
-                    if (onceWatch) {
-                        fn = once(fn);
-                    }
-                    const updater = (function (path, oldValue, subNewValue, subOldValue) {
-                        let nv = get(this, source.replaceAll(PATH_SEPARATOR, '.'));
-                        fn(nv, oldValue, join(path, '.'), subNewValue, subOldValue);
-                    }).bind(this);
-                    let deep = get(options, "deep", false);
-                    updater.deep = deep;
-                    Collector.collectWatch(this, () => updater, k);
-                    let immediate = get(options, "immediate", false);
-                    if (!immediate)
-                        return;
-                    let nv = get(this, source.replaceAll(PATH_SEPARATOR, '.'));
-                    fn(nv, nv, source);
-                });
-            });
-            //5. Render
-            let tmpl = this.render();
-            let nodes = buildView(tmpl, this);
-            if (nodes) {
-                this.#shadow.append(...nodes);
-                this.#renderRoots = filter(this.#shadow.childNodes, (n) => n.nodeType === Node.ELEMENT_NODE);
-                this.#renderRoot = this.#renderRoots[0];
-            }
-            /////////////////////////////////////////////////// before mount
-            //slot hook
-            each(this.#slotHooks, (v, k) => {
-                this.#updateSlot(k);
-            });
-            const that = this;
-            let ary = get(this.constructor, _DecoratorsKey);
-            ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
-                dw.beforeMount(this, (key, value) => {
-                    that.#reactiveData[key] = value;
-                    return that.#reactiveData[key];
-                });
-            });
-            //host styles
-            let hostStyles = get(this.constructor, "hostStyles");
-            let styleRoot = this.#wrapperComponent?.shadowRoot ?? this.ownerDocument;
-            let cls = HostStyleMap.get(styleRoot);
-            if (!cls?.includes(this.constructor) && hostStyles.length > 0) {
-                let styleSheets = [];
-                each(hostStyles, (st) => {
+            //component styles
+            let beAttached2 = ComponentStaticStyleMap.get(this.constructor);
+            let styleSheets = beAttached2 ?? [];
+            if (!beAttached2) {
+                each(get(this.constructor, "css"), (st) => {
                     if (isString(st)) {
                         let sheet = new CSSStyleSheet();
                         sheet.replaceSync(st);
                         styleSheets.push(sheet);
                     }
+                    else if (isFunction(st)) ;
                     else {
                         styleSheets.push(st);
                     }
                 });
-                styleRoot.adoptedStyleSheets = [...styleRoot.adoptedStyleSheets, ...styleSheets];
-                cls?.push(this.constructor);
+                ComponentStaticStyleMap.set(this.constructor, styleSheets);
             }
-            this.beforeMount();
-            //events
-            let eventList = get(this.constructor, DecoratorKey.EVENTS);
-            eventList && eventList.forEach(async (ev) => {
-                let name = ev.name;
-                let options = assign({ target: document, once: false, passive: false, capture: false }, ev.options);
-                let listener = bind(ev.fn, this);
-                let target = options.target;
-                if (isFunction(target)) {
-                    target = await target.call(this, this);
-                }
-                if (!target) {
-                    showTagError(this.tagName, "The target of @event('" + name + "',...) is invalid");
-                    return;
-                }
-                target.addEventListener(name, listener, options);
+            ////////////////////////////////////////////////// Props & States
+            const props = this.#initProps();
+            this.propsReady(props);
+            for (const key in props) {
+                const v = props[key];
+                this.__data_[key] = v;
+            }
+            this.#initStates();
+            //2. Data
+            this.__data_.slots = {};
+            Reflect.defineProperty(this.__data_, '__isData', {
+                enumerable: false,
+                value: true
             });
-            //instance dynamic style
-            Collector.startCollect(this, CollectorType.CSS);
-            let cssAry = [];
-            this.styles.forEach(st => {
-                if (!isFunction(st))
-                    return;
-                let cssss = new CSSStyleSheet();
-                cssAry.push(cssss);
-                Collector.setUpdater(() => {
-                    let css = st() ?? '';
-                    cssss.replaceSync(css);
+            //3. Watch
+            let superComp = _getSuper(this.constructor);
+            let watchKeys = WatchKeysListMap.get(this.constructor) ?? WatchKeysListMap.get(superComp);
+            if (watchKeys) {
+                this._watchUpdateSetInNextTick = new Set();
+                this._watchUpdateArgsInNextTick = new Map();
+                let onceMap = WatchKeysOnceMap.get(this.constructor) ?? WatchKeysOnceMap.get(superComp);
+                let watchImmediateList = WatchImmediateListMap.get(this.constructor) ?? WatchImmediateListMap.get(superComp);
+                each(watchImmediateList, (fns, k) => {
+                    let nv = get(this, k);
+                    fns.forEach(fn => {
+                        fn.call(this, nv, undefined, k);
+                    });
+                    if (onceMap.has(k)) {
+                        onceMap.set(k, true);
+                    }
                 });
-                let css = st();
-                if (isBlank(css))
-                    return;
-                cssss.replaceSync(css);
-            });
-            Collector.endCollect();
-            if (cssAry.length > 0) {
-                this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, ...cssAry];
             }
+            //4. Computed
+            let computedMap = assign({}, DefinitionComputedMap.get(this.constructor), DefinitionComputedMap.get(superComp));
+            if (computedMap) {
+                this._computedUpdateSetInNextTick = new Set();
+                let depMap = ComputedUpdateDepsMap.get(this.constructor);
+                if (!depMap) {
+                    depMap = new Map();
+                    ComputedUpdateDepsMap.set(this.constructor, depMap);
+                    each(computedMap, (getter, propKey) => {
+                        set(getter, 'key', propKey);
+                        Collector.start();
+                        this[DATA_KEY][propKey] = getter.call(this);
+                        Collector.end();
+                        let computedDeps = Collector.popVarPathList();
+                        computedDeps.forEach(dep => {
+                            let list = depMap.get(dep);
+                            if (!list) {
+                                list = new Set();
+                                depMap.set(dep, list);
+                            }
+                            list.add(getter);
+                        });
+                    });
+                }
+                else {
+                    each(computedMap, (getter, propKey) => {
+                        this[DATA_KEY][propKey] = getter.call(this);
+                    });
+                }
+            }
+            //5. Render
+            Collector.start();
+            let tmpl = this.render();
+            Collector.end();
+            let viewDeps = Collector.popVarPathList();
+            if (!this.constructor.prototype._viewDeps) {
+                this.constructor.prototype._viewDeps = viewDeps;
+            }
+            let nodes;
+            if (tmpl === null) {
+                this.#renderRoots = [];
+                this.#renderRoot = undefined;
+            }
+            else {
+                /////////////////////////////////////////////////// shadow dom
+                this.#shadow = this.attachShadow({
+                    mode: "open"
+                });
+                this.#shadow.adoptedStyleSheets = [...DefaultCss, ...(ComponentStaticStyleMap.get(this.constructor) ?? [])];
+                nodes = buildView(tmpl, this);
+                if (nodes) {
+                    this.#renderRoots = filter(nodes, (n) => n.nodeType === Node.ELEMENT_NODE).map(n => new WeakRef(n));
+                    this.#renderRoot = this.#renderRoots[0];
+                }
+            }
+            this.__inited = true;
+            /////////////////////////////////////////////////// slots
+            this.#updateSlotsAry();
+            //slot hook
+            each(this.#slotHooks, (v, k) => {
+                this.#updateSlot(k);
+            });
+            const that = this;
+            let ary = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(_getSuper(this.constructor));
+            ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
+                dw.beforeMount(this, (key, value) => {
+                    that.__data_[key] = value;
+                    return that.__data_[key];
+                });
+            });
+            this.beforeMount();
             setTimeout(() => {
+                if (this.isDestroyed) {
+                    console.debug('Component is destroyed before mount', this.tagName);
+                    return;
+                }
                 this.#mounted = true;
-                this.mounted();
+                if (this.#shadow) {
+                    //instance dynamic style
+                    Collector.start();
+                    let cssVarObj = this.cssVars;
+                    Collector.end();
+                    if (!isEmpty(cssVarObj)) {
+                        this._cssVarOldValueMap = {};
+                        let deps = CssUpdateDepsMap.get(this.constructor);
+                        if (!deps) {
+                            deps = new Set(Collector.popVarPathList());
+                            CssUpdateDepsMap.set(this.constructor, deps);
+                        }
+                        let cssStr = '';
+                        each(cssVarObj, (v, k) => {
+                            let cssVarKey = '--' + kebabCase(k).replace(/^-+/, '');
+                            if (isBlank(v) || isNil(v)) {
+                                v = 'initial'; // invalid value
+                            }
+                            this._cssVarOldValueMap[cssVarKey] = v;
+                            cssStr += ';' + cssVarKey + ':' + v;
+                        });
+                        this.style.cssText += cssStr;
+                    }
+                }
+                if (nodes)
+                    this.#shadow.append(...nodes);
                 ary && ary.forEach(dw => {
                     dw.mounted(this, (key, value) => {
-                        that.#reactiveData[key] = value;
-                        return that.#reactiveData[key];
+                        that.__data_[key] = value;
+                        return that.__data_[key];
                     });
                 });
+                if (this.#updateNextImmediatelyQ) {
+                    this.#updateNextImmediatelyQ.forEach((cbk) => Queue.pushNext(cbk));
+                }
+                if (this.#updateViewImmediately) {
+                    Queue.pushNext(this.#updatedD);
+                }
+                this.__bindEvents();
+                this.mounted();
             }, 0);
-            this.#inited = true;
         }
         propsReady(props) { }
         render() {
-            throw Error(`[CompElem <${this.tagName}>] Missing render()`);
+            return null;
         }
         beforeMount() { }
         mounted() { }
+        #onSlotChangeHook(e) {
+            let t = e.currentTarget;
+            let name = '';
+            each(this.#slotsEl, (el, n) => {
+                if (el === t) {
+                    name = n;
+                    return false;
+                }
+            });
+            if (this.__inited)
+                this.#onSlotChange(t, name === SLOT_NAME_DEFAULT ? '' : name);
+        }
         #onSlotChange(slot, name) {
             //1. 更新 _slotsPropMap & slots
             this.#updateSlotsAry();
@@ -8219,9 +8511,9 @@
                         }
                         each(props, (v, k) => {
                             if (node instanceof HTMLSlotElement) {
-                                let compOfSlot = get(node, '__l_comp');
+                                let compOfSlot = SlotCompMap.get(node);
                                 if (compOfSlot) {
-                                    let sname = node.name || 'default';
+                                    let sname = node.name || SLOT_NAME_DEFAULT;
                                     let slotMap = compOfSlot.#slotPropsMap[sname];
                                     if (!slotMap) {
                                         slotMap = compOfSlot.#slotPropsMap[sname] = { props: {} };
@@ -8245,10 +8537,12 @@
         }
         slotChange(slot, name) { }
         attributeChangedCallback(attributeName, oldValue, newValue) {
+            if (!this.__inited)
+                return;
             if (Object.is(newValue, oldValue))
                 return;
             let propName = camelCase(attributeName);
-            let propDef = get(this.constructor, [DecoratorKey.PROPS, propName]);
+            let propDef = DefinitionPropMap.get(this.constructor)[propName];
             if (isBooleanProp(propDef.type)) {
                 let v = isNull(newValue) ? false : getBooleanValue(newValue);
                 if (get(this, propName) === v)
@@ -8272,7 +8566,6 @@
          * @param changed
          */
         updated(changed) { }
-        #rootEvs = {};
         /**
          * 由监控变量调用
          * @param stateKey
@@ -8280,52 +8573,97 @@
          * @param rootStateKey 如果是对象内部属性变更，会返回根属性名
          * @returns
          */
-        _notify(ov, chain) {
-            //todo  1. 取消data - 0这个层级的监控；需要验证删除行时的路径
+        _notify(ov, chain, subNewValue, subOldValue) {
             let varPath = [];
             for (let i = 0; i < chain.length; i++) {
                 const seg = chain[i];
                 varPath.push(seg);
                 let v = get(this, varPath);
                 let pathStr = _toUpdatePath(varPath);
-                this.#updateSources[pathStr] = { value: v, chain: pathStr === "slots" ? ['slots'] : varPath, oldValue: ov, end: varPath.length === chain.length };
+                this.#updateSources[pathStr] = { value: v, chain: pathStr === PROP_NAME_SLOTS ? [PROP_NAME_SLOTS] : varPath, oldValue: ov, end: varPath.length === chain.length, subNewValue, subOldValue };
             }
-            return this.#updatedD;
+            if (!this.isMounted) {
+                console.debug('target update...', this.tagName);
+                this.#updateViewImmediately = true;
+                return;
+            }
+            Queue.pushNext(this.#updatedD);
         }
         #update() {
             if (size(this.#updateSources) < 1)
                 return;
+            if (!this.isMounted)
+                return;
             const changed = this.#updateSources;
             this.#updateSources = {};
-            const changedKeys = Object.keys(changed);
-            //update decorators
-            let ary = get(this.constructor, _DecoratorsKey);
-            ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
-                dw.updated(this, changed);
-            });
             let toBreak = !this.shouldUpdate(changed);
             if (toBreak)
                 return;
-            let renderContextList = new Set();
-            //1. filter context
-            const rcl = this.#renderContextList;
-            each(changed, ({ value, chain, oldValue, end }, k) => {
-                if (rcl[k]) {
-                    rcl[k].forEach(cx => {
-                        renderContextList.add(cx);
+            //update decorators
+            let ary = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(_getSuper(this.constructor));
+            ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
+                dw.updated(this, changed);
+            });
+            //1. filter update point
+            let toUpdateView = false;
+            let toUpdateUps = new Set();
+            let viewDeps = this.constructor.prototype._viewDeps;
+            each(changed, (x, k) => {
+                if (!toUpdateView && viewDeps?.includes(k)) {
+                    toUpdateView = true;
+                }
+                if (this.__updateSubViewDeps?.has(k)) {
+                    let ups = this.__updateSubViewDeps.get(k);
+                    if (ups)
+                        toUpdateUps = toUpdateUps.union(ups);
+                }
+            });
+            //update watch
+            this._watchUpdateSetInNextTick?.forEach((fn) => {
+                let { newValue, oldValue, chain, rootObjNew, rootObjOld, fullMatch } = this._watchUpdateArgsInNextTick.get(fn);
+                let nv = fullMatch ? newValue : rootObjNew;
+                let ov = fullMatch ? oldValue : rootObjOld;
+                fn.call(this, nv, ov, chain, newValue, oldValue);
+            });
+            this._watchUpdateSetInNextTick?.clear();
+            this._watchUpdateArgsInNextTick?.clear();
+            // update computed
+            this._computedUpdateSetInNextTick?.forEach(fn => {
+                let k = get(fn, 'key');
+                let oldValue = this.__data_[k];
+                let newValue = fn.call(this);
+                if (!isObject(newValue) && newValue === oldValue)
+                    return;
+                this.__data_[k] = newValue;
+                this._notify(oldValue, [k]);
+            });
+            this._computedUpdateSetInNextTick?.clear();
+            // update css
+            if (this._cssUpdateInNextTick) {
+                let cssVarObj = this.cssVars;
+                each(cssVarObj, (v, k) => {
+                    let cssVarKey = '--' + kebabCase(k).replace(/^-+/, '');
+                    if (this._cssVarOldValueMap[cssVarKey] == v) {
+                        return;
+                    }
+                    if (isBlank(v) || isNil(v)) {
+                        v = 'initial'; // invalid value
+                    }
+                    this._cssVarOldValueMap[cssVarKey] = v;
+                    this.style.setProperty(cssVarKey, v + '');
+                });
+            }
+            //2. update view
+            if (this.#renderRoot?.deref()) {
+                if (toUpdateView) {
+                    updateView(this.render(), this, this.__updateTree);
+                }
+                if (size(toUpdateUps) > 0) {
+                    toUpdateUps.forEach(up => {
+                        updateSubScopeView(up, this, undefined);
                     });
                 }
-            });
-            //2. update context
-            renderContextList.forEach(context => {
-                if (context === this) {
-                    updateView(this.render(), this, undefined, changedKeys);
-                }
-                else {
-                    //指令在这里仅更新视图
-                    updateDirectiveView(context, this, undefined, undefined, changedKeys);
-                }
-            });
+            }
             //update slot view
             this.#updateSlots.forEach((v) => {
                 this.#updateSlot(v);
@@ -8339,7 +8677,7 @@
          * @returns 非props的attr集合
          */
         #initProps() {
-            let propDefs = get(this.constructor, DecoratorKey.PROPS);
+            let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(_getSuper(this.constructor));
             let attrs = this.attributes;
             let tagName = this.tagName;
             let parentProps = this.#props;
@@ -8358,7 +8696,7 @@
             this.#attrs = this.#attrs ? assign(this.#attrs, filterAttrs) : filterAttrs;
             let rs = {};
             if (!propDefs)
-                return Object.seal(rs);
+                return rs;
             let keys = Object.keys(propDefs);
             let size = keys.length;
             for (let i = 0; i < size; i++) {
@@ -8402,25 +8740,14 @@
                     break;
                 }
                 val = this.#propTypeCheck(propDefs, key, val, hasAttr);
-                let getter = get(propDefs, [key, 'getter']);
-                if (getter)
-                    getter = bind(getter, this);
-                let setter = get(propDefs, [key, 'setter']);
-                if (setter)
-                    setter = bind(setter, this);
-                if (getter || setter) {
-                    Reflect.defineProperty(this.#data, key, {
-                        set: setter || function (v) { },
-                        get: getter
-                    });
-                }
                 if (propDef.attribute && isDefined(val) && !isObject(val)) {
                     this.#updateAttribute(propDef, key, val);
                 }
-                this.#data[key] = val;
+                this.__data_[key] = val;
                 rs[key] = val;
+                delete this[key];
             }
-            return Object.seal(rs);
+            return rs;
         }
         #updateAttribute(propDef, key, val) {
             let k = kebabCase(key);
@@ -8518,23 +8845,25 @@
                 showTagError(this.tagName, `Invalid prop '${propKey}'. expected '${expectTypeAry.map((t) => t.name || t)}' but got '${realType}'`);
             }
             if (validator) {
-                if (!validator.call(this, val, this.#data)) {
+                if (!validator.call(this, val, this.__data_)) {
                     showTagError(this.tagName, `Invalid prop '${propKey}'. IsValid() check failed`);
                 }
             }
             return val;
         }
         #initStates() {
-            let stateDefs = get(this.constructor, DecoratorKey.STATES);
-            each(stateDefs, (def, key) => {
-                let stateDef = stateDefs[key];
-                let val = get(this, key);
-                if (stateDef) {
-                    let propName = stateDef.prop;
-                    val = propName ? cloneDeep(this.#data[propName]) : get(this, key);
-                }
-                this.#data[key] = val;
-            });
+            let stateDefs = DefinitionStateMap.get(this.constructor) ?? DefinitionStateMap.get(_getSuper(this.constructor));
+            if (stateDefs)
+                each(stateDefs, (def, key) => {
+                    let stateDef = stateDefs[key];
+                    let val = get(this, key);
+                    if (stateDef) {
+                        let propName = stateDef.prop;
+                        val = propName ? cloneDeep(this.__data_[propName]) : get(this, key);
+                    }
+                    this.__data_[key] = val;
+                    delete this[key];
+                });
         }
         /**
          * 由外部调用，在初始化及更新时。
@@ -8542,9 +8871,10 @@
          * @param attrs
          */
         #propsReady = debounce(this.propsReady, 100);
-        //todo 这里需要直接修改prop
         _updateProps(props) {
-            let propDefs = get(this.constructor, DecoratorKey.PROPS);
+            let propDefs = DefinitionPropMap.get(this.constructor);
+            if (!propDefs)
+                return;
             let need2UpdateAttrs = [];
             //存在attrs表示已初始化完成
             each(props, (v, k) => {
@@ -8556,9 +8886,7 @@
                 if (propDef.attribute && isDefined(v) && !isObject(v)) {
                     need2UpdateAttrs.push([propDef, ck, v]);
                 }
-                Collector.__skipCheck = true;
                 set(this, ck, v);
-                Collector.__skipCheck = false;
             });
             assign(this.#props, props);
             need2UpdateAttrs.forEach(([propDef, key, v]) => {
@@ -8577,10 +8905,10 @@
                     if (fromPath) {
                         let propPath = fromPath.join(PATH_SEPARATOR);
                         this._wrapperProp[propPath] = k;
-                        let parentStateDefs = get(this.wrapperComponent?.constructor, DecoratorKey.STATES);
+                        let parentStateDefs = this.wrapperComponent ? DefinitionStateMap.get(this.wrapperComponent?.constructor) : null;
                         let parentStateKey = fromPath[0];
                         if (parentStateDefs && parentStateDefs[parentStateKey]) {
-                            let propDefs = get(this.constructor, DecoratorKey.PROPS);
+                            let propDefs = DefinitionPropMap.get(this.constructor);
                             set(propDefs, [k, 'shallow'], parentStateDefs[parentStateKey].shallow);
                         }
                     }
@@ -8594,14 +8922,11 @@
             //1. 设置map
             if (!this.#slotsEl[name]) {
                 this.#slotsEl[name] = slot;
-                Reflect.defineProperty(slot, '__l_comp', {
-                    value: this
-                });
+                SlotCompMap.set(slot, this);
             }
-            slot.addEventListener('slotchange', (e) => {
-                if (this.#inited)
-                    this.#onSlotChange(slot, name === 'default' ? '' : name);
-            });
+            let evName = 'slotchange';
+            let unbinder = addEvent(evName, this.#onSlotChangeHookBindThis, slot);
+            this._eventBindList.push([evName, this.#onSlotChangeHookBindThis, slot, unbinder]);
             //3. 保存参数
             if (!isEmpty(props)) {
                 let slotMap = this.#slotPropsMap[name];
@@ -8641,6 +8966,11 @@
             }
         }
         #updateSlotsAry() {
+            if (!this.#renderRoot)
+                return;
+            let slotKeys = keys(this.#slotsEl);
+            if (isEmpty(slotKeys))
+                return;
             const cs = flatMap(this.childNodes, node => {
                 if (node.nodeType === Node.COMMENT_NODE)
                     return [];
@@ -8649,16 +8979,16 @@
                 return node;
             });
             let groups = groupBy(cs, node => {
-                if (node.nodeType === Node.TEXT_NODE)
-                    return 'default';
+                if (node.nodeType === Node.TEXT_NODE && slotKeys.includes(SLOT_NAME_DEFAULT))
+                    return SLOT_NAME_DEFAULT;
                 if (node instanceof Element) {
-                    return node.getAttribute('slot') || 'default';
+                    let sName = node.getAttribute('slot') || SLOT_NAME_DEFAULT;
+                    if (slotKeys.includes(sName))
+                        return sName;
                 }
             });
             if (isEmpty(groups)) {
-                if (!isEmpty(this.#data['#slots'])) {
-                    this.#inited ? this.#reactiveData['#slots'] = {} : this.#data['#slots'] = {};
-                }
+                this.slots = {};
                 return;
             }
             each(groups, (nodeAry, k) => {
@@ -8689,14 +9019,16 @@
                     rs[k] = v;
                 }
             });
-            this.#inited ? this.#reactiveData['#slots'] = rs : this.#data['#slots'] = rs;
+            this.slots = rs;
         }
         #updateSlot(name) {
             let hook = this.#slotHooks[name];
             if (!hook)
                 return;
             let slotMap = this.#slotPropsMap[name];
-            let slot = this.#data['#slots'][name];
+            if (!this.__data_.slots)
+                return;
+            let slot = this.__data_.slots[name];
             //slot not ready yet
             //1. 可能是if/each等指令还未插入
             if (!slot)
@@ -8724,89 +9056,87 @@
         renderAsync(cbk, ...args) {
         }
         #attrChanged(name, oldValue, newValue) {
-            if (!this.#inited)
+            if (!this.__inited)
                 return;
             let observedAttrs = _getObservedAttrs(this.constructor);
             if (observedAttrs.has(name)) {
                 let camelName = camelCase(name);
                 if (isNull(newValue)) {
-                    let propDefs = get(this.constructor, DecoratorKey.PROPS);
+                    let propDefs = DefinitionPropMap.get(this.constructor);
                     //使用默认值
-                    newValue = propDefs[camelName]._defaultValue;
+                    if (propDefs)
+                        newValue = propDefs[camelName]._defaultValue;
                 }
                 this._updateProps({ [camelName]: newValue });
             }
         }
-        /**
-         * todo
-         * 1. 取消上溯递归路径
-         */
-        _regDeps(varPath, renderContext) {
-            let list = this.#renderContextList[varPath];
-            if (!list) {
-                list = this.#renderContextList[varPath] = new Set();
+        _regSubViewDeps(props, up) {
+            if (!this.__updateSubViewDeps) {
+                this.__updateSubViewDeps = new Map();
             }
-            list.add(renderContext);
-            let restPath = varPath.split(PATH_SEPARATOR);
-            restPath.pop();
-            if (restPath.length < 1)
-                return;
-            let upperPath = restPath.join(PATH_SEPARATOR);
-            list = this.#renderContextList[upperPath];
-            if (!list) {
-                list = this.#renderContextList[upperPath] = new Set();
-            }
-            list.add(renderContext);
-        }
-        _regWrapper(wrapperComponent) {
-            this.#wrapperComponent = wrapperComponent;
+            props.forEach(prop => {
+                let depSet = this.__updateSubViewDeps.get(prop);
+                if (!depSet) {
+                    depSet = new Set();
+                    this.__updateSubViewDeps.set(prop, depSet);
+                }
+                depSet.add(up);
+            });
         }
         _getPrivateData() {
-            return this.#data;
+            return this.__data_;
         }
         ////////////////////----------------------------/////////////// APIs
         /**
-         * 抛出自定义事件
+         * 发出组件事件
          * @param evName 事件名称
          * @param args 自定义参数
          */
-        emit(evName, arg = {}, options) {
-            if (options && options.event) {
-                arg.event = options.event;
+        emit(evName, arg = {}, event) {
+            if (event) {
+                arg.event = event;
             }
             arg.target = this;
-            this.dispatchEvent(new CustomEvent(evName, {
-                bubbles: get(options, "bubbles", false),
-                composed: get(options, "composed", false),
-                cancelable: true,
-                detail: arg,
-            }));
-        }
-        /**
-         * 在root上绑定事件
-         * @param evName
-         * @param hook
-         */
-        on(evName, hook) {
-            if (!this.#rootEvs[evName]) {
-                this.#rootEvs[evName] = [];
+            if (has(this.#attrs, 'emit-native')) {
+                this.dispatchEvent(new CustomEvent(evName, {
+                    bubbles: false,
+                    composed: false,
+                    cancelable: true,
+                    detail: arg,
+                }));
             }
-            let cbk = hook.bind(this);
-            this.#rootEvs[evName].push(cbk);
-            this.addEventListener(evName, cbk);
+            else {
+                if (this._listerners[evName]) {
+                    this._listerners[evName](arg);
+                }
+            }
+        }
+        _addEvent(evName, hook) {
+            if (!this._listerners) {
+                this._listerners = {};
+            }
+            this._listerners[evName] = hook;
         }
         /**
          * 下一帧执行
          * @param cbk
          */
-        nextTick(cbk, key) {
-            Queue.pushNext(cbk, key);
+        nextTick(cbk) {
+            if (!this.isMounted) {
+                if (!this.#updateNextImmediatelyQ) {
+                    this.#updateNextImmediatelyQ = [];
+                }
+                console.debug('target update...', this.tagName);
+                this.#updateNextImmediatelyQ.push(cbk);
+                return;
+            }
+            Queue.pushNext(cbk);
         }
         /**
          * 强制更新一次视图
          */
         forceUpdate() {
-            each(this.#reactiveData, (v, k) => {
+            each(this.__data_, (v, k) => {
                 this.#updateSources[k] = {
                     value: undefined,
                     chain: undefined,
@@ -8815,1439 +9145,6 @@
             this.#update();
         }
     }
-
-    /**
-     * 交互点信息
-     */
-    class EnterPoint {
-        startNode; //依赖节点
-        endNode; //依赖节点2
-        type; //依赖类型
-        attrName; //依赖属性名
-        varIndex;
-        expressionChain; //所在层级序号 [parentVarIndex-varIndex-]+，如1-6 表示根的第2个表达式下的context的第7个表达式
-        nodes; //如果是插入节点，保存插入的节点数组
-        constructor(node, attrName, type) {
-            this.startNode = node;
-            this.attrName = attrName;
-            this.type = type;
-        }
-        setVarIndex(varIndex) {
-            this.varIndex = varIndex;
-        }
-        getNodes() {
-            let nextNode = this.startNode.nextSibling;
-            if (!this.endNode)
-                return [nextNode];
-            let rs = [];
-            while (nextNode && nextNode !== this.endNode) {
-                rs.push(nextNode);
-                nextNode = nextNode?.nextSibling;
-            }
-            return rs;
-        }
-    }
-    var MovePosition;
-    (function (MovePosition) {
-        MovePosition["AFTER_BEGIN"] = "afterbegin";
-    })(MovePosition || (MovePosition = {}));
-    const newNodeMap = {};
-    function addNodes(adds, newTmpls, newSeq, component, updatePoints, pointNode) {
-        const combStrings = [];
-        const combVars = [];
-        const ks = [];
-        let addGroup = [];
-        let lastKey;
-        adds.forEach(add => {
-            let lastAdd = last(addGroup);
-            if (lastAdd) {
-                if (lastKey === add.prevNode) {
-                    if (!lastAdd.group) {
-                        lastAdd.group = [lastKey];
-                    }
-                    lastAdd.group.push(add.newkey);
-                }
-                else {
-                    addGroup.push(add);
-                }
-            }
-            else {
-                addGroup.push(add);
-            }
-            lastKey = add.newkey;
-            let k = add.newkey;
-            ks.push(k);
-            combStrings.push('');
-            combVars.push(newTmpls[k]);
-        });
-        combStrings.push('');
-        let tmpl = new Template(combStrings, combVars);
-        let originalUps = [...updatePoints];
-        let nodes = buildDirectiveView(pointNode, tmpl, component); //this.di.buildView(tmpl)
-        let ups = DirectiveUpdatePointsMap.get(pointNode);
-        updatePoints.length = 0;
-        updatePoints.push(...ups);
-        let kMap = new Map();
-        nodes.forEach((n) => {
-            const k = n.getAttribute('key');
-            if (ks.includes(k)) {
-                kMap.set(k, true);
-                newNodeMap[k] = n;
-            }
-        });
-        originalUps.forEach((up, i) => {
-            const k = up.key + '';
-            if (!kMap.get(k) && newSeq.includes(k)) {
-                updatePoints.push(up);
-            }
-        });
-        return addGroup;
-    }
-    function updateDirective(point, newArgs, oldArgs, updater, renderComponent, slotComponent, varChain, isTextOrSlot = false) {
-        let rs;
-        if (isTextOrSlot) {
-            Collector.startRender(point.endNode);
-            rs = updater(point, newArgs, oldArgs, { renderComponent, slotComponent, varChain });
-            Collector.endRender(renderComponent);
-        }
-        else {
-            rs = updater(point, newArgs, oldArgs, { renderComponent, slotComponent, varChain });
-        }
-        if (!rs)
-            return;
-        let [tag, tmpl] = rs;
-        if (tag === DirectiveUpdateTag.NONE)
-            return;
-        let nodes = point.getNodes();
-        if (tag === DirectiveUpdateTag.REMOVE) {
-            for (let i = 0; i < nodes.length; i++) {
-                const n = nodes[i];
-                n.parentNode?.removeChild(n);
-            }
-        }
-        else if (tag === DirectiveUpdateTag.REPLACE) {
-            let newNodes = [];
-            for (let i = 0; i < nodes.length; i++) {
-                const n = nodes[i];
-                n.parentNode?.removeChild(n);
-            }
-            let nnodes = buildDirectiveView(point.endNode, tmpl, renderComponent);
-            newNodes = toArray(nnodes);
-            let fragment = document.createDocumentFragment();
-            fragment.append(...newNodes);
-            point.endNode.parentNode.insertBefore(fragment, point.endNode);
-        }
-        else if (tag === DirectiveUpdateTag.UPDATE) {
-            let newKeys = {};
-            let nodesToUpdate;
-            //原节点顺序
-            let oldSeq = [];
-            let newSeq = [];
-            let updatePoints = DirectiveUpdatePointsMap.get(point.endNode);
-            if (!tmpl) {
-                tmpl = new Template([], []);
-            }
-            if (isEmpty(nodes)) {
-                let nodes = buildDirectiveView(point.endNode, tmpl, renderComponent);
-                point.startNode.after(...nodes);
-                return;
-            }
-            let newTmpls = {};
-            if (tmpl instanceof Template) {
-                tmpl.vars.forEach(v => {
-                    if (v instanceof Template) {
-                        const k = v.getKey();
-                        newTmpls[k] = v;
-                        newKeys[k] = true;
-                        newSeq.push(k);
-                    }
-                });
-            }
-            //UPDATE仅处理元素节点
-            nodes = filter(compact(nodes), n => n.nodeType === Node.ELEMENT_NODE);
-            nodesToUpdate = filter(compact(toArray(nodesToUpdate)), n => n.nodeType === Node.ELEMENT_NODE);
-            let oldNodeMap = {};
-            let dupKey = '';
-            let keyQ = {};
-            for (let i = 0; i < nodes.length; i++) {
-                const node = nodes[i];
-                let treeNode = node;
-                let k = treeNode.getAttribute("key");
-                if (!k)
-                    continue;
-                if (oldNodeMap[k]) {
-                    dupKey = k;
-                    break;
-                }
-                oldNodeMap[k] = treeNode;
-                oldSeq.push(k);
-                keyQ[k] = true;
-            }
-            if (dupKey) {
-                showError(`${camelCase(point.endNode._diName)} - duplicate key '${dupKey}'`);
-                return;
-            }
-            let updateQ = newKeys;
-            const parentNode = point.startNode.parentNode;
-            //compare
-            let adds = [];
-            let dels = [];
-            //计算del
-            each(keyQ, (v, k) => {
-                if (!updateQ[k]) {
-                    dels.push(k);
-                    delete keyQ[k];
-                    remove(oldSeq, x => x === k);
-                }
-            });
-            //计算move
-            let moved = false;
-            if (!isEmpty(newSeq)) {
-                let lastMoveIndex = -1;
-                let lastGroup = [];
-                let moveQueue = [];
-                let edgeOffset = 0;
-                let i = 0;
-                for (; i < newSeq.length; i++) {
-                    const nodeId = newSeq[i];
-                    let oldI = oldSeq.findIndex(c => c === nodeId);
-                    if (oldI < 0) {
-                        let prevKey = newSeq[i - 1];
-                        let prev = prevKey ? oldNodeMap[prevKey] || prevKey : point.startNode;
-                        //add
-                        adds.push({ prevNode: prev, newkey: nodeId });
-                        edgeOffset++;
-                        continue;
-                    }
-                    if (oldI > -1 && oldI !== (i - edgeOffset)) {
-                        if (lastMoveIndex < 0 || Math.abs(lastMoveIndex - oldI) === 1) {
-                            let lastEl = last(lastGroup);
-                            lastGroup.push({ nodeId, targetId: i === 0 ? MovePosition.AFTER_BEGIN : (lastEl ? lastEl.nodeId : newSeq[i - 1]) });
-                        }
-                        else {
-                            moveQueue.push({ moveGroup: lastGroup, moveIndex: i + lastGroup.length });
-                            lastGroup = [];
-                            lastGroup.push({ nodeId, targetId: newSeq[i - 1] });
-                        }
-                        lastMoveIndex = oldI;
-                    }
-                }
-                if (lastGroup.length > 0) {
-                    moveQueue.push({ moveGroup: lastGroup, moveIndex: i + lastGroup.length });
-                }
-                if (moveQueue.length > 0) {
-                    moved = true;
-                    let vals = moveQueue.sort((a, b) => a.moveGroup.length - b.moveGroup.length);
-                    if (vals.length < 2) {
-                        let { moveGroup } = vals[0];
-                        if (moveGroup.length > 1) {
-                            let lastTId = last(moveGroup).targetId;
-                            if (moveGroup[moveGroup.length - 2].nodeId === lastTId) {
-                                moveGroup = initial(moveGroup);
-                            }
-                        }
-                        moveGroup.forEach(({ targetId, nodeId }) => {
-                            let srcEl = oldNodeMap[nodeId];
-                            let target;
-                            if (targetId === MovePosition.AFTER_BEGIN) {
-                                target = point.startNode;
-                                target.after(srcEl);
-                            }
-                            else {
-                                target = oldNodeMap[targetId];
-                                target.after(srcEl);
-                            }
-                        });
-                    }
-                    else {
-                        let lastGroupIndex = last(vals).moveIndex;
-                        if (Math.abs(vals[vals.length - 2].moveIndex - lastGroupIndex) === 1) {
-                            vals = initial(vals);
-                        }
-                        vals.forEach(({ moveGroup }) => {
-                            moveGroup.forEach(({ targetId, nodeId }) => {
-                                let srcEl = oldNodeMap[nodeId];
-                                let target;
-                                if (targetId === MovePosition.AFTER_BEGIN) {
-                                    target = point.startNode;
-                                    target.after(srcEl);
-                                }
-                                else {
-                                    target = oldNodeMap[targetId];
-                                    target.after(srcEl);
-                                }
-                            });
-                        });
-                    }
-                } //endif
-            }
-            let addGroup;
-            if (adds.length > 0) {
-                addGroup = addNodes(adds, newTmpls, newSeq, renderComponent, updatePoints, point.endNode);
-                addGroup.forEach((v, i) => {
-                    let k = v.newkey;
-                    let treeNode = newNodeMap[k];
-                    let prevNode = v.prevNode;
-                    if (v.group) {
-                        let fragment = document.createDocumentFragment();
-                        fragment.append(...map(v.group, (nk) => newNodeMap[nk]));
-                        treeNode = fragment;
-                    }
-                    if (prevNode === point.endNode) {
-                        prevNode.before(treeNode);
-                    }
-                    else if (prevNode === point.startNode) {
-                        prevNode.after(treeNode);
-                    }
-                    else if (typeof prevNode === 'string') {
-                        newNodeMap[prevNode].after(treeNode);
-                    }
-                    else {
-                        prevNode.after(treeNode);
-                    }
-                });
-            }
-            dels.forEach(k => {
-                let treeNode = oldNodeMap[k];
-                if (treeNode && treeNode.parentNode) {
-                    parentNode.removeChild(treeNode);
-                }
-            });
-            //合并
-            if (tmpl.vars[0] instanceof Template) {
-                let tStrAry = [];
-                let tVarAry = [];
-                each(tmpl.vars, v => {
-                    tVarAry.push(...v.vars);
-                    tStrAry.push(...map(v.vars, v => '1'));
-                });
-                tStrAry.push('1');
-                tmpl = new Template(tStrAry, tVarAry);
-            }
-            //移动顺序
-            if (moved || dels.length > 0 || addGroup) {
-                const upGroup = groupBy(updatePoints, up => up.key);
-                let movedUpAry = [];
-                let i = 0;
-                newSeq.forEach(nk => {
-                    upGroup[nk].forEach((up) => {
-                        up.varIndex = i++;
-                        movedUpAry.push(up);
-                    });
-                });
-                updatePoints = movedUpAry;
-            }
-            updateDirectiveView(point.endNode, renderComponent, tmpl, updatePoints);
-        }
-    }
-    let DiSn = 0;
-    /**
-     * 返回指令调用函数
-     * @param di
-     * @returns
-     */
-    function directive(fn, scopes) {
-        let name = fn.name || ('Di-' + DiSn++);
-        let sym = Symbol.for(name);
-        return (...args) => {
-            let executor = fn(...args);
-            return [sym, args, executor, (scopeType) => {
-                    if (!isEmpty(scopes) && !test(scopes.join(','), scopeType)) {
-                        showError(`Directive '${Symbol.keyFor(sym)}' is out of scopes, expect '${scopes.join(',')}' bug got '${scopeType}'`);
-                        return;
-                    }
-                }, Collector.popDirectiveQ()];
-        };
-    }
-
-    /*************************************************************
-     * 扩展事件
-     * @author holyhigh2
-     *
-     * resize
-     * outside[.mousedown/mouseup/click/dblclick] 默认click
-     * mutate[.attr/child/char/tree]
-     *
-     *************************************************************/
-    const ExtEvNames = ['resize', 'outside', 'mutate'];
-    ///////////////////////////////////////////////// resize
-    const AllResizeEls = new WeakMap;
-    const AllOutsideDownEls = [];
-    const AllOutsideClickEls = [];
-    const AllOutsideDblClickEls = [];
-    const resizeObserver = new ResizeObserver((entries) => {
-        for (const entry of entries) {
-            const contentBoxSize = Array.isArray(entry.contentBoxSize)
-                ? entry.contentBoxSize[0]
-                : entry.contentBoxSize;
-            const borderBoxSize = Array.isArray(entry.borderBoxSize)
-                ? entry.borderBoxSize[0]
-                : entry.borderBoxSize;
-            let cbk = AllResizeEls.get(entry.target);
-            if (cbk) {
-                let ev = new CustomEvent('resize', {
-                    bubbles: false,
-                    cancelable: false,
-                    detail: {
-                        borderBox: { w: borderBoxSize.inlineSize, h: borderBoxSize.blockSize },
-                        contentBox: { w: contentBoxSize.inlineSize, h: contentBoxSize.blockSize },
-                    },
-                });
-                cbk(ev, entry.target);
-            }
-        }
-    });
-    function addResize(node, cbk) {
-        if (AllResizeEls.has(node))
-            return;
-        AllResizeEls.set(node, cbk);
-        resizeObserver.observe(node);
-    }
-    ///////////////////////////////////////////////// mutate
-    var MutationType;
-    (function (MutationType) {
-        MutationType["Child"] = "child";
-        MutationType["Tree"] = "tree";
-        MutationType["Attr"] = "attr";
-        MutationType["Char"] = "char";
-    })(MutationType || (MutationType = {}));
-    const AllMutationEls = new WeakMap;
-    const mutationObserver = new MutationObserver(mutations => {
-        for (let i = 0; i < mutations.length; i++) {
-            const mutation = mutations[i];
-            let map = AllMutationEls.get(mutation.target);
-            if (!map)
-                return;
-            let detail = {
-                target: mutation.target
-            };
-            let cbk = null;
-            switch (mutation.type) {
-                case 'subtree':
-                    detail.type = MutationType.Tree;
-                    cbk = map[MutationType.Tree];
-                    break;
-                case "childList":
-                    detail.type = MutationType.Child;
-                    detail.addedNodes = mutation.addedNodes;
-                    detail.removedNodes = mutation.removedNodes;
-                    cbk = map[MutationType.Child];
-                    break;
-                case "attributes":
-                    detail.type = MutationType.Attr;
-                    detail.attributeName = mutation.attributeName;
-                    detail.oldValue = mutation.oldValue;
-                    cbk = map[MutationType.Attr];
-                    break;
-                case "characterData":
-                    detail.type = MutationType.Char;
-                    detail.oldValue = mutation.oldValue;
-                    cbk = map[MutationType.Char];
-                    break;
-            }
-            if (cbk) {
-                let ev = new CustomEvent('mutate', {
-                    bubbles: false,
-                    cancelable: false,
-                    detail
-                });
-                cbk(ev);
-            }
-        }
-    });
-    function addMutation(node, cbk, parts) {
-        let child = includes(parts, 'child');
-        let attr = includes(parts, 'attr');
-        let char = includes(parts, 'char');
-        let tree = includes(parts, 'tree');
-        let map = AllMutationEls.get(node);
-        if (map)
-            return;
-        map = {};
-        AllMutationEls.set(node, map);
-        if (child) {
-            map[MutationType.Child] = cbk;
-        }
-        if (attr) {
-            map[MutationType.Attr] = cbk;
-        }
-        if (char) {
-            map[MutationType.Char] = cbk;
-        }
-        if (tree) {
-            map[MutationType.Tree] = cbk;
-        }
-        mutationObserver.observe(node, {
-            childList: child,
-            attributes: attr,
-            characterData: char,
-            subtree: tree
-        });
-    }
-    ///////////////////////////////////////////////// outside
-    document.addEventListener('mousedown', e => {
-        let t = get(e.composedPath(), 0, e.target);
-        AllOutsideDownEls.forEach(([node, cbk]) => {
-            if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
-                let ev = new CustomEvent('outside', {
-                    bubbles: false,
-                    cancelable: false,
-                    detail: {
-                        currentTarget: node,
-                        event: e
-                    },
-                });
-                cbk(ev, node);
-            }
-        });
-    }, false);
-    document.addEventListener('click', e => {
-        let t = get(e.composedPath(), 0, e.target);
-        AllOutsideClickEls.forEach(([node, cbk]) => {
-            if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
-                let ev = new CustomEvent('outside', {
-                    bubbles: false,
-                    cancelable: false,
-                    detail: {
-                        currentTarget: node,
-                        event: e
-                    },
-                });
-                cbk(ev, node);
-            }
-        });
-    }, false);
-    document.addEventListener('dblclick', e => {
-        let t = get(e.composedPath(), 0, e.target);
-        AllOutsideDblClickEls.forEach(([node, cbk]) => {
-            if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
-                let ev = new CustomEvent('outside', {
-                    bubbles: false,
-                    cancelable: false,
-                    detail: {
-                        currentTarget: node,
-                        event: e
-                    },
-                });
-                cbk(ev, node);
-            }
-        });
-    }, false);
-    function addOutsideMouseDown(node, cbk) {
-        AllOutsideDownEls.push([node, cbk]);
-    }
-    function addOutsideClick(node, cbk) {
-        AllOutsideClickEls.push([node, cbk]);
-    }
-    function addOutsideDblClick(node, cbk) {
-        AllOutsideDblClickEls.push([node, cbk]);
-    }
-    function isExtEvent(evName) {
-        return ExtEvNames.includes(evName);
-    }
-    function addExtEvent(evName, node, cbk, parts) {
-        if (evName === 'resize') {
-            addResize(node, cbk);
-        }
-        else if (evName === 'outside') {
-            switch (parts[0]) {
-                case 'mousedown':
-                    addOutsideMouseDown(node, cbk);
-                    break;
-                case 'dblclick':
-                    addOutsideDblClick(node, cbk);
-                    break;
-                case 'click':
-                default:
-                    addOutsideClick(node, cbk);
-                    break;
-            }
-        }
-        else if (evName === 'mutate') {
-            addMutation(node, cbk, parts);
-        }
-    }
-
-    const MODI_EV_DEBOUNCE = /,|^(debounce:.+)|(debounce$)/;
-    const MODI_EV_THROTTLE = /,|^(throttle:.+)|(throttle$)/;
-    const MODI_EV_SELF = 'self';
-    const MODI_EV_STOP = 'stop';
-    const MODI_EV_PREVENT = 'prevent';
-    const MODI_EV_ONCE = 'once';
-    const MODI_EV_CAPTURE = 'capture';
-    const MODI_EV_PASSIVE = 'passive';
-    const MODI_EV_MOUSE_LEFT = 'left';
-    const MODI_EV_MOUSE_RIGHT = 'right';
-    const MODI_EV_MOUSE_MIDDLE = 'middle';
-    const MODI_EV_KEYBOARD_COMBO_CTRL = 'ctrl';
-    const MODI_EV_KEYBOARD_COMBO_ALT = 'alt';
-    const MODI_EV_KEYBOARD_COMBO_SHIFT = 'shift';
-    const MODI_EV_KEYBOARD_COMBO_META = 'meta';
-    const MODI_EV_KEYBOARD_KEY_MAP = {
-        'esc': 'escape'
-    };
-    const MODI_PARAM_DIVIDER = ":";
-    function addEvent(fullName, cbk, node, component) {
-        let parts = fullName.split('.');
-        let evName = parts.shift();
-        let isOnce = parts.includes(MODI_EV_ONCE);
-        let c = cbk;
-        let modi;
-        if (modi = find(parts, x => MODI_EV_DEBOUNCE.test(x))) {
-            let params = modi.split(MODI_PARAM_DIVIDER);
-            c = debounce(c, parseInt(params[1]) || 100);
-        }
-        if (modi = find(parts, x => MODI_EV_THROTTLE.test(x))) {
-            let params = modi.split(MODI_PARAM_DIVIDER);
-            c = throttle(c, parseInt(params[1]) || 100);
-        }
-        if (isOnce) {
-            c = once(c);
-        }
-        if (isExtEvent(evName)) {
-            addExtEvent(evName, node, c, parts);
-            return c;
-        }
-        let listener = (e) => {
-            if (parts.includes(MODI_EV_PREVENT))
-                e.preventDefault();
-            if (parts.includes(MODI_EV_STOP))
-                e.stopPropagation();
-            if (parts.includes(MODI_EV_SELF) && e.target !== e.currentTarget)
-                return;
-            if (e instanceof MouseEvent) {
-                if (parts.includes(MODI_EV_MOUSE_LEFT) && e.button != 0)
-                    return;
-                if (parts.includes(MODI_EV_MOUSE_RIGHT) && e.button != 2)
-                    return;
-                if (parts.includes(MODI_EV_MOUSE_MIDDLE) && e.button != 1)
-                    return;
-            }
-            else if (e instanceof KeyboardEvent) {
-                if (remove(parts, p => p == MODI_EV_KEYBOARD_COMBO_CTRL)[0] && !e.ctrlKey)
-                    return;
-                if (remove(parts, p => p == MODI_EV_KEYBOARD_COMBO_ALT)[0] && !e.altKey)
-                    return;
-                if (remove(parts, p => p == MODI_EV_KEYBOARD_COMBO_SHIFT)[0] && !e.shiftKey)
-                    return;
-                if (remove(parts, p => p == MODI_EV_KEYBOARD_COMBO_META)[0] && !e.metaKey)
-                    return;
-                let checkKeys = map(parts, k => MODI_EV_KEYBOARD_KEY_MAP[k] || k);
-                if (size(checkKeys) > 0 && !checkKeys.includes(e.key.toLowerCase()))
-                    return;
-            }
-            c(e);
-        };
-        let capture = parts.includes(MODI_EV_CAPTURE) || false;
-        let passive = parts.includes(MODI_EV_PASSIVE) || false;
-        let options = { capture, passive };
-        node.addEventListener(evName, listener, options);
-        //record
-        let evAry = component.__events[evName];
-        if (!evAry)
-            evAry = component.__events[evName] = [];
-        evAry.push([node, listener, options]);
-        return listener;
-    }
-
-    const ATTR_PREFIX_EVENT = "@";
-    const ATTR_PREFIX_PROP = ".";
-    const ATTR_PREFIX_BOOLEAN = "?";
-    const ATTR_PREFIX_REF = "*";
-    const ATTR_PROP_DELIMITER = ":";
-    const ATTR_REF = "ref";
-    const ATTR_KEY = "key";
-    const PLACEHOLDER = "${·}";
-    const EXP_COMMENT_CONVERT = /(>[^><]*)(\$\{·\})([^><]*<)/gm;
-    const EXP_TAG_CONVERT = /(<\/?)\s*([A-Z][A-Za-z0-9]*)([\s>])/gm;
-    const EXP_ATTR_CONVERT = /\s+([\.?@*])?((?:[a-zA-Z]*[A-Z][^\s<>=]+))\s*([\s=>])/gm;
-    const EXP_ATTR_CHECK = /[.?-a-z]+\s*=\s*(['"])\s*([^='"]*\$\{·\}){2,}.*?\1/ims;
-    const SLOT_KEY_PROPS = 'slot-props';
-    const HTML_CACHE = new Map();
-    const DOM_CACHE = new Map();
-    const VAR_CACHE = new Map();
-    var VarType;
-    (function (VarType) {
-        VarType["Event"] = "event";
-        VarType["Directive"] = "directive";
-        VarType["DirectiveTag"] = "directiveTag";
-        VarType["DirectiveAttr"] = "directiveAttr";
-        VarType["DirectiveProp"] = "directiveProp";
-        VarType["DirectiveText"] = "directiveText";
-        VarType["DirectiveSlot"] = "directiveSlot";
-        VarType["Attr"] = "attr";
-        VarType["AttrProp"] = "attrProp";
-        VarType["AttrBool"] = "attrBool";
-        VarType["AttrRef"] = "attrRef";
-        VarType["AttrSlot"] = "attrSlot";
-        VarType["AttrKey"] = "key";
-        VarType["Ref"] = "ref";
-        VarType["Text"] = "text";
-    })(VarType || (VarType = {}));
-    const ComponentUpdatePointsMap = new WeakMap();
-    const DirectiveUpdatePointsMap = new WeakMap();
-    const TextOrSlotDirectiveExecutorMap = new WeakMap();
-    const TextOrSlotDirectiveArgsMap = new WeakMap();
-    const TextOrSlotDirectiveUpdatePointMap = new WeakMap();
-    const DirectiveArgsMap = new WeakMap();
-    /**
-     * 提供渲染函数相关操作
-     * @author holyhigh2
-     */
-    /**
-     * 高性能dom生成及变量绑定算法
-     * 1. 使用占位符拼接HTML字符串，占位符与变量需要按照顺序对应
-     * 2. 插入dom片段，并遍历元素+注释节点, 搜索占位符
-     *  1. 按顺序遍历所有attr，发现一个属性值含有占位符时，标记节点及属性名，以便变量可以进行绑定（ 如果key是事件/ref则内容仅允许一个占位符）
-     *  2. 如果是注释节点
-     *    1. 在后面追加同内容注释节点，标记两个节点，以便变量可以进行绑定
-     *    2. 在中间插入变量内容
-     * 3. 只有表达式是一个指令时才能绑定依赖
-     * @param component
-     * @param tmpl
-     * @returns [html,vars]
-     */
-    function buildHTML(component, tmpl) {
-        let html = "";
-        let vars = concat(tmpl.vars);
-        let l = tmpl.strings.length - 1;
-        let vl = tmpl.vars.length - 1;
-        let varIndex = 0;
-        for (let i = 0; i <= l; i++) {
-            const str = tmpl.strings[i];
-            let val = get(vars, varIndex, '');
-            if (val instanceof Template) {
-                let [h, v] = buildHTML(component, val);
-                val = h;
-                vars.splice(varIndex, 1, ...v);
-                varIndex += v.length - 1;
-            }
-            else {
-                val = i > vl ? "" : PLACEHOLDER;
-            }
-            varIndex++;
-            html = html + str + val;
-        }
-        {
-            //attr check
-            let rs = html.match(EXP_ATTR_CHECK);
-            if (rs) {
-                let errorMsg = replaceAll(rs[0], PLACEHOLDER, '${...}');
-                showError(`Parse error: attribute value can be set only one interpolation —— \n ${errorMsg}`);
-                return ['', vars];
-            }
-        }
-        html = html.replace(EXP_COMMENT_CONVERT, '$1<!--$2-->$3');
-        html = html.replace(EXP_STR, '$1><').trim();
-        html = convertHTML(html);
-        return [html, vars];
-    }
-    function convertHTML(html) {
-        //attr convert
-        html = html.replace(EXP_ATTR_CONVERT, (a, b, c, d) => {
-            return ` ${b ?? ''}${kebabCase(c)}${d}`;
-        });
-        //tag convert
-        html = html.replace(EXP_TAG_CONVERT, (a, b, c, d) => {
-            let tag = DEFINED_TAG_MAP[c];
-            return b + tag + d;
-        });
-        return html;
-    }
-    function buildVars(component, tmpl) {
-        let vars = concat(tmpl.vars);
-        let l = tmpl.strings.length - 1;
-        for (let i = 0; i <= l; i++) {
-            let val = get(tmpl.vars, i, '');
-            if (val instanceof Template) {
-                let [h, v] = buildHTML(component, val);
-                vars.splice(i, 1, ...v);
-            }
-        }
-        return vars;
-    }
-    /**
-     * 构建模板为DOM结构
-     * @param html
-     */
-    function buildTmplate(updatePoints, html, vars, renderComponent, isDirective = false) {
-        const container = document.createElement("div");
-        container.innerHTML = html;
-        const hasVarChache = VAR_CACHE.has(renderComponent.constructor);
-        if (!isDirective && hasVarChache && !DOM_CACHE.has(renderComponent.constructor)) {
-            DOM_CACHE.set(renderComponent.constructor, container.cloneNode(true));
-        }
-        let NodeSn = 0;
-        //遍历dom
-        const nodeIterator = document.createNodeIterator(container, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT);
-        let currentNode;
-        let varIndex = 0;
-        let slotComponent;
-        let varCacheMap = hasVarChache ? undefined : {};
-        let keyNode = null;
-        let keyVal = '';
-        while ((currentNode = nodeIterator.nextNode())) {
-            NodeSn++;
-            let varCacheQueue = hasVarChache ? undefined : [];
-            if (slotComponent && !slotComponent.contains(currentNode)) {
-                slotComponent = undefined;
-            }
-            if (currentNode instanceof HTMLElement || currentNode instanceof SVGElement) {
-                if (currentNode instanceof CompElem) {
-                    slotComponent = currentNode;
-                }
-                let props = {};
-                let attrs = toArray(currentNode.attributes);
-                for (let i = 0; i < attrs.length; i++) {
-                    const attr = attrs[i];
-                    let { name, value } = attr;
-                    //todo 这里需要修改为 data-slot-xx
-                    if (name === SLOT_KEY_PROPS) {
-                        let slotName = currentNode.getAttribute('name') || 'default';
-                        varCacheQueue && varCacheQueue.push({ type: VarType.AttrSlot, name: slotName, attrName: name });
-                        continue;
-                    } //endif
-                    if (name === PLACEHOLDER) {
-                        // if (startsWith(name, PLACEHOLDER_PREFFIX)) {
-                        let val = vars[varIndex];
-                        //support directive only for now
-                        if (isArray(val) && isSymbol(val[0])) {
-                            let [, args, executor, checker, varChain] = val;
-                            checker(EnterPointType.TAG);
-                            let point = new EnterPoint(currentNode, name.substring(1), EnterPointType.TAG);
-                            let attrMap = DirectiveArgsMap.get(currentNode);
-                            if (!attrMap) {
-                                attrMap = {};
-                                DirectiveArgsMap.set(currentNode, attrMap);
-                            }
-                            attrMap[Symbol.keyFor(val[0])] = [point, renderComponent, slotComponent];
-                            let po = new UpdatePoint(varIndex, currentNode);
-                            po.isDirective = true;
-                            po.value = val;
-                            po.isComponent = !!slotComponent;
-                            updatePoints.push(po);
-                            if (keyNode && keyNode?.contains(currentNode)) {
-                                po.key = keyVal;
-                            }
-                            varIndex++;
-                            executor(point, args, undefined, { renderComponent, slotComponent, varChain });
-                            varCacheQueue && varCacheQueue.push({ type: VarType.DirectiveTag, point, up: po, name });
-                        }
-                        currentNode.removeAttribute(name);
-                        continue;
-                    } //endif
-                    //@event.stop.prevent.debounce
-                    if (name[0] === ATTR_PREFIX_EVENT) {
-                        let cbk = (e) => { };
-                        let po = null;
-                        let hasValue = false;
-                        if (PLACEHOLDER === value) {
-                            po = new UpdatePoint(varIndex, currentNode);
-                            po.notUpdated = true;
-                            if (keyNode && keyNode?.contains(currentNode)) {
-                                po.key = keyVal;
-                            }
-                            updatePoints.push(po);
-                            let val = vars[varIndex];
-                            if (!isFunction(val)) {
-                                showTagError(currentNode.tagName, `Event '${name}' must be a function`);
-                                continue;
-                            }
-                            cbk = val.bind(renderComponent);
-                            varIndex++;
-                            hasValue = true;
-                        }
-                        let evName = name.substring(1);
-                        addEvent(evName, cbk, currentNode, renderComponent);
-                        currentNode.removeAttribute(name);
-                        varCacheQueue && varCacheQueue.push({ type: VarType.Event, up: po, name: evName, attrName: name, value: hasValue });
-                        continue;
-                    } //endif
-                    if (name === ATTR_REF) {
-                        if (PLACEHOLDER === value) {
-                            let val = vars[varIndex];
-                            if (!has(val, 'current')) {
-                                showTagError(currentNode.tagName, `Ref must be a RefObject`);
-                                continue;
-                            }
-                            let po = new UpdatePoint(varIndex, currentNode);
-                            po.notUpdated = true;
-                            if (keyNode && keyNode?.contains(currentNode)) {
-                                po.key = keyVal;
-                            }
-                            updatePoints.push(po);
-                            varIndex++;
-                            val.current = currentNode;
-                            varCacheQueue && varCacheQueue.push({ type: VarType.Ref, up: po, attrName: name });
-                        }
-                        currentNode.removeAttribute(name);
-                        continue;
-                    } //endif
-                    if (name === ATTR_KEY) {
-                        let val = vars[varIndex];
-                        currentNode.setAttribute(name, val);
-                        let po = new UpdatePoint(varIndex, currentNode);
-                        po.notUpdated = true;
-                        if (keyNode && keyNode?.contains(currentNode)) {
-                            po.key = keyVal;
-                        }
-                        updatePoints.push(po);
-                        varIndex++;
-                        keyNode = currentNode;
-                        keyVal = val;
-                        varCacheQueue && varCacheQueue.push({ up: po, type: VarType.AttrKey });
-                        if (updatePoints.length > 0) {
-                            updatePoints.forEach(up => {
-                                up.key = up.key ?? val;
-                            });
-                        }
-                        continue;
-                    } //endif
-                    //校验变量必须是表达式
-                    if (name[0] === ATTR_PREFIX_PROP && PLACEHOLDER !== value) {
-                        showTagError(currentNode.tagName, `Prop '${name}' must be an interpolation`);
-                        continue;
-                    }
-                    if (PLACEHOLDER === value) {
-                        let val = vars[varIndex];
-                        let po = new UpdatePoint(varIndex, currentNode, name.replace(/\.|\?|@/, ''), value);
-                        po.isComponent = !!slotComponent;
-                        if (keyNode && keyNode?.contains(currentNode)) {
-                            po.key = keyVal;
-                        }
-                        if (name[0] === ATTR_PREFIX_PROP ||
-                            name[0] === ATTR_PREFIX_BOOLEAN ||
-                            name[0] === ATTR_PREFIX_REF) {
-                            if (isArray(val) && isSymbol(val[0])) {
-                                let [, args, executor, checker, varChain] = val;
-                                checker(EnterPointType.PROP);
-                                let attrName = name.substring(1);
-                                let point = new EnterPoint(currentNode, attrName, EnterPointType.PROP);
-                                let attrMap = DirectiveArgsMap.get(currentNode);
-                                if (!attrMap) {
-                                    attrMap = {};
-                                    DirectiveArgsMap.set(currentNode, attrMap);
-                                }
-                                attrMap[attrName] = [point, renderComponent, slotComponent];
-                                executor(point, args, undefined, { renderComponent, slotComponent, varChain });
-                                po.value = val;
-                                po.isDirective = true;
-                                varCacheQueue && varCacheQueue.push({ type: VarType.DirectiveProp, up: po, point, name, attrName });
-                            }
-                            else if (name[0] === ATTR_PREFIX_BOOLEAN) {
-                                po.isToggleProp = true;
-                                po.value = !!val;
-                                let attrName = name.substring(1);
-                                if (po.value)
-                                    currentNode.setAttribute(attrName, '');
-                                varCacheQueue && varCacheQueue.push({ type: VarType.AttrBool, name: attrName, up: po, attrName: name });
-                            }
-                            else if (name[0] === ATTR_PREFIX_REF) {
-                                po.value = val;
-                                let refNames = name.substring(1);
-                                const [refNamec, prop] = refNames.split(ATTR_PROP_DELIMITER);
-                                let refName = refNamec;
-                                switch (prop) {
-                                    case 'camel':
-                                        refName = camelCase(refName);
-                                        break;
-                                    case 'kebab':
-                                        refName = kebabCase(refName);
-                                        break;
-                                    case 'snake':
-                                        refName = snakeCase(refName);
-                                        break;
-                                }
-                                po.attrName = refName;
-                                currentNode.setAttribute(refName, val);
-                                varCacheQueue && varCacheQueue.push({ type: VarType.AttrRef, up: po, name, attrName: refName });
-                            }
-                            else {
-                                if (!(currentNode instanceof CompElem) && currentNode.tagName !== 'SLOT') {
-                                    showTagError(currentNode.tagName, `Prop '${name}' can only be set on a CompElem or a slot`);
-                                }
-                                else {
-                                    let propName = camelCase(name.substring(1));
-                                    if (!(propName in currentNode) && currentNode.tagName !== 'SLOT') {
-                                        showTagError(currentNode.tagName, `Prop '${name}' is not defined in ${currentNode.tagName}`);
-                                    }
-                                    po.value = val;
-                                    po.isProp = true;
-                                    props[propName] = val;
-                                    varCacheQueue && varCacheQueue.push({ type: VarType.AttrProp, up: po, name: propName, attrName: name });
-                                }
-                            }
-                            currentNode.removeAttribute(name);
-                            val = '';
-                        }
-                        else {
-                            po.value = val;
-                            let executor;
-                            let args;
-                            let cache = { type: VarType.Attr, up: po, attrName: name };
-                            if (isArray(val) && isSymbol(val[0])) {
-                                let type = EnterPointType.ATTR;
-                                if (name === "class") {
-                                    type = EnterPointType.CLASS;
-                                }
-                                else if (name === "style") {
-                                    type = EnterPointType.STYLE;
-                                }
-                                let [, ags, exec, checker, varChain] = val;
-                                checker(type);
-                                po.isDirective = true;
-                                po.attrName = name;
-                                let point = new EnterPoint(currentNode, name, type);
-                                let attrMap = DirectiveArgsMap.get(currentNode);
-                                if (!attrMap) {
-                                    attrMap = {};
-                                    DirectiveArgsMap.set(currentNode, attrMap);
-                                }
-                                attrMap[name] = [point, renderComponent, slotComponent];
-                                args = ags;
-                                executor = exec;
-                                val = '';
-                                cache.type = VarType.DirectiveAttr;
-                                cache.point = point;
-                            }
-                            value = replace(value, PLACEHOLDER, val);
-                            //回填
-                            attr.value = value;
-                            if (isDefined(value)) {
-                                currentNode.setAttribute(name, value);
-                            }
-                            executor && executor(cache.point, args, undefined, { renderComponent, slotComponent });
-                            varCacheQueue && varCacheQueue.push(cache);
-                        }
-                        updatePoints.push(po);
-                        varIndex++;
-                    } //endif
-                } //endfor
-                if (currentNode instanceof CompElem) {
-                    currentNode._regWrapper(renderComponent);
-                    if (size(props) > 0)
-                        currentNode._initProps(props);
-                }
-                else if (currentNode instanceof HTMLSlotElement) {
-                    renderComponent._bindSlot(currentNode, currentNode.name || 'default', props);
-                }
-            }
-            else {
-                let comment = currentNode;
-                // let ph = `<!--${comment.nodeValue}-->`
-                if (comment.nodeValue !== PLACEHOLDER) {
-                    continue;
-                }
-                let po = new UpdatePoint(varIndex, currentNode);
-                if (keyNode && keyNode?.contains(currentNode)) {
-                    po.key = keyVal;
-                }
-                updatePoints.push(po);
-                po.isComponent = !!slotComponent;
-                po.isText = true;
-                let val = vars[varIndex];
-                if (isArray(val) && isSymbol(val[0])) {
-                    const diName = Symbol.keyFor(val[0]);
-                    //插入start占位符
-                    let startComment;
-                    startComment = document.createComment(`compelem-${renderComponent.tagName}-${diName}-start`);
-                    po.textNode = startComment;
-                    comment.parentNode.insertBefore(startComment, comment);
-                    comment.nodeValue = `compelem-${renderComponent.tagName}-${diName}-end`;
-                    comment._diName = diName;
-                    po.isDirective = true;
-                    po.value = val;
-                    let pType = slotComponent ? EnterPointType.SLOT : EnterPointType.TEXT;
-                    let [, args, executor, checker, varChain] = val;
-                    checker(pType);
-                    let point = new EnterPoint(startComment, "", pType);
-                    point.endNode = comment;
-                    TextOrSlotDirectiveArgsMap.set(comment, [point, renderComponent, slotComponent, args, varChain]);
-                    TextOrSlotDirectiveExecutorMap.set(comment, executor);
-                    TextOrSlotDirectiveUpdatePointMap.set(comment, po);
-                    Collector.startRender(comment);
-                    let tmpl = executor(point, args, undefined, { renderComponent, slotComponent, varChain });
-                    Collector.endRender(renderComponent);
-                    //render
-                    if (tmpl) {
-                        let nodes = buildDirectiveView(comment, tmpl[1], renderComponent);
-                        if (nodes && nodes.length > 0) {
-                            DomUtil.insertBefore(comment, Array.from(nodes));
-                        }
-                    }
-                    val = undefined;
-                    varCacheQueue && varCacheQueue.push({ type: pType === EnterPointType.SLOT ? VarType.DirectiveSlot : VarType.DirectiveText, up: po, point });
-                }
-                else {
-                    po.value = val;
-                    varCacheQueue && varCacheQueue.push({ type: VarType.Text, up: po });
-                }
-                varIndex++;
-                let text = toString(val ?? '');
-                let textDom = document.createTextNode(text);
-                comment.parentNode.insertBefore(textDom, comment);
-                po.textNode = textDom;
-            }
-            if (varCacheMap && varCacheQueue)
-                varCacheMap[NodeSn] = varCacheQueue;
-            if (keyNode && !keyNode.contains(currentNode) && keyNode !== currentNode) {
-                keyNode = null;
-                keyVal = '';
-            }
-        }
-        if (!isDirective && varCacheMap)
-            VAR_CACHE.set(renderComponent.constructor, varCacheMap);
-        return container.childNodes;
-    }
-    function buildTmplate2(updatePoints, vars, component) {
-        let container = DOM_CACHE.get(component.constructor)?.cloneNode(true);
-        let varMap = VAR_CACHE.get(component.constructor);
-        //遍历dom
-        const nodeIterator = document.createNodeIterator(container, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT);
-        let currentNode;
-        let slotComponent;
-        let varIndex = 0;
-        let NodeSn = 0;
-        while ((currentNode = nodeIterator.nextNode())) {
-            NodeSn++;
-            let po;
-            if (slotComponent && !slotComponent.contains(currentNode)) {
-                slotComponent = undefined;
-            }
-            if (currentNode instanceof HTMLElement || currentNode instanceof SVGElement) {
-                if (currentNode instanceof CompElem) {
-                    slotComponent = currentNode;
-                }
-                let props = {};
-                let varCacheQueue = varMap[NodeSn];
-                varCacheQueue && varCacheQueue.forEach(vp => {
-                    let val = vars[varIndex++];
-                    switch (vp.type) {
-                        case VarType.Event:
-                            po = clone(vp.up);
-                            if (!vp.value) {
-                                varIndex--;
-                            }
-                            if (vp.value)
-                                addEvent(vp.name, val.bind(component), currentNode, component);
-                            currentNode.removeAttribute(vp.attrName);
-                            break;
-                        case VarType.AttrSlot:
-                            if (slotComponent && vp.name) ;
-                            currentNode.removeAttribute(vp.attrName);
-                            break;
-                        case VarType.Ref:
-                            po = clone(vp.up);
-                            val.current = currentNode;
-                            currentNode.removeAttribute(vp.attrName);
-                            break;
-                        case VarType.AttrKey:
-                            po = clone(vp.up);
-                            currentNode.setAttribute(ATTR_KEY, val);
-                            break;
-                        case VarType.AttrBool:
-                            po = clone(vp.up);
-                            po.value = !!val;
-                            po.node = currentNode;
-                            if (po.value)
-                                currentNode.setAttribute(vp.name, '');
-                            currentNode.removeAttribute(vp.attrName);
-                            break;
-                        case VarType.AttrProp:
-                            po = clone(vp.up);
-                            po.value = val;
-                            po.node = currentNode;
-                            props[vp.name] = val;
-                            if (vp.attrName)
-                                currentNode.removeAttribute(vp.attrName);
-                            break;
-                        case VarType.AttrRef:
-                        case VarType.Attr:
-                            po = clone(vp.up);
-                            po.value = val;
-                            po.node = currentNode;
-                            currentNode.setAttribute(vp.attrName, val);
-                            if (VarType.AttrRef === vp.type)
-                                currentNode.removeAttribute(vp.name);
-                            break;
-                        case VarType.DirectiveAttr:
-                        case VarType.DirectiveTag:
-                        case VarType.DirectiveProp:
-                            po = clone(vp.up);
-                            po.value = val;
-                            po.node = currentNode;
-                            let point = clone(vp.point);
-                            point.startNode = currentNode;
-                            let [sym, args, executor, checker, varChain] = val;
-                            let attrMap = DirectiveArgsMap.get(currentNode);
-                            if (!attrMap) {
-                                attrMap = {};
-                                DirectiveArgsMap.set(currentNode, attrMap);
-                            }
-                            attrMap[vp.attrName ?? Symbol.keyFor(sym)] = [point, component, slotComponent];
-                            executor(point, args, undefined, { renderComponent: component, slotComponent, varChain });
-                            if (VarType.DirectiveAttr === vp.type) {
-                                let attrValue = currentNode.getAttribute(vp.attrName);
-                                attrValue = replace(attrValue, PLACEHOLDER, '');
-                                currentNode.setAttribute(vp.attrName, attrValue);
-                            }
-                            if (vp.name)
-                                currentNode.removeAttribute(vp.name);
-                            break;
-                    }
-                    if (po)
-                        updatePoints.push(po);
-                });
-                if (currentNode instanceof CompElem) {
-                    currentNode._regWrapper(component);
-                    if (size(props) > 0)
-                        currentNode._initProps(props);
-                }
-                else if (currentNode instanceof HTMLSlotElement) {
-                    component._bindSlot(currentNode, currentNode.name || 'default', props);
-                }
-            }
-            else {
-                let varCacheQueue = varMap[NodeSn];
-                varCacheQueue && varCacheQueue.forEach(vp => {
-                    let val = vars[varIndex++];
-                    switch (vp.type) {
-                        case VarType.DirectiveSlot:
-                        case VarType.DirectiveText:
-                            po = clone(vp.up);
-                            po.value = val;
-                            po.node = currentNode;
-                            let [sym, args, executor, checker, varChain] = val;
-                            let diName = Symbol.keyFor(sym);
-                            let startComment = document.createComment(`compelem-${component.tagName}-${diName}-start`);
-                            po.textNode = startComment;
-                            currentNode.parentNode.insertBefore(startComment, currentNode);
-                            currentNode.nodeValue = `compelem-${component.tagName}-${diName}-end`;
-                            let point = clone(vp.point);
-                            point.startNode = startComment;
-                            point.endNode = currentNode;
-                            TextOrSlotDirectiveArgsMap.set(currentNode, [point, component, slotComponent, args, varChain]);
-                            TextOrSlotDirectiveExecutorMap.set(currentNode, executor);
-                            TextOrSlotDirectiveUpdatePointMap.set(currentNode, po);
-                            Collector.startRender(currentNode);
-                            let tmpl = executor(point, args, undefined, { renderComponent: component, slotComponent, varChain });
-                            Collector.endRender(component);
-                            //render
-                            let nodes = buildDirectiveView(currentNode, tmpl[1], component);
-                            if (nodes && nodes.length > 0) {
-                                DomUtil.insertBefore(currentNode, Array.from(nodes));
-                            }
-                            break;
-                        case VarType.Text:
-                            po = clone(vp.up);
-                            po.node = currentNode;
-                            let text = toString(val ?? '');
-                            let textDom = document.createTextNode(text);
-                            currentNode.replaceWith(textDom);
-                            // currentNode.parentNode!.insertBefore(textDom, currentNode);
-                            po.textNode = textDom;
-                            break;
-                    }
-                    if (po)
-                        updatePoints.push(po);
-                });
-                //todo...
-            }
-        }
-        return container.childNodes;
-    }
-    function buildView(tmpl, component) {
-        let updatePoints = [];
-        let nodes;
-        if (HTML_CACHE.has(component.constructor)) {
-            let htmlTmpl = HTML_CACHE.get(component.constructor);
-            let vars = buildVars(component, tmpl);
-            if (DOM_CACHE.has(component.constructor)) {
-                nodes = buildTmplate2(updatePoints, vars, component);
-            }
-            else {
-                nodes = buildTmplate(updatePoints, htmlTmpl, vars, component);
-            }
-        }
-        else {
-            let [html, vars] = buildHTML(component, tmpl);
-            HTML_CACHE.set(component.constructor, html);
-            nodes = buildTmplate(updatePoints, html, vars, component);
-        }
-        ComponentUpdatePointsMap.set(component, updatePoints);
-        return nodes;
-    }
-    function buildDirectiveView(pointNode, tmpl, component) {
-        let [html, vars] = buildHTML(component, tmpl);
-        let updatePoints = [];
-        let nodes = buildTmplate(updatePoints, html, vars, component, true);
-        DirectiveUpdatePointsMap.set(pointNode, updatePoints);
-        return nodes;
-    }
-    function updateView(tmpl, comp, updatePoints, changedKeys) {
-        if (isBlank(join(tmpl.strings)))
-            return;
-        if (!ComponentUpdatePointsMap.has(comp))
-            return;
-        let vars = tmpl.flatVars(comp);
-        updatePoints = updatePoints ?? ComponentUpdatePointsMap.get(comp);
-        for (let i = 0; i < updatePoints.length; i++) {
-            const up = updatePoints[i];
-            let varIndex = up.varIndex;
-            if (varIndex < 0)
-                continue;
-            if (up.notUpdated)
-                continue;
-            let oldValue = up.value;
-            let newValue = vars;
-            let node = up.node;
-            let indexSegs = split(varIndex, PATH_SEPARATOR);
-            for (let l = 0; l < indexSegs.length; l++) {
-                const seg = indexSegs[l];
-                newValue = get(newValue, seg);
-                if (newValue && newValue.vars && i < indexSegs.length - 1) {
-                    newValue = newValue.vars;
-                }
-            }
-            //check
-            if (!isObject(oldValue) && oldValue === newValue)
-                continue;
-            let elNode = node;
-            if (up.isDirective) {
-                //指令
-                let [sym, oldArgs, executor, , varChain] = up.value;
-                let args = TextOrSlotDirectiveArgsMap.get(node);
-                if (!args) {
-                    const argsMap = DirectiveArgsMap.get(node);
-                    args = argsMap[up.attrName] || argsMap[Symbol.keyFor(sym)];
-                }
-                let [point, renderComponent, slotComponent] = args;
-                let [, newArgs] = newValue;
-                const tsUp = TextOrSlotDirectiveUpdatePointMap.get(node);
-                if (tsUp) {
-                    tsUp.value = newValue;
-                    const tsdArgs = TextOrSlotDirectiveArgsMap.get(node);
-                    tsdArgs[3] = newArgs;
-                }
-                updateDirective(point, newArgs, oldArgs, executor, renderComponent, slotComponent, varChain, point.type == EnterPointType.TEXT || point.type == EnterPointType.SLOT);
-            }
-            else if (up.isToggleProp) {
-                //布尔特性
-                if ((!!newValue) === oldValue)
-                    continue;
-                elNode.toggleAttribute(up.attrName, !!newValue);
-                set(elNode, up.attrName, !!newValue);
-            }
-            else if (up.isProp) {
-                //子组件属性
-                if (!isObject(newValue) && newValue === oldValue)
-                    continue;
-                //如果node是slot则触发组件的slot更新
-                if (node instanceof CompElem) {
-                    if (isObject(newValue) && Object.is(newValue, oldValue)) {
-                        let targetVarName = camelCase(up.attrName);
-                        let path = [targetVarName];
-                        let subNewValue = newValue;
-                        let subOldValue = undefined;
-                        if (changedKeys && changedKeys.length > 0) {
-                            let kStr = '';
-                            let fromVarName = join(OBJECT_VAR_PATH.get(up.value), PATH_SEPARATOR);
-                            changedKeys.forEach(k => {
-                                if (k.startsWith(fromVarName) && k.length > kStr.length) {
-                                    kStr = k;
-                                }
-                            });
-                            path = concat(split(kStr.replace(fromVarName, targetVarName), PATH_SEPARATOR));
-                            subNewValue = get(node, path);
-                        }
-                        notifyUpdate(node, oldValue, path, subNewValue, subOldValue);
-                    }
-                    else {
-                        node._updateProps({ [up.attrName]: newValue });
-                    }
-                }
-                else if (node instanceof HTMLSlotElement) {
-                    comp._updateSlot(node.getAttribute('name') || 'default', up.attrName, newValue);
-                }
-            }
-            else if (up.attrName) {
-                //特性
-                if (!isEqual(oldValue, newValue)) {
-                    switch (up.attrName) {
-                        case 'value':
-                            if (node instanceof HTMLInputElement) {
-                                node.value = newValue;
-                                break;
-                            }
-                        default:
-                            node.setAttribute(up.attrName, replace(up.attrTmpl, PLACEHOLDER, newValue + ''));
-                    }
-                }
-            }
-            else if (up.isText) {
-                let textNode = up.textNode;
-                textNode.textContent = toString(newValue ?? '');
-            }
-            up.value = newValue;
-        } //endfor
-    }
-    function updateDirectiveView(node, comp, tmpl, updatePoints, changedKeys) {
-        const render = TextOrSlotDirectiveExecutorMap.get(node);
-        const [point, renderComponent, slotComponent, oldArgs, varChain] = TextOrSlotDirectiveArgsMap.get(node);
-        const up = TextOrSlotDirectiveUpdatePointMap.get(node);
-        if (!tmpl) {
-            let rs = render(point, up.value[1], oldArgs, { renderComponent, slotComponent, varChain });
-            if (!rs)
-                return;
-            tmpl = rs[1];
-        }
-        //合并
-        if (tmpl && tmpl.vars[0] instanceof Template) {
-            let tStrAry = [];
-            let tVarAry = [];
-            each(tmpl.vars, v => {
-                tVarAry.push(...v.vars);
-                tStrAry.push(...map(v.vars, v => '1'));
-            });
-            tStrAry.push('1');
-            tmpl = new Template(tStrAry, tVarAry);
-        }
-        if (updatePoints) {
-            DirectiveUpdatePointsMap.set(node, updatePoints);
-        }
-        updatePoints = updatePoints ?? DirectiveUpdatePointsMap.get(node);
-        updateView(tmpl, comp, updatePoints, changedKeys);
-    }
-    const DomUtil = {
-        insertBefore: function (node, newNodes) {
-            if (!node.parentNode)
-                return;
-            let fragment = document.createDocumentFragment();
-            fragment.append(...newNodes);
-            node.parentNode.insertBefore(fragment, node);
-        },
-        remove: function (startNode, endNode) {
-            if (startNode === endNode) {
-                startNode?.parentNode?.removeChild(startNode);
-                return;
-            }
-            let nextNode = startNode.nextSibling;
-            while (nextNode && nextNode !== endNode) {
-                nextNode?.parentNode?.removeChild(nextNode);
-                nextNode = startNode.nextSibling;
-            }
-        }
-    };
-    //////////////////////////////////////////////////// interfaces
-    /**
-     * 标签函数，用于构建模板
-     * @param strings
-     * @param vars
-     */
-    function html(strings, ...vars) {
-        return new Template(isString(strings) ? [strings] : strings, vars);
-    }
-    const EXP_STR = /([a-z0-9"'])\s*>\s*</img;
 
     /**
      * 视图模板
@@ -10346,94 +9243,1120 @@
             }
             return vars;
         }
+        destroy() {
+            this.strings = this.vars = null;
+        }
+    }
+
+    /**
+     * @author holyhigh2
+     */
+    /**
+     * 属性定义
+     */
+    var EnterPointType;
+    (function (EnterPointType) {
+        EnterPointType["ATTR"] = "attr";
+        EnterPointType["PROP"] = "prop";
+        EnterPointType["TEXT"] = "text";
+        EnterPointType["CLASS"] = "class";
+        EnterPointType["STYLE"] = "style";
+        EnterPointType["SLOT"] = "slot";
+        EnterPointType["TAG"] = "tag"; //在标签内但不是属性内
+    })(EnterPointType || (EnterPointType = {}));
+    var DirectiveUpdateTag;
+    (function (DirectiveUpdateTag) {
+        DirectiveUpdateTag["NONE"] = "NONE";
+        DirectiveUpdateTag["REMOVE"] = "REMOVE";
+        DirectiveUpdateTag["REPLACE"] = "REPLACE";
+        DirectiveUpdateTag["UPDATE"] = "UPDATE";
+        DirectiveUpdateTag["APPEND"] = "APPEND";
+    })(DirectiveUpdateTag || (DirectiveUpdateTag = {}));
+    /**
+     * 视图更新点
+     */
+    class UpdatePoint {
+        //在子视图中的平级key
+        key;
+        //表达式对应的vars位置
+        varIndex;
+        value;
+        //表达式所在节点，可能是元素/文本
+        node;
+        //如果在属性中，属性名
+        attrName;
+        //属性值模板
+        attrTmpl;
+        isText = false;
+        //是否模板
+        // isTmpl: boolean = false;
+        isDirective = false;
+        //是否组件
+        isComponent = false;
+        //是否组件属性
+        isProp = false;
+        //是否布尔属性
+        isToggleProp = false;
+        //是否被更新，对于 key，event，ref等属性不需要更新，仅用于占位
+        isPlaceholder;
+        __destroyed = false;
+        directiveOldValue;
+        children;
+        parent;
+        constructor(varIndex, node, attrName, attrTmpl) {
+            this.varIndex = varIndex;
+            if (node)
+                this.node = node;
+            if (attrName)
+                this.attrName = attrName;
+            if (attrTmpl) {
+                this.attrTmpl = attrTmpl;
+            }
+        }
+        static createFrom(up) {
+            let newUp = new UpdatePoint(up.varIndex, up.node, up.attrName, up.attrTmpl);
+            newUp.key = up.key;
+            newUp.value = up.value;
+            newUp.isText = up.isText;
+            newUp.isDirective = up.isDirective;
+            newUp.isComponent = up.isComponent;
+            newUp.isProp = up.isProp;
+            newUp.isToggleProp = up.isToggleProp;
+            newUp.isPlaceholder = up.isPlaceholder;
+            return newUp;
+        }
+        destroy(contextComponent) {
+            if (this.__destroyed)
+                return;
+            this.__destroyed = true;
+            let node = this.node;
+            let children = this.children;
+            let parent = this.parent;
+            //clean up
+            this.node = this.value = this.directiveOldValue = this.children = this.parent = null;
+            if (!node)
+                return;
+            //sup scope
+            parent?.children || contextComponent?.__updateTree;
+            // contextComponent?._unregDeps(node.deref()!)
+            //sub scopes
+            let updatePoints = children;
+            updatePoints?.forEach((up, i) => {
+                up.destroy(contextComponent);
+            });
+            if (node instanceof CompElem) {
+                node.destroy();
+            }
+            if (contextComponent) {
+                DomUtil.clear(node.deref(), contextComponent);
+            }
+            node.deref()?.remove();
+        }
+        insert(up) {
+            up.parent = this;
+            if (!this.children) {
+                this.children = [];
+            }
+            this.children.push(up);
+        }
+    }
+
+    const DI_COMMENT_START_NODE_MAP = new WeakMap();
+    const TextOrSlotDirectiveExecutorMap = new Map();
+    var MovePosition;
+    (function (MovePosition) {
+        MovePosition["AFTER_BEGIN"] = "afterbegin";
+    })(MovePosition || (MovePosition = {}));
+    let newNodeMap = {};
+    function addNodes(adds, newTmpls, component, pointNode, newNodeMap, up) {
+        const combStrings = [];
+        const combVars = [];
+        const ks = [];
+        let addGroup = [];
+        let lastKey;
+        adds.forEach(add => {
+            let lastAdd = last(addGroup);
+            if (lastAdd) {
+                if (lastKey === add.prevNode) {
+                    if (!lastAdd.group) {
+                        lastAdd.group = [lastKey];
+                    }
+                    lastAdd.group.push(add.newkey);
+                }
+                else {
+                    addGroup.push(add);
+                }
+            }
+            else {
+                addGroup.push(add);
+            }
+            lastKey = add.newkey;
+            let k = add.newkey;
+            ks.push(k);
+            combStrings.push('');
+            combVars.push(newTmpls[k]);
+        });
+        combStrings.push('');
+        let tmpl = new Template(combStrings, combVars);
+        let nodes = buildSubView(pointNode, tmpl, component, up, true);
+        let kMap = new Map();
+        nodes.forEach((n) => {
+            const k = n.getAttribute('key');
+            if (ks.includes(k)) {
+                kMap.set(k, true);
+                newNodeMap[k] = n;
+            }
+        });
+        return addGroup;
+    }
+    function updateDirective(pointNode, newArgs, oldArgs, executor, renderComponent, slotComponent, varChain, up) {
+        let rs;
+        let isTextOrSlot = [EnterPointType.TEXT, EnterPointType.SLOT].includes(get(executor, '__scope', ''));
+        if (isTextOrSlot) {
+            Collector.start();
+            rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain });
+            Collector.end(renderComponent, up);
+        }
+        else {
+            rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain });
+        }
+        if (!rs)
+            return;
+        let [tag, tmpl] = rs;
+        if (tag === DirectiveUpdateTag.NONE)
+            return;
+        let startNode = DI_COMMENT_START_NODE_MAP.get(pointNode);
+        let nodes = DomUtil.getNodes(startNode, pointNode);
+        let updatePoints = up.children;
+        if (tag === DirectiveUpdateTag.REMOVE) {
+            for (let i = 0; i < nodes.length; i++) {
+                const n = nodes[i];
+                n.remove();
+                if (n instanceof CompElem) {
+                    n.destroy();
+                }
+            }
+            updatePoints?.forEach((up, i) => {
+                up.destroy(renderComponent);
+            });
+        }
+        else if (tag === DirectiveUpdateTag.REPLACE) {
+            let newNodes = [];
+            for (let i = 0; i < nodes.length; i++) {
+                const n = nodes[i];
+                n.parentNode?.removeChild(n);
+                if (n instanceof CompElem) {
+                    n.destroy();
+                }
+            }
+            updatePoints?.forEach((up, i) => {
+                up.destroy(renderComponent);
+            });
+            let nnodes = buildSubView(pointNode, tmpl, renderComponent, up, true);
+            newNodes = toArray(nnodes);
+            let fragment = document.createDocumentFragment();
+            fragment.append(...newNodes);
+            pointNode.parentNode.insertBefore(fragment, pointNode);
+        }
+        else if (tag === DirectiveUpdateTag.UPDATE) {
+            let newKeys = {};
+            let nodesToUpdate;
+            //原节点顺序
+            let oldSeq = [];
+            let newSeq = [];
+            if (!tmpl) {
+                tmpl = new Template([], []);
+            }
+            if (isEmpty(nodes)) {
+                let nodes = buildSubView(pointNode, tmpl, renderComponent, up, true);
+                startNode.after(...nodes);
+                return;
+            }
+            let newTmpls = {};
+            if (tmpl instanceof Template) {
+                tmpl.vars.forEach(v => {
+                    if (v instanceof Template) {
+                        const k = v.getKey();
+                        newTmpls[k] = v;
+                        newKeys[k] = true;
+                        newSeq.push(k);
+                    }
+                });
+            }
+            //UPDATE仅处理元素节点
+            nodes = filter(compact(nodes), n => n.nodeType === Node.ELEMENT_NODE);
+            nodesToUpdate = filter(compact(toArray(nodesToUpdate)), n => n.nodeType === Node.ELEMENT_NODE);
+            let oldNodeMap = {};
+            let dupKey = '';
+            let keyQ = {};
+            for (let i = 0; i < nodes.length; i++) {
+                const node = nodes[i];
+                let treeNode = node;
+                let k = treeNode.getAttribute("key");
+                if (isNil(k))
+                    continue;
+                if (oldNodeMap[k]) {
+                    dupKey = k;
+                    break;
+                }
+                oldNodeMap[k] = treeNode;
+                oldSeq.push(k);
+                keyQ[k] = true;
+            }
+            if (dupKey) {
+                showError(`${camelCase(pointNode.nodeValue)} - duplicate key '${dupKey}'`);
+                return;
+            }
+            let updateQ = newKeys;
+            //compare
+            let adds = [];
+            let dels = [];
+            //计算del
+            each(keyQ, (v, k) => {
+                if (!updateQ[k]) {
+                    dels.push(k);
+                    delete keyQ[k];
+                    remove(oldSeq, x => x === k);
+                }
+            });
+            //move
+            let moved = false;
+            if (!isEmpty(newSeq)) {
+                let lastMoveIndex = -1;
+                let lastGroup = [];
+                let moveQueue = [];
+                let edgeOffset = 0;
+                let i = 0;
+                for (; i < newSeq.length; i++) {
+                    const nodeId = newSeq[i];
+                    let oldI = oldSeq.findIndex(c => c === nodeId);
+                    if (oldI < 0) {
+                        let prevKey = newSeq[i - 1];
+                        let prev = prevKey ? oldNodeMap[prevKey] || prevKey : startNode;
+                        //add
+                        adds.push({ prevNode: prev, newkey: nodeId });
+                        edgeOffset++;
+                        continue;
+                    }
+                    if (oldI > -1 && oldI !== (i - edgeOffset)) {
+                        if (lastMoveIndex < 0 || Math.abs(lastMoveIndex - oldI) === 1) {
+                            let lastEl = last(lastGroup);
+                            lastGroup.push({ nodeId, targetId: i === 0 ? MovePosition.AFTER_BEGIN : (lastEl ? lastEl.nodeId : newSeq[i - 1]) });
+                        }
+                        else {
+                            moveQueue.push({ moveGroup: lastGroup, moveIndex: i + lastGroup.length });
+                            lastGroup = [];
+                            lastGroup.push({ nodeId, targetId: newSeq[i - 1] });
+                        }
+                        lastMoveIndex = oldI;
+                    }
+                }
+                if (lastGroup.length > 0) {
+                    moveQueue.push({ moveGroup: lastGroup, moveIndex: i + lastGroup.length });
+                }
+                if (moveQueue.length > 0) {
+                    moved = true;
+                    let vals = moveQueue.sort((a, b) => a.moveGroup.length - b.moveGroup.length);
+                    if (vals.length < 2) {
+                        let { moveGroup } = vals[0];
+                        if (moveGroup.length > 1) {
+                            let lastTId = last(moveGroup).targetId;
+                            if (moveGroup[moveGroup.length - 2].nodeId === lastTId) {
+                                moveGroup = initial(moveGroup);
+                            }
+                        }
+                        moveGroup.forEach(({ targetId, nodeId }) => {
+                            let srcEl = oldNodeMap[nodeId];
+                            let target;
+                            if (targetId === MovePosition.AFTER_BEGIN) {
+                                target = startNode;
+                                target.after(srcEl);
+                            }
+                            else if (oldNodeMap[targetId]) {
+                                target = oldNodeMap[targetId];
+                                target.after(srcEl);
+                            }
+                        });
+                    }
+                    else {
+                        let lastGroupIndex = last(vals).moveIndex;
+                        if (Math.abs(vals[vals.length - 2].moveIndex - lastGroupIndex) === 1) {
+                            vals = initial(vals);
+                        }
+                        vals.forEach(({ moveGroup }) => {
+                            moveGroup.forEach(({ targetId, nodeId }) => {
+                                let srcEl = oldNodeMap[nodeId];
+                                let target;
+                                if (targetId === MovePosition.AFTER_BEGIN) {
+                                    target = startNode;
+                                    target.after(srcEl);
+                                }
+                                else {
+                                    target = oldNodeMap[targetId];
+                                    target.after(srcEl);
+                                }
+                            });
+                        });
+                    }
+                } //endif
+            }
+            //del
+            dels.forEach(k => {
+                let treeNode = oldNodeMap[k];
+                if (treeNode && treeNode.parentNode) {
+                    oldNodeMap[k] = null;
+                    treeNode.remove();
+                    let ups = remove(updatePoints, up => up.key == k);
+                    ups.forEach(up => up.destroy(renderComponent));
+                }
+            });
+            //add
+            let addGroup;
+            if (adds.length > 0) {
+                addGroup = addNodes(adds, newTmpls, renderComponent, pointNode, newNodeMap, up);
+                addGroup.forEach((v, i) => {
+                    let k = v.newkey;
+                    let treeNode = newNodeMap[k];
+                    let prevNode = v.prevNode;
+                    if (v.group) {
+                        let fragment = document.createDocumentFragment();
+                        fragment.append(...map(v.group, (nk) => newNodeMap[nk]));
+                        treeNode = fragment;
+                    }
+                    if (prevNode === pointNode) {
+                        prevNode.before(treeNode);
+                    }
+                    else if (prevNode === startNode) {
+                        prevNode.after(treeNode);
+                    }
+                    else if (typeof prevNode === 'string') {
+                        newNodeMap[prevNode].after(treeNode);
+                    }
+                    else {
+                        prevNode.after(treeNode);
+                    }
+                });
+                //release
+                newNodeMap = null;
+                newNodeMap = {};
+            }
+            //合并
+            if (tmpl.vars[0] instanceof Template) {
+                let tStrAry = [];
+                let tVarAry = [];
+                each(tmpl.vars, v => {
+                    tVarAry.push(...v.vars);
+                    tStrAry.push(...map(v.vars, v => '1'));
+                });
+                tStrAry.push('1');
+                tmpl = new Template(tStrAry, tVarAry);
+            }
+            //移动顺序
+            if (moved || dels.length > 0 || addGroup) {
+                const upGroup = groupBy(updatePoints, up => up.key);
+                let movedUpAry = [];
+                let i = 0;
+                newSeq.forEach(nk => {
+                    upGroup[nk] && upGroup[nk].forEach((up) => {
+                        up.varIndex = i++;
+                        movedUpAry.push(up);
+                    });
+                });
+                let redundant = except(updatePoints, movedUpAry);
+                redundant.forEach(up => up.destroy(renderComponent));
+                up.children = movedUpAry;
+            }
+            updateSubScopeView(up, renderComponent, tmpl);
+        }
+    }
+    let DiSn = 0;
+    /**
+     * 返回指令调用函数
+     * @param di
+     * @returns
+     */
+    function directive(fn, scopes) {
+        let name = fn.name || ('Di-' + DiSn++);
+        let sym = Symbol.for(name);
+        return (...args) => {
+            let executor = fn(...args);
+            if (includes(scopes, EnterPointType.TEXT) || includes(scopes, EnterPointType.SLOT))
+                TextOrSlotDirectiveExecutorMap.set(name, executor);
+            set(executor, '__scope', scopes[0]);
+            return [sym, args, executor, (scopeType) => {
+                    if (!isEmpty(scopes) && !test(scopes.join(','), scopeType)) {
+                        showError(`Directive '${Symbol.keyFor(sym)}' is out of scopes, expect '${scopes.join(',')}' bug got '${scopeType}'`);
+                        return;
+                    }
+                }, Collector.popDirectiveQ()];
+        };
+    }
+
+    const ATTR_PREFIX_EVENT = "@";
+    const ATTR_PREFIX_PROP = ".";
+    const ATTR_PREFIX_BOOLEAN = "?";
+    const ATTR_PREFIX_REF = "*";
+    const ATTR_PROP_DELIMITER = ":";
+    const ATTR_REF = "ref";
+    const ATTR_KEY = "key";
+    const EXP_TAG_CONVERT = /(<\/?)\s*([A-Z][A-Za-z0-9]*)([\s>])/gm;
+    const EXP_ATTR_CONVERT = /\s+([\.?@*])?((?:[a-zA-Z]*[A-Z][^\s<>="']+))(?=[\s=>])/gm;
+    const EXP_ATTR_CHECK = /[.?-a-z]+\s*=\s*(['"])\s*([^='"]*<\!--c_ui-pl_df-->){2,}.*?\1/ims;
+    const EXP_PLACEHOLDER = /<\s*[a-z0-9-]+([^>]*<\!--c_ui-pl_df-->)*[^>]*?(?<!-)>/imgs;
+    const SLOT_KEY_PROPS = 'slot-props';
+    const HTML_TMPL_CACHE = new Map();
+    /**
+     * 提供渲染函数相关操作
+     * @author holyhigh2
+     */
+    function buildHTML(component, tmpl) {
+        let html = "";
+        let vars = concat(tmpl.vars);
+        let l = tmpl.strings.length - 1;
+        let vl = tmpl.vars.length - 1;
+        let varIndex = 0;
+        for (let i = 0; i <= l; i++) {
+            const str = tmpl.strings[i];
+            let val = get(vars, varIndex, '');
+            if (val instanceof Template) {
+                let [h, v] = buildHTML(component, val);
+                val = h;
+                vars.splice(varIndex, 1, ...v);
+                varIndex += v.length - 1;
+            }
+            else {
+                val = i > vl ? "" : PLACEHOLDER;
+            }
+            varIndex++;
+            html = html + str + val;
+        }
+        {
+            //attr check
+            let rs = html.match(EXP_ATTR_CHECK);
+            if (rs) {
+                let errorMsg = replaceAll(rs[0], PLACEHOLDER, '${...}');
+                showError(`Parse error: attribute value can be set only one interpolation —— \n ${errorMsg}`);
+                return ['', vars];
+            }
+        }
+        let i = 0;
+        html = html.replace(EXP_PLACEHOLDER, (a, b) => {
+            let rs = replaceAll(a, PLACEHOLDER, () => PLACEHOLDER.replace('-->', '') + (i++));
+            return rs;
+        });
+        html = html.replace(EXP_STR, '$1><').trim();
+        html = convertHTML(html);
+        return [html, vars];
+    }
+    function convertHTML(html) {
+        if (!isString(html))
+            return html + '';
+        //attr convert
+        html = html.replace(EXP_ATTR_CONVERT, (a, b, c) => {
+            return ` ${b ?? ''}${kebabCase(c)}`;
+        });
+        //tag convert
+        html = html.replace(EXP_TAG_CONVERT, (a, b, c, d) => {
+            let tag = DefinitionTagMap[c];
+            return b + tag + d;
+        });
+        return html;
+    }
+    function buildVars(component, tmpl) {
+        let vars = concat(tmpl.vars);
+        let l = tmpl.strings.length - 1;
+        for (let i = 0; i <= l; i++) {
+            let val = get(tmpl.vars, i, '');
+            if (val instanceof Template) {
+                // let [h, v] = buildHTML(component, val)
+                let vs = buildVars(component, val);
+                vars.splice(i, 1, ...vs);
+            }
+        }
+        return vars;
+    }
+    const PLACEHOLDER = "<!--c_ui-pl_df-->";
+    const PLACEHOLDER_PREFFIX = "<!--c_ui-pl_df";
+    const PLACEHOLDER_EXP = /<!--c_ui-pl_df\d*(-->)?/;
+    /**
+     * 构建模板为DOM结构
+     * @param html
+     */
+    function buildTmplate(updatePoints, html, vars, renderComponent) {
+        const container = document.createElement("div");
+        container.innerHTML = html;
+        let evList = renderComponent._eventBindList;
+        if (!evList) {
+            evList = renderComponent._eventBindList = [];
+        }
+        //遍历dom
+        const nodeIterator = document.createNodeIterator(container, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT);
+        let currentNode;
+        let varIndex = 0;
+        let slotComponent;
+        let keyNode = null;
+        let keyVal = '';
+        while ((currentNode = nodeIterator.nextNode())) {
+            if (slotComponent && !slotComponent.contains(currentNode)) {
+                slotComponent = undefined;
+            }
+            if (currentNode instanceof HTMLElement || currentNode instanceof SVGElement) {
+                if (currentNode instanceof CompElem) {
+                    slotComponent = currentNode;
+                }
+                let props = {};
+                let attrs = toArray(currentNode.attributes);
+                for (let i = 0; i < attrs.length; i++) {
+                    const attr = attrs[i];
+                    let { name, value } = attr;
+                    //todo 这里需要修改为 data-slot-xx
+                    if (name === SLOT_KEY_PROPS) {
+                        // varCacheQueue && varCacheQueue.push({ type: VarType.AttrSlot, name: slotName, attrName: name })
+                        continue;
+                    } //endif
+                    if (startsWith(name, PLACEHOLDER_PREFFIX)) {
+                        let val = vars[varIndex];
+                        //support directive only for now
+                        if (isArray(val) && isSymbol(val[0])) {
+                            let [, args, executor, checker, varChain] = val;
+                            checker(EnterPointType.TAG);
+                            let po = new UpdatePoint(varIndex, new WeakRef(currentNode));
+                            po.isDirective = true;
+                            po.value = val;
+                            po.isComponent = !!slotComponent;
+                            updatePoints.push(po);
+                            if (keyNode && keyNode?.contains(currentNode)) {
+                                po.key = keyVal;
+                            }
+                            varIndex++;
+                            executor(currentNode, args, undefined, { renderComponent, slotComponent, varChain });
+                        }
+                        currentNode.removeAttribute(name);
+                        continue;
+                    } //endif
+                    //@event.stop.prevent.debounce
+                    if (name[0] === ATTR_PREFIX_EVENT) {
+                        let val;
+                        if (PLACEHOLDER_EXP.test(value)) {
+                            let po = new UpdatePoint(varIndex);
+                            po.isPlaceholder = true;
+                            if (keyNode && keyNode?.contains(currentNode)) {
+                                po.key = keyVal;
+                            }
+                            updatePoints.push(po);
+                            val = vars[varIndex];
+                            if (!isFunction(val)) {
+                                showTagError(currentNode.tagName, `Event '${name}' must be a function`);
+                                continue;
+                            }
+                            varIndex++;
+                        }
+                        let evName = name.substring(1);
+                        evList.push([evName, val, currentNode]);
+                        currentNode.removeAttribute(name);
+                        continue;
+                    } //endif
+                    if (name === ATTR_REF) {
+                        if (PLACEHOLDER_EXP.test(value)) {
+                            let val = vars[varIndex];
+                            if (!(val instanceof RefObject)) {
+                                showTagError(currentNode.tagName, `Ref must be a RefObject`);
+                                continue;
+                            }
+                            let po = new UpdatePoint(varIndex);
+                            po.isPlaceholder = true;
+                            if (keyNode && keyNode?.contains(currentNode)) {
+                                po.key = keyVal;
+                            }
+                            updatePoints.push(po);
+                            varIndex++;
+                            val.__setRef(new WeakRef(currentNode));
+                        }
+                        currentNode.removeAttribute(name);
+                        continue;
+                    } //endif
+                    if (name === ATTR_KEY) {
+                        let val = vars[varIndex];
+                        currentNode.setAttribute(name, val);
+                        let po = new UpdatePoint(varIndex);
+                        po.isPlaceholder = true;
+                        if (keyNode && keyNode?.contains(currentNode)) {
+                            po.key = keyVal;
+                        }
+                        updatePoints.push(po);
+                        varIndex++;
+                        keyNode = currentNode;
+                        keyVal = val;
+                        if (updatePoints.length > 0) {
+                            updatePoints.forEach(up => {
+                                up.key = up.key ?? val;
+                            });
+                        }
+                        continue;
+                    } //endif
+                    //校验变量必须是表达式
+                    if (name[0] === ATTR_PREFIX_PROP && !PLACEHOLDER_EXP.test(value)) {
+                        showTagError(currentNode.tagName, `Prop '${name}' must be an interpolation`);
+                        continue;
+                    }
+                    if (PLACEHOLDER_EXP.test(value)) {
+                        let val = vars[varIndex];
+                        let po = new UpdatePoint(varIndex, new WeakRef(currentNode), name.replace(/\.|\?|@/, ''), value);
+                        po.isComponent = !!slotComponent;
+                        if (keyNode && keyNode?.contains(currentNode)) {
+                            po.key = keyVal;
+                        }
+                        if (name[0] === ATTR_PREFIX_PROP ||
+                            name[0] === ATTR_PREFIX_BOOLEAN ||
+                            name[0] === ATTR_PREFIX_REF) {
+                            if (isArray(val) && isSymbol(val[0])) {
+                                let [, args, executor, checker, varChain] = val;
+                                checker(EnterPointType.PROP);
+                                let attrName = name.substring(1);
+                                executor(currentNode, args, undefined, { renderComponent, slotComponent, varChain, attrName });
+                                po.value = val;
+                                po.isDirective = true;
+                            }
+                            else if (name[0] === ATTR_PREFIX_BOOLEAN) {
+                                po.isToggleProp = true;
+                                po.value = !!val;
+                                let attrName = name.substring(1);
+                                if (po.value)
+                                    currentNode.setAttribute(attrName, val);
+                            }
+                            else if (name[0] === ATTR_PREFIX_REF) {
+                                po.value = val;
+                                let refNames = name.substring(1);
+                                const [refNamec, prop] = refNames.split(ATTR_PROP_DELIMITER);
+                                let refName = refNamec;
+                                switch (prop) {
+                                    case 'camel':
+                                        refName = camelCase(refName);
+                                        break;
+                                    case 'kebab':
+                                        refName = kebabCase(refName);
+                                        break;
+                                    case 'snake':
+                                        refName = snakeCase(refName);
+                                        break;
+                                }
+                                po.attrName = refName;
+                                currentNode.setAttribute(refName, val);
+                            }
+                            else {
+                                if (!(currentNode instanceof CompElem) && currentNode.tagName !== 'SLOT') {
+                                    showTagError(currentNode.tagName, `Prop '${name}' can only be set on a CompElem or a slot`);
+                                }
+                                else {
+                                    let propName = camelCase(name.substring(1));
+                                    if (!(propName in currentNode) && currentNode.tagName !== 'SLOT') {
+                                        showTagError(currentNode.tagName, `Prop '${name}' is not defined in ${currentNode.tagName}`);
+                                    }
+                                    po.value = val;
+                                    po.isProp = true;
+                                    props[propName] = val;
+                                }
+                            }
+                            currentNode.removeAttribute(name);
+                            val = '';
+                        }
+                        else {
+                            po.value = val;
+                            let executor;
+                            let args;
+                            if (isArray(val) && isSymbol(val[0])) {
+                                let type = EnterPointType.ATTR;
+                                if (name === "class") {
+                                    type = EnterPointType.CLASS;
+                                }
+                                else if (name === "style") {
+                                    type = EnterPointType.STYLE;
+                                }
+                                let [, ags, exec, checker] = val;
+                                {
+                                    checker(type);
+                                }
+                                po.isDirective = true;
+                                po.attrName = name;
+                                args = ags;
+                                executor = exec;
+                                val = '';
+                            }
+                            value = replace(value, PLACEHOLDER_EXP, val);
+                            //回填
+                            attr.value = value;
+                            if (isDefined(value)) {
+                                currentNode.setAttribute(name, value);
+                            }
+                            executor && executor(currentNode, args, undefined, { renderComponent, slotComponent });
+                        }
+                        updatePoints.push(po);
+                        varIndex++;
+                    } //endif
+                } //endfor
+                if (currentNode instanceof CompElem) {
+                    setWrapper(currentNode, renderComponent);
+                    if (size(props) > 0)
+                        currentNode._initProps(props);
+                }
+                else if (currentNode instanceof HTMLSlotElement) {
+                    renderComponent._bindSlot(currentNode, currentNode.name || 'default', props);
+                }
+            }
+            else {
+                let comment = currentNode;
+                let ph = `<!--${comment.nodeValue}-->`;
+                if (ph !== PLACEHOLDER) {
+                    continue;
+                }
+                let po = new UpdatePoint(varIndex, new WeakRef(currentNode));
+                if (keyNode && keyNode?.contains(currentNode)) {
+                    po.key = keyVal;
+                }
+                updatePoints.push(po);
+                po.isComponent = !!slotComponent;
+                po.isText = true;
+                let val = vars[varIndex];
+                if (isArray(val) && isSymbol(val[0])) {
+                    const diName = Symbol.keyFor(val[0]);
+                    //插入start占位符
+                    let startComment;
+                    startComment = document.createComment(`compelem-${renderComponent.tagName}-${diName}-start`);
+                    comment.parentNode.insertBefore(startComment, comment);
+                    comment.nodeValue = `compelem-${renderComponent.tagName}-${diName}-end`;
+                    comment._diName = diName;
+                    DI_COMMENT_START_NODE_MAP.set(comment, startComment);
+                    po.isDirective = true;
+                    po.value = val;
+                    let pType = slotComponent ? EnterPointType.SLOT : EnterPointType.TEXT;
+                    let [, args, executor, checker, varChain] = val;
+                    checker(pType);
+                    po.directiveOldValue = [args, varChain];
+                    Collector.start();
+                    let tmpl = executor(comment, args, undefined, { renderComponent, slotComponent, varChain });
+                    Collector.end(renderComponent, po);
+                    //render
+                    if (tmpl) {
+                        let nodes = buildSubView(comment, tmpl[1], renderComponent, po);
+                        let len = nodes.length;
+                        if (nodes && len > 0) {
+                            DomUtil.insertBefore(comment, Array.from(nodes));
+                        }
+                    }
+                    val = undefined;
+                }
+                else {
+                    po.value = val;
+                    po.node = null;
+                }
+                varIndex++;
+                if (!po.isDirective) {
+                    let text = toString(val ?? '');
+                    let textDom = document.createTextNode(text);
+                    comment.parentNode.insertBefore(textDom, comment);
+                    comment.remove();
+                    currentNode = textDom;
+                    po.node = new WeakRef(textDom);
+                }
+            }
+            if (keyNode && !keyNode.contains(currentNode) && keyNode !== currentNode) {
+                keyNode = null;
+                keyVal = '';
+            }
+        }
+        return container.childNodes;
+    }
+    function buildView(tmpl, component) {
+        let updatePoints = [];
+        let nodes;
+        if (HTML_TMPL_CACHE.has(component.constructor)) {
+            let htmlTmpl = HTML_TMPL_CACHE.get(component.constructor);
+            let vars = buildVars(component, tmpl);
+            nodes = buildTmplate(updatePoints, htmlTmpl, vars, component);
+        }
+        else {
+            let [html, vars] = buildHTML(component, tmpl);
+            HTML_TMPL_CACHE.set(component.constructor, html);
+            nodes = buildTmplate(updatePoints, html, vars, component);
+        }
+        component.__updateTree = updatePoints;
+        return nodes;
+    }
+    function buildSubView(pointNode, tmpl, component, po, bindEvent = false) {
+        let [html, vars] = buildHTML(component, tmpl);
+        let updatePoints = [];
+        let nodes = buildTmplate(updatePoints, html, vars, component);
+        if (bindEvent)
+            component.__bindEvents();
+        updatePoints.forEach(up => {
+            po.insert(up);
+        });
+        return nodes;
+    }
+    function updateView(tmpl, renderComponent, updatePoints, changedKeys) {
+        if (isBlank(join(tmpl.strings)))
+            return;
+        let vars = tmpl.flatVars(renderComponent);
+        for (let i = 0; i < updatePoints.length; i++) {
+            const up = updatePoints[i];
+            let varIndex = up.varIndex;
+            if (varIndex < 0)
+                continue;
+            if (up.isPlaceholder)
+                continue;
+            if (up.__destroyed)
+                continue;
+            let oldValue = up.value;
+            let newValue = vars;
+            let node = up.node.deref();
+            if (!node)
+                continue;
+            let indexSegs = split(varIndex, PATH_SEPARATOR);
+            for (let l = 0; l < indexSegs.length; l++) {
+                const seg = indexSegs[l];
+                newValue = get(newValue, seg);
+                if (newValue && newValue.vars && i < indexSegs.length - 1) {
+                    newValue = newValue.vars;
+                }
+            }
+            //check
+            if (!isObject(oldValue) && oldValue === newValue)
+                continue;
+            let elNode = node;
+            if (up.isDirective) {
+                //指令
+                let [, oldArgs, executor, , varChain] = up.value;
+                if (!isArray(newValue))
+                    continue;
+                let slotComponent = getSlotComponent(node, renderComponent);
+                let [, newArgs] = newValue;
+                updateDirective(node, newArgs, oldArgs, executor, renderComponent, slotComponent, varChain, up);
+            }
+            else if (up.isToggleProp) {
+                //布尔特性
+                if ((!!newValue) === oldValue)
+                    continue;
+                elNode.toggleAttribute(up.attrName, !!newValue);
+                set(elNode, up.attrName, !!newValue);
+            }
+            else if (up.isProp) {
+                //子组件属性
+                if (!isObject(newValue) && newValue === oldValue)
+                    continue;
+                //如果node是slot则触发组件的slot更新
+                if (node instanceof CompElem) {
+                    node._updateProps({ [up.attrName]: newValue });
+                }
+                else if (node instanceof HTMLSlotElement) {
+                    renderComponent._updateSlot(node.getAttribute('name') || 'default', up.attrName, newValue);
+                }
+            }
+            else if (up.attrName) {
+                //特性
+                if (!isEqual(oldValue, newValue)) {
+                    switch (up.attrName) {
+                        case 'value':
+                            if (node instanceof HTMLInputElement) {
+                                node.value = newValue;
+                                break;
+                            }
+                        default:
+                            node.setAttribute(up.attrName, replace(up.attrTmpl, PLACEHOLDER_EXP, newValue + ''));
+                    }
+                }
+            }
+            else if (up.isText) {
+                let textNode = up.node;
+                textNode.deref().textContent = toString(newValue ?? '');
+            }
+            up.value = newValue;
+        } //endfor
+        // tmpl.destroy()
+    }
+    function updateSubScopeView(subScopeUpdatePoint, renderComponent, tmpl, changedKeys) {
+        if (!subScopeUpdatePoint)
+            return;
+        let node = subScopeUpdatePoint.node.deref();
+        const executor = TextOrSlotDirectiveExecutorMap.get(node._diName);
+        let slotComponent = getSlotComponent(node, renderComponent);
+        const [oldArgs, varChain] = subScopeUpdatePoint.directiveOldValue;
+        if (!tmpl) {
+            let rs = executor(node, subScopeUpdatePoint.value[1], oldArgs, { renderComponent, slotComponent, varChain });
+            if (!rs)
+                return;
+            tmpl = rs[1];
+        }
+        if (!tmpl)
+            return;
+        //合并
+        if (tmpl.vars[0] instanceof Template) {
+            let tStrAry = [];
+            let tVarAry = [];
+            each(tmpl.vars, v => {
+                tVarAry.push(...v.vars);
+                tStrAry.push(...map(v.vars, v => '1'));
+            });
+            tStrAry.push('1');
+            tmpl = new Template(tStrAry, tVarAry);
+        }
+        updateView(tmpl, renderComponent, subScopeUpdatePoint.children);
+    }
+    //////////////////////////////////////////////////// interfaces
+    /**
+     * 标签函数，用于构建模板
+     * @param strings
+     * @param vars
+     */
+    function html(strings, ...vars) {
+        return new Template(isString(strings) ? [strings] : strings, vars);
+    }
+    const EXP_STR = /([a-z0-9"'])\s*>\s*</img;
+    class RefObject {
+        #ref;
+        get current() {
+            return this.#ref?.deref();
+        }
+        __setRef(ref) {
+            this.#ref = ref;
+        }
+    }
+    function setWrapper(target, wrapperComponent) {
+        target.__wrapperComponent = new WeakRef(wrapperComponent);
+    }
+
+    //装饰器类型
+    var DecoratorType;
+    (function (DecoratorType) {
+        DecoratorType["CLASS"] = "class";
+        DecoratorType["FIELD"] = "field";
+        DecoratorType["METHOD"] = "method";
+    })(DecoratorType || (DecoratorType = {}));
+    /**
+     * 用于构造装饰器
+     * @author holyhigh2
+     */
+    class Decorator {
+        /**
+         * 优先级，越大越先执行
+         */
+        static get priority() {
+            return 0;
+        }
+        /**
+         * 构造会传递自定义参数
+         * @param args 自定义参数
+         */
+        // constructor(...args: any[]) { }
+        created(component, ...args) { }
+        /**
+         * 执行时机与组件一致
+         * @param component 组件实例
+         * @param setReactive 为实例设置响应属性，注意，仅是设置到了instance.reactiveData中并非this.key。如需实现this访问，可自行定义组件的properties
+         * @param args 装饰器函数参数
+         */
+        beforeMount(component, setReactive, ...args) { }
+        mounted(component, setReactive, ...args) { }
+        updated(component, changed) { }
+        beforeDestroy(component, ...args) { }
+    }
+
+    /**
+     * 装饰器包装类
+     * 用于框架内部，表示class上的一个装饰器属性定义
+     * 该定义在实例初始化时会产生装饰器实例属性
+     */
+    class DecoratorWrapper {
+        //装饰器参数
+        metadata;
+        decorator;
+        key; //装饰器唯一key
+        priority = 0;
+        constructor(args, metadata, decoratorClass) {
+            this.metadata = metadata;
+            this.decorator = new decoratorClass(...args);
+            this.priority = get(decoratorClass, 'priority', 0);
+        }
+        dispose() {
+            //clean up
+            this.metadata = null;
+            this.decorator = null;
+        }
+        //在组件构造时调用
+        create(comp) {
+            //1. 校验targets
+            let targets = this.decorator.targets;
+            let decoType = undefined;
+            let descriptor = this.metadata[1];
+            if (isObject(descriptor) && isDefined(get(descriptor, 'configurable'))) {
+                decoType = DecoratorType.METHOD;
+            }
+            else if (isUndefined(this.metadata[1])) {
+                decoType = DecoratorType.FIELD;
+            }
+            if (isEmpty(targets) || !decoType || !targets.includes(decoType)) {
+                showError(`Decorator '${this.decorator.constructor.name}' is out of targets, expect '${targets.join(',')}' bug got '${decoType}'`);
+                return;
+            }
+            this.decorator.created(comp, ...this.metadata);
+        }
+        beforeMount(comp, setReactive) {
+            this.decorator.beforeMount(comp, setReactive, ...this.metadata);
+        }
+        mounted(comp, setReactive) {
+            this.decorator.mounted(comp, setReactive, ...this.metadata);
+        }
+        updated(comp, changed) {
+            this.decorator.updated(comp, changed);
+        }
+        destroy(comp) {
+            this.decorator.beforeDestroy(comp, ...this.metadata);
+        }
+    }
+    /**
+     * 该函数用于创建一个装饰器
+     * @param decoClass 装饰器构造
+     * @returns 装饰器函数
+     */
+    function decorator(decoClass) {
+        let fn = (...args) => {
+            return (...metadata) => {
+                let ctor = metadata[0].constructor;
+                let ary = DefinitionDecoratorMap.get(ctor); //  ctor[_DecoratorsKey]
+                if (!DefinitionDecoratorMap.has(ctor)) {
+                    //继承父类
+                    let proto = Object.getPrototypeOf(ctor);
+                    ary = proto ? concat(DefinitionDecoratorMap.get(proto) ?? []) : [];
+                    DefinitionDecoratorMap.set(ctor, ary);
+                }
+                let dw = new DecoratorWrapper(args, metadata.splice(1), decoClass);
+                ary?.push(dw);
+                return dw;
+            };
+        };
+        return fn;
     }
 
     function computed(target, propertyKey, descriptor) {
         if (!descriptor.get) {
             showError(`Computed '${propertyKey}' must be a getter`);
         }
-        if (!has(target.constructor, DecoratorKey.COMPUTED)) {
-            target.constructor[DecoratorKey.COMPUTED] = isEmpty(target.constructor[DecoratorKey.COMPUTED]) ? {} : cloneDeep(target.constructor[DecoratorKey.COMPUTED]);
+        if (!DefinitionComputedMap.has(target.constructor)) {
+            DefinitionComputedMap.set(target.constructor, {});
         }
-        target.constructor[DecoratorKey.COMPUTED][propertyKey] = descriptor.get;
-    }
-
-    /**
-     * 定义防抖函数
-     * 同时会创建一个以 _$__ 结尾的非防抖版本
-     * @example
-     *  @debounced(50, true)
-     *
-     * @param wait 抖动间隔，单位ms
-     */
-    class DebouncedDecorator extends Decorator {
-        static get priority() {
-            return Number.MAX_VALUE;
-        }
-        created(component, classProto, fieldName, ...args) {
-            let fn = get(component, fieldName);
-            set(component, fieldName, debounce(fn, this.wait, this.immediate));
-            let proto = Reflect.getPrototypeOf(component);
-            if (proto && !get(proto, fieldName + '_$__')) {
-                set(proto, fieldName + '_$__', fn);
+        DefinitionComputedMap.get(target.constructor)[propertyKey] = descriptor.get;
+        //getter
+        delete target[propertyKey];
+        Reflect.defineProperty(target, propertyKey, {
+            get() {
+                if (Collector.__collecting) {
+                    Collector.__varPathList.push(propertyKey);
+                }
+                let v = Reflect.get(this[DATA_KEY], propertyKey);
+                return v;
             }
-        }
-        beforeMount(component, setReactive, ...args) {
-        }
-        mounted(component, setReactive, ...args) {
-        }
-        updated(component, changed) {
-        }
-        get targets() {
-            return [DecoratorType.METHOD];
-        }
-        wait;
-        immediate;
-        result;
-        constructor(wait, immediate = false) {
-            super();
-            this.wait = wait;
-            this.immediate = immediate;
-        }
+        });
+        return Reflect.getOwnPropertyDescriptor(target, propertyKey);
     }
-    decorator(DebouncedDecorator);
-
-    /**
-     * 定义一次性函数
-     * 同时会创建一个以 _$__ 结尾的非一次性版本
-     * @example
-     *  @onced
-     *
-     * @param wait 抖动间隔，单位ms
-     */
-    class OncedDecorator extends Decorator {
-        static get priority() {
-            return Number.MAX_VALUE;
-        }
-        created(component, classProto, fieldName, ...args) {
-            let fn = bind(get(component, fieldName), component);
-            set(component, fieldName, once(fn));
-            let proto = Reflect.getPrototypeOf(component);
-            if (proto && !get(proto, fieldName + '_$__')) {
-                set(proto, fieldName + '_$__', fn);
-            }
-        }
-        beforeMount(component, setReactive, ...args) {
-        }
-        mounted(component, setReactive, ...args) {
-        }
-        updated(component, changed) {
-        }
-        get targets() {
-            return [DecoratorType.METHOD];
-        }
-        wait;
-        result;
-        constructor() {
-            super();
-        }
-    }
-    decorator(OncedDecorator);
 
     /**
      * 缓存策略
@@ -10441,8 +10364,8 @@
     var QueryCache;
     (function (QueryCache) {
         QueryCache["ONCE"] = "once";
-        QueryCache["UPDATABLE"] = "updatable"; //每次update结束都会更新缓存
     })(QueryCache || (QueryCache = {}));
+    const CacheMap = new WeakMap();
     /**
      * css查询装饰器
      * @example
@@ -10452,16 +10375,11 @@
         static get priority() {
             return Number.MAX_VALUE;
         }
-        created(component, classProto, fieldName, ...args) {
-        }
-        mounted(component, setReactive, ...args) {
-        }
         get targets() {
             return [DecoratorType.FIELD];
         }
         selector;
         cache;
-        result;
         constructor(selector, cache) {
             super();
             this.selector = selector;
@@ -10471,33 +10389,40 @@
             return selector;
         }
         getter(component) {
-            this.result = component.shadowRoot?.querySelector(this.selector);
+            let el = component?.shadowRoot?.querySelector(this.selector);
+            let cMap = CacheMap.get(component);
+            if (!cMap) {
+                cMap = new Map();
+                CacheMap.set(component, cMap);
+            }
+            cMap.set(this.selector, el);
         }
-        beforeMount(component, setReactive, classProto, fieldName, ...args) {
+        mounted(component, setReactive, fieldName, ...args) {
             const that = this;
+            let wk = new WeakRef(component);
             Reflect.defineProperty(component, fieldName, {
+                configurable: true,
                 get() {
-                    if (that.result && that.cache) {
-                        return that.result;
+                    let ctx = wk.deref();
+                    if (CacheMap.has(ctx) && CacheMap.get(ctx)?.has(that.selector) && that.cache === QueryCache.ONCE) {
+                        return CacheMap.get(ctx)?.get(that.selector);
                     }
-                    that.getter(component);
-                    return that.result;
+                    that.getter(ctx);
+                    return CacheMap.get(ctx)?.get(that.selector);
                 }
             });
         }
+        beforeDestroy(component, fieldName) {
+            CacheMap.get(component)?.clear();
+            CacheMap.delete(component);
+        }
         updated(component, changed) {
-            if (this.cache !== QueryCache.UPDATABLE)
+            if (this.cache === QueryCache.ONCE)
                 return;
             this.getter(component);
         }
     }
-    class QueryAllDecorator extends QueryDecorator {
-        getter(component) {
-            this.result = component.shadowRoot?.querySelectorAll(this.selector);
-        }
-    }
     const query = decorator(QueryDecorator);
-    decorator(QueryAllDecorator);
 
     function state(options) {
         if (arguments.length === 1) {
@@ -10509,20 +10434,42 @@
         defineState(target, stateKey, { prop: "" });
     }
     function defineState(target, stateKey, options) {
-        if (!has(target.constructor, DecoratorKey.STATES)) {
+        if (!DefinitionStateMap.has(target.constructor)) {
             const mixinStates = {};
             let parentCtor = target.constructor;
             while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
-                merge(mixinStates, parentCtor[DecoratorKey.STATES] ? cloneDeep(parentCtor[DecoratorKey.STATES]) : {});
+                merge(mixinStates, DefinitionStateMap.get(parentCtor) ?? {});
             }
-            Reflect.defineProperty(target.constructor, DecoratorKey.STATES, {
-                configurable: false,
-                enumerable: false,
-                value: mixinStates
-            });
+            DefinitionStateMap.set(target.constructor, mixinStates);
         }
         options.shallow = options.shallow || false;
-        target.constructor[DecoratorKey.STATES][stateKey] = options;
+        set(DefinitionStateMap.get(target.constructor), stateKey, options);
+        //cache tags
+        if (options.hasChanged) {
+            let changeMap = HasChangedPropOrStateMap.get(target.constructor);
+            if (!changeMap) {
+                changeMap = new Map();
+                HasChangedPropOrStateMap.set(target.constructor, changeMap);
+            }
+            changeMap.set(stateKey, options.hasChanged);
+        }
+        if (options.shallow) {
+            let keySet = StateShallowKeySetMap.get(target.constructor);
+            if (!keySet) {
+                keySet = new Set();
+                StateShallowKeySetMap.set(target.constructor, keySet);
+            }
+            keySet.add(stateKey);
+        }
+        //setters & getters
+        Reflect.defineProperty(target.constructor.prototype, stateKey, {
+            get() {
+                return getterValue(undefined, stateKey, this);
+            },
+            set(v) {
+                setterValue(stateKey, v, this);
+            },
+        });
     }
 
     /**
@@ -10532,87 +10479,81 @@
     function tag(name) {
         return (target) => {
             if (target) {
-                //attrChange
-                if (target.prototype.hasOwnProperty('attributeChangedCallback')) {
-                    let cbk = target.prototype.attributeChangedCallback;
-                    target.prototype.attributeChangedCallback = function (name, oldValue, newValue) {
-                        CompElem.prototype.attributeChangedCallback.call(this, name, oldValue, newValue);
-                        cbk.call(this, name, oldValue, newValue);
-                    };
-                }
-                //connectedCallback
-                if (target.prototype.hasOwnProperty('connectedCallback')) {
-                    let cbk = target.prototype.connectedCallback;
-                    target.prototype.connectedCallback = function () {
-                        CompElem.prototype.connectedCallback.call(this);
-                        cbk.call(this);
-                    };
-                }
-                //disconnectedCallback
-                if (target.prototype.hasOwnProperty('disconnectedCallback')) {
-                    let cbk = target.prototype.disconnectedCallback;
-                    target.prototype.disconnectedCallback = function () {
-                        CompElem.prototype.disconnectedCallback.call(this);
-                        cbk.call(this);
-                    };
-                }
-                DEFINED_TAG_MAP[target.name] = name;
+                DefinitionTagMap[target.name] = name;
                 customElements.define(name, target);
             }
         };
     }
 
     /**
-     * 定义节流函数
-     * 同时会创建一个以 _$__ 结尾的非节流版本
-     * @example
-     *  @throttled(50, true)
-     *
-     * @param wait 抖动间隔，单位ms
+     * 监控prop/state变量值变化
+     * @param source 变量路径支持多级路径
+     * @param options
+     * @returns
      */
-    class ThrottledDecorator extends Decorator {
-        static get priority() {
-            return Number.MAX_VALUE;
-        }
-        created(component, classProto, fieldName, ...args) {
-            let fn = get(component, fieldName);
-            set(component, fieldName, throttle(fn, this.wait));
-            let proto = Reflect.getPrototypeOf(component);
-            if (proto && !get(proto, fieldName + '_$__')) {
-                set(proto, fieldName + '_$__', fn);
-            }
-        }
-        beforeMount(component, setReactive, ...args) {
-        }
-        mounted(component, setReactive, ...args) {
-        }
-        updated(component, changed) {
-        }
-        get targets() {
-            return [DecoratorType.METHOD];
-        }
-        wait;
-        result;
-        constructor(wait) {
-            super();
-            this.wait = wait;
-        }
-    }
-    decorator(ThrottledDecorator);
-
     function watch(source, options) {
         return (target, name) => {
-            if (!has(target.constructor, DecoratorKey.WATCH)) {
-                target.constructor[DecoratorKey.WATCH] = isEmpty(target.constructor[DecoratorKey.WATCH]) ? {} : cloneDeep(target.constructor[DecoratorKey.WATCH]);
+            let watchDeepUpdateMap = WatchDeepUpdateMap.get(target.constructor);
+            let watchUpdateMap = WatchUpdateMap.get(target.constructor);
+            let onceMap = WatchKeysOnceMap.get(target.constructor);
+            let watchKeysDeep = WatchKeysDeepListMap.get(target.constructor);
+            let watchKeys = WatchKeysListMap.get(target.constructor);
+            let watchImmediateList = WatchImmediateListMap.get(target.constructor);
+            if (!watchKeys) {
+                watchKeys = [];
+                WatchKeysListMap.set(target.constructor, watchKeys);
+                watchKeysDeep = [];
+                WatchKeysDeepListMap.set(target.constructor, watchKeysDeep);
+                onceMap = new Map();
+                WatchKeysOnceMap.set(target.constructor, onceMap);
+                watchDeepUpdateMap = {};
+                WatchDeepUpdateMap.set(target.constructor, watchDeepUpdateMap);
+                watchUpdateMap = {};
+                WatchUpdateMap.set(target.constructor, watchUpdateMap);
+                watchImmediateList = {};
+                WatchImmediateListMap.set(target.constructor, watchImmediateList);
+                let parentCtor = _getSuper(target.constructor);
+                while (parentCtor) {
+                    if (WatchKeysListMap.has(parentCtor)) {
+                        watchKeys.push(...WatchKeysListMap.get(parentCtor));
+                        watchKeysDeep.push(...WatchKeysDeepListMap.get(parentCtor));
+                        WatchKeysOnceMap.get(parentCtor)?.forEach((v, k) => {
+                            onceMap.set(k, v);
+                        });
+                        assign(watchDeepUpdateMap, WatchDeepUpdateMap.get(parentCtor));
+                        assign(watchUpdateMap, WatchUpdateMap.get(parentCtor));
+                        assign(watchImmediateList, WatchImmediateListMap.get(parentCtor));
+                    }
+                    parentCtor = _getSuper(parentCtor);
+                }
             }
             const sources = isArray(source) ? source : [source];
             sources.forEach(src => {
-                let watchKey = src.replaceAll('.', PATH_SEPARATOR);
-                let srcList = target.constructor[DecoratorKey.WATCH][watchKey];
-                if (!isArray(srcList)) {
-                    srcList = target.constructor[DecoratorKey.WATCH][watchKey] = [];
+                let handler = target[name];
+                //////////////////////////////
+                let onceWatch = get(options, "once", false);
+                if (onceWatch) {
+                    onceMap.set(src, false);
                 }
-                srcList.push({ source: src, options, handler: target[name] });
+                let deep = get(options, "deep", false);
+                watchKeys.push(src);
+                if (deep) {
+                    watchDeepUpdateMap[src] = watchDeepUpdateMap[src] ?? new Set();
+                    watchDeepUpdateMap[src].add(handler);
+                    watchKeysDeep.push(src);
+                }
+                else {
+                    watchUpdateMap[src] = watchUpdateMap[src] ?? new Set();
+                    watchUpdateMap[src].add(handler);
+                }
+                let immediate = get(options, "immediate", false);
+                if (immediate) {
+                    let handlerSet = watchImmediateList[src];
+                    if (!handlerSet) {
+                        handlerSet = watchImmediateList[src] = new Set();
+                    }
+                    handlerSet.add(handler);
+                }
             });
         };
     }
@@ -10623,8 +10564,8 @@
      * @param styles 对象/数组/字符串
      */
     directive(function Bind(obj) {
-        return (point, [obj], oldArgs) => {
-            let el = point.startNode;
+        return (pointNode, [obj], oldArgs) => {
+            let el = pointNode;
             if (oldArgs) {
                 each(obj, (v, k) => {
                     el.setAttribute(k, v);
@@ -10635,12 +10576,12 @@
                 //判断是否prop
                 let props = {};
                 let attrs = {};
-                let propDefs = get(el.constructor, DecoratorKey.PROPS);
+                let propDefs = DefinitionPropMap.get(el.constructor);
                 each(obj, (v, k) => {
                     if (Ignores.includes(k))
                         return;
                     let ck = camelCase(k);
-                    let propDef = propDefs[ck];
+                    let propDef = propDefs ? propDefs[ck] : undefined;
                     if (propDef) {
                         props[k] = v;
                     }
@@ -10658,13 +10599,13 @@
         };
     }, [EnterPointType.TAG]);
 
-    const ClassLastMap = new Map();
+    const ClassLastMap = new WeakMap();
     /**
      * 根据变量内容自动插入class，仅能用于class属性
      * @param styles 对象/数组/字符串
      */
     directive(function Classes(clazz) {
-        return (point, [clazz], oldArgs, { renderComponent }) => {
+        return (pointNode, [clazz], oldArgs, { renderComponent }) => {
             let rs = [];
             if (isArray(clazz)) {
                 rs = compact(clazz);
@@ -10677,7 +10618,7 @@
             }
             if (rs.length < 1 && !oldArgs)
                 return;
-            let el = point.startNode;
+            let el = pointNode;
             if (ClassLastMap.get(el) && ClassLastMap.get(el).length === rs.length && isMatch(ClassLastMap.get(el), rs))
                 return;
             let lastCls = ClassLastMap.get(el);
@@ -10692,22 +10633,24 @@
         };
     }, [EnterPointType.CLASS]);
 
-    const LastValueMap = new Map();
-    const LastTmplMap$1 = new Map();
+    const LastValueMap = new WeakMap();
+    const LastTmplMap$1 = new WeakMap();
     /**
      * 循环列表并自动优化列表更新
      * foreach循环的只能是节点，且必须有key属性。非节点元素会被过滤掉
      * 使用序号作为key时可能会导致异常问题
      */
-    const forEach = directive(function ForEach(value, cbk) {
-        return (point, newArgs, oldArgs, { varChain }) => {
-            let el = point.startNode;
-            let lastRenderTmpl = comboTmpl(newArgs[0], cbk, el);
+    directive(function ForEach(value, cbk) {
+        return (pointNode, newArgs, oldArgs, { varChain }) => {
+            let el = pointNode;
+            let lastRenderTmpl = comboTmpl(newArgs[0], newArgs[1], el);
             if (oldArgs && oldArgs[0]) {
                 //更新
                 const lastAry = LastValueMap.get(el);
                 // const lastRenderTmpl = LastTmplMap.get(el)
-                if (isEmpty(point.getNodes()) && (!newArgs || isEmpty(newArgs[0])))
+                let startNode = DI_COMMENT_START_NODE_MAP.get(pointNode);
+                let nodes = DomUtil.getNodes(startNode, pointNode);
+                if (isEmpty(nodes) && (!newArgs || isEmpty(newArgs[0])))
                     return [DirectiveUpdateTag.NONE, lastRenderTmpl];
                 if (lastAry && isMatch(lastAry, newArgs[0]) && lastAry.length === newArgs[0].length)
                     return [DirectiveUpdateTag.NONE, lastRenderTmpl];
@@ -10774,17 +10717,34 @@
         return lastRenderTmpl;
     }
 
+    let compiler = document.createElement('div');
     /**
-     * 向元素中插入指定HTML内容
+     * 向指定文本位置插入指定HTML内容
      * @param htmlStr html内容
      */
-    directive(function HtmlD(htmlStr) {
-        return (point, newArgs, oldArgs, { renderComponent, slotComponent }) => {
+    directive(function HtmlC(htmlStr) {
+        return (pointNode, newArgs, oldArgs, { renderComponent, slotComponent }) => {
             if (oldArgs && newArgs[0] == oldArgs[0])
                 return;
             if (isNil(newArgs[0]))
                 return;
-            point.startNode.innerHTML = convertHTML(newArgs[0]);
+            compiler.innerHTML = convertHTML(newArgs[0]);
+            pointNode.after(...compiler.childNodes);
+        };
+    }, [EnterPointType.TEXT, EnterPointType.SLOT]);
+
+    /**
+     * 向元素中插入指定HTML内容
+     * 注意，应用该指令的元素内部不应再出现表达式，否则会导致异常显示
+     * @param htmlStr html内容
+     */
+    directive(function HtmlD(htmlStr) {
+        return (pointNode, newArgs, oldArgs, { renderComponent, slotComponent }) => {
+            if (oldArgs && newArgs[0] == oldArgs[0])
+                return;
+            if (isNil(newArgs[0]))
+                return;
+            pointNode.innerHTML = convertHTML(newArgs[0]);
         };
     }, [EnterPointType.TAG]);
 
@@ -10795,8 +10755,8 @@
      * @param tmpl 模板
      */
     directive(function IfElse(condition, ifTmpl, elseTmpl) {
-        return (point, [condi, render], oldArgs, { renderComponent }) => {
-            let el = point.endNode;
+        return (pointNode, [condi, ifTmpl, elseTmpl], oldArgs, { renderComponent }) => {
+            let el = pointNode;
             if (oldArgs) {
                 //更新
                 if (!!condi === !!oldArgs[0]) {
@@ -10810,7 +10770,7 @@
             else {
                 let tmpl = condi ? ifTmpl : elseTmpl;
                 LastTmplMap.set(el, tmpl);
-                return [DirectiveUpdateTag.APPEND, tmpl.call(renderComponent, condition)];
+                return [DirectiveUpdateTag.APPEND, tmpl.call(renderComponent, condi)];
             }
         };
     }, [EnterPointType.TEXT, EnterPointType.SLOT]);
@@ -10821,7 +10781,7 @@
      * @param tmpl 模板
      */
     directive(function IfTrue(condition, tmplFn) {
-        return (point, [condi, render], oldArgs) => {
+        return (pointNode, [condi, render], oldArgs) => {
             if (oldArgs) {
                 //更新
                 if (condi === oldArgs[0])
@@ -10853,12 +10813,13 @@
      * @param updateProp 绑定模型变更时的监控属性，默认 value
      * @param modelProp 当初始模型路径不存在时可指定路径
      */
-    const model = directive(function Model(modelValue, updateProp = 'value', modelProp) {
-        return (point, newArgs, oldArgs, { varChain, renderComponent }) => {
-            const node = point.startNode;
+    directive(function Model(modelValue, updateProp = 'value', modelProp) {
+        return (pointNode, [modelValue, updateProp, modelProp], oldArgs, { varChain, renderComponent }) => {
+            updateProp = updateProp ?? 'value';
+            const node = pointNode;
             if (oldArgs) {
                 const oldValue = oldArgs[0];
-                const newValue = newArgs[0];
+                const newValue = modelValue;
                 let nodeValue = get(node, updateProp);
                 if (!isObject(newValue) && Object.is(newValue, oldValue) && Object.is(nodeValue, newValue))
                     return;
@@ -10904,43 +10865,42 @@
                 }
                 return;
             }
-            if (get(node, '_model') === 'binded')
-                return;
             let path;
             if (isString(modelProp)) {
-                path = toPath(modelProp);
+                path = toPath(modelProp)[0];
             }
             else {
                 path = last(varChain);
             }
-            const rootPath = path[0];
+            const rootPath = split(path, '.')[0];
             if (!(rootPath in renderComponent) && !renderComponent._wrapperProp[rootPath]) {
                 showError(`model - property '${rootPath}' is not defined on the instance of ` + renderComponent.tagName);
             }
+            let evList = renderComponent._eventBindList;
             if (!isObject(modelValue) && !trim(modelValue))
                 modelValue = '';
             if (node instanceof CompElem) {
                 node._initProps({ [updateProp]: modelValue });
-                node.addEventListener('update:' + updateProp, (e) => {
-                    console.debug('Model =>', path);
-                    let ctx = renderComponent;
-                    let pathFromWrapperComponent = renderComponent._wrapperProp[rootPath];
-                    let hasPath = rootPath in renderComponent;
-                    if (!hasPath && pathFromWrapperComponent && get(renderComponent.wrapperComponent, rootPath) === get(renderComponent, pathFromWrapperComponent)) {
-                        ctx = renderComponent.wrapperComponent || ctx;
-                    }
-                    set(ctx, path, e.detail.value);
-                });
-                set(node, '_model', 'binded');
+                let evName = 'update:' + updateProp;
+                evList.push([evName, function (obj) {
+                        console.debug('Model =>', path);
+                        let ctx = this;
+                        let pathFromWrapperComponent = ctx._wrapperProp[rootPath];
+                        let hasPath = rootPath in ctx;
+                        if (!hasPath && pathFromWrapperComponent && get(ctx.wrapperComponent, rootPath) === get(ctx, pathFromWrapperComponent)) {
+                            ctx = ctx.wrapperComponent || ctx;
+                        }
+                        set(ctx, path, obj.value);
+                    }, node]);
             }
             else if (node instanceof HTMLTextAreaElement) {
                 node.setAttribute(updateProp, modelValue + '');
-                node.addEventListener('input', (e) => {
-                    console.debug('Model =>', path);
-                    let t = e.target;
-                    set(renderComponent, path, t.value);
-                });
-                set(node, '_model', 'binded');
+                let evName = 'input';
+                evList.push([evName, function (e) {
+                        console.debug('Model =>', path);
+                        let t = e.target;
+                        set(this, path, t.value);
+                    }, node]);
             }
             else if (node instanceof HTMLInputElement) {
                 let propName = '';
@@ -10967,32 +10927,30 @@
                         break;
                 }
                 node.setAttribute(updateProp ?? propName, modelValue + '');
-                node.addEventListener(evName, (e) => {
-                    console.debug('Model =>', path);
-                    let t = e.target;
-                    set(renderComponent, path, t.value);
-                });
-                set(node, '_model', 'binded');
+                evList.push([evName, function (e) {
+                        console.debug('Model =>', path);
+                        let t = e.target;
+                        set(this, path, t.value);
+                    }, node]);
             }
             else if (node instanceof HTMLSelectElement) {
                 node.setAttribute(updateProp, modelValue + '');
-                node.addEventListener('change', (e) => {
-                    console.debug('Model =>', path);
-                    let t = e.target;
-                    let ctx = renderComponent;
-                    let pathFromWrapperComponent = renderComponent._wrapperProp[rootPath];
-                    let hasPath = rootPath in renderComponent;
-                    if (!hasPath && pathFromWrapperComponent && get(renderComponent.wrapperComponent, rootPath) === get(renderComponent, pathFromWrapperComponent)) {
-                        ctx = renderComponent.wrapperComponent || ctx;
-                    }
-                    set(ctx, path, t.value);
-                });
-                set(node, '_model', 'binded');
+                evList.push(['change', function (e) {
+                        console.debug('Model =>', path);
+                        let t = e.target;
+                        let ctx = this;
+                        let pathFromWrapperComponent = ctx._wrapperProp[rootPath];
+                        let hasPath = rootPath in ctx;
+                        if (!hasPath && pathFromWrapperComponent && get(ctx.wrapperComponent, rootPath) === get(ctx, pathFromWrapperComponent)) {
+                            ctx = ctx.wrapperComponent || ctx;
+                        }
+                        set(ctx, path, t.value);
+                    }, node]);
             }
         };
     }, [EnterPointType.TAG]);
 
-    const DisplayMap = new Map();
+    const DisplayMap = new WeakMap();
     /**
      * display的快捷指令
      * 如果
@@ -11000,10 +10958,10 @@
      * @param cbk 显示状态变更后调用的回调函数
      */
     directive(function Show(isVisible, cbk) {
-        return (point, [condi], oldArgs) => {
+        return (pointNode, [condi, cbk], oldArgs) => {
             if (oldArgs && condi === oldArgs[0])
                 return;
-            let el = point.startNode;
+            let el = pointNode;
             if (!DisplayMap.has(el)) {
                 let dis = el.style.display;
                 DisplayMap.set(el, dis == 'none' ? 'unset' : dis);
@@ -11021,7 +10979,7 @@
      * @param slotName 插槽名词，默认default
      */
     directive(function Slot(cbk, slotName) {
-        return (point, newArgs, oldArgs, { renderComponent, slotComponent }) => {
+        return (pointNode, [cbk, slotName], oldArgs, { renderComponent, slotComponent }) => {
             if (oldArgs)
                 return;
             cbk = cbk.bind(renderComponent);
@@ -11045,7 +11003,7 @@
                 if (k.startsWith('--'))
                     return k + ":" + v + (important ? ' !important' : '');
                 return kebabCase(k) + ":" + v + (important ? ' !important' : '');
-            }), ';');
+            }), ';') + ';';
         }
         /**
          * 设置样式
@@ -11055,37 +11013,24 @@
          */
         static setStyle(styles, node) {
             if (isString(styles) && !trim(styles))
-                return {};
+                return;
             let css = CssHelper.getCssText(styles);
-            let oldValueMap = {};
-            each(css.split(';'), prop => {
-                let kv = prop.split(':');
-                let k = trim(kv[0]);
-                let v = trim(kv[1]);
-                oldValueMap[k] = node.style.getPropertyValue(k);
-                node.style.setProperty(k, v);
-            });
-            return oldValueMap;
+            node.style.cssText = css;
         }
     }
 
-    const StyleMap = new Map();
-    let StyleSn = 0;
     /**
-     * 根据变量内容自动插入class，仅能用于style属性
+     * 根据变量内容设置元素样式，仅能用于style属性
      * @param styles 对象/字符串
      */
-    directive(function Styles(styles) {
-        return (point, newArgs, oldArgs, { renderComponent }) => {
-            let el = point.startNode;
-            let styleId = StyleMap.get(el);
-            if (!styleId) {
-                styleId = 'style_d' + StyleSn++;
-                StyleMap.set(el, styleId);
-            }
-            renderComponent.nextTick(() => {
-                CssHelper.setStyle(newArgs[0], el);
-            }, styleId);
+    directive(function Styles(...styles) {
+        return (pointNode, newArgs, oldArgs, { renderComponent }) => {
+            let el = pointNode;
+            let cssText = reduce(newArgs, (acc, v) => acc + CssHelper.getCssText(v), '');
+            let sKeys = compact(cssText.split(';').map(str => str.split(':')[0]));
+            let eKeys = compact(el.style.cssText.split(';'));
+            let ePairs = reject(eKeys, (str => sKeys.some(key => str.trim().startsWith(key))));
+            el.style.cssText = cssText + ePairs.join(';');
         };
     }, [EnterPointType.STYLE]);
 
@@ -11095,19 +11040,16 @@
      * @param syncValue 双向绑定的组件变量
      */
     directive(function Sync(syncValue) {
-        return (point, newArgs, oldArgs, { renderComponent, varChain }) => {
-            const targetComponent = point.startNode;
+        return (pointNode, newArgs, oldArgs, { renderComponent, varChain, attrName }) => {
+            const targetComponent = pointNode;
             if (oldArgs) {
                 if (!isEqual(newArgs, oldArgs)) {
-                    let attrName = point.attrName;
                     targetComponent._updateProps({ [attrName]: newArgs[0] });
                 }
                 return;
             }
             let modelPath = last(varChain);
-            let attrName = point.attrName;
-            //todo _setParentProps接口不应该外部使用
-            targetComponent._initProps({ [attrName]: syncValue });
+            targetComponent._initProps({ [attrName]: newArgs[0] });
             targetComponent.addEventListener('update:' + attrName, (e) => {
                 set(renderComponent, modelPath, e.detail.value);
             });
@@ -11135,7 +11077,7 @@
      * @param tmpl 模板
      */
     directive(function When(value, cases) {
-        return (point, [value, cases], oldArgs) => {
+        return (pointNode, [value, cases], oldArgs) => {
             let defaultFn = () => html ``;
             let conditionList = [];
             let tmplList = [];
@@ -11168,44 +11110,7 @@
         };
     }, [EnterPointType.TEXT, EnterPointType.SLOT]);
 
-    let TestComp = class TestComp extends CompElem {
-        //////////////////////////////////// props
-        childData = {};
-        //////////////////////////////////// watch
-        function(nv) {
-            console.log('子组件变更...', nv);
-        }
-        watchCa(nv) {
-            console.log('子组件变更222...', nv);
-        }
-        //////////////////////////////////// styles
-        mounted() {
-        }
-        render() {
-            console.log('子组件视图......');
-            return html `<div>${JSON.stringify(this.childData)} <button @click="${this.changeTest}">修改子组件并更新父组件</button><select ${model(this.childData.a)}>
-      <option value="123">123</option>
-      <option value="234">234</option>
-      <option value="345">345</option>
-    </select></div>`;
-        }
-        changeTest() {
-            this.childData.a = Math.random() * 100 >> 0;
-        }
-    };
-    __decorate([
-        prop
-    ], TestComp.prototype, "childData", void 0);
-    __decorate([
-        watch('childData', { deep: true })
-    ], TestComp.prototype, "function", null);
-    __decorate([
-        watch('childData.a')
-    ], TestComp.prototype, "watchCa", null);
-    TestComp = __decorate([
-        tag("test-comp")
-    ], TestComp);
-
+    const Slogan = ['complete', 'componentize', 'compact', 'companion'];
     exports.PageTest = class PageTest extends CompElem {
         //////////////////////////////////// props
         arg = '';
@@ -11214,19 +11119,18 @@
         colorB = Math.random() * 255 % 255 >> 0;
         rotation = 0;
         test = { a: 1 };
-        ary = [1, 2, 3, 4, 56, 34, 323, 88, 23, 45, 67, 89, 12, 78, 90];
         //////////////////////////////////// computed
         get color() {
             console.log('computed......');
             return `linear-gradient(90deg,rgb(${this.colorR},${this.colorG},${this.colorB}), rgb(${255 - this.colorR},${255 - this.colorG},${255 - this.colorB}));`;
         }
         //////////////////////////////////// watch
-        function(nv) {
-            console.log('父组件变更...', nv);
+        function(ov, nv, src) {
+            console.log('watch...', ov, nv, src);
         }
         //////////////////////////////////// styles
         //静态样式
-        static get styles() {
+        static get css() {
             return [`:host{
         font-size:16px;
         background:gray;
@@ -11259,31 +11163,22 @@
         font-size:2rem;
         background-clip: text;
         transition:all .3s;
+        background-image:var(--test-color);
+        filter:hue-rotate(var(--test-hue-rotate));
       }`];
         }
         //动态样式
-        get styles() {
-            // console.log('styles......')
-            return [
-                () => {
-                    console.log('styles......color');
-                    return `h2,p,i,h3{
-        background-image:${this.color};
-      }`;
-                },
-                () => {
-                    console.log('styles......rotation');
-                    return `h2,p,i,h3{
-        filter:hue-rotate(${this.rotation}deg);
-      }`;
-                },
-            ];
+        get cssVars() {
+            return {
+                testColor: this.color,
+                testHueRotate: `${this.rotation}deg`
+            };
         }
-        text = null;
+        text;
         sloganIndex = 0;
         //////////////////////////////////// lifecycles
         updated(changed) {
-            // console.log('updated......')
+            console.log('updated......');
         }
         mounted() {
             console.warn('starting to change...');
@@ -11298,48 +11193,34 @@
                 console.log('nextTick......');
             });
             setInterval(() => {
-                // this.rotation++
-            }, 100);
+                this.rotation++;
+            }, 20);
             setInterval(() => {
-                // this.test.a++
-            }, 1000);
-            window.xx = this;
-            // setInterval(() => {
-            //   this.text.classList.add('hide')
-            //   setTimeout(() => {
-            //     this.text.innerHTML = Slogan[this.sloganIndex % 4]
-            //     this.sloganIndex++
-            //     this.text.classList.remove('hide')
-            //   }, 500);
-            // }, 5000);
+                this.text?.classList.add('hide');
+                setTimeout(() => {
+                    if (this.text)
+                        this.text.innerHTML = Slogan[this.sloganIndex % 4];
+                    this.sloganIndex++;
+                    this.text?.classList.remove('hide');
+                }, 500);
+            }, 5000);
         }
         render() {
-            console.log('父组件视图......');
+            console.log('render......');
             return html `<div>
-            <h2>父组件 ${JSON.stringify(this.test)}</h2>
-            <TestComp .childData="${this.test}"></TestComp>
-            <button @click="${this.changeTest}">修改父组件并更新子组件</button>
-            <button @click="${this.changeTest2}">新增父组件属性并更新子组件</button>
-<button @click="${this.changeFor}">更新for</button>
-            ${forEach(this.ary, (item) => html `<span key="${item}">${item}, </span>`)}
+            <i>Welcome to</i>
+            <br>
+            <h2>CompElem</h2>
+            <br>
+            <i>A modern, reactive, fast and lightweight library</i>
+            <br>
+            <i>for building</i>
+            <h3>Web Components</h3>
+            <p>
+              &lt;comp-element&gt; <i name="text">...</i> &lt;/comp-element&gt;
+            </p>
+            ${this.arg}
         </div>`;
-        }
-        changeTest() {
-            this.test.a = Math.random() * 100 >> 0;
-        }
-        changeTest2() {
-            this.test.b = Math.random() * 100 >> 0;
-        }
-        changeFor() {
-            this.ary = [];
-            setTimeout(() => {
-                this.ary.push(1);
-                this.ary.push(2);
-                this.ary.push(3);
-                this.ary.push(4);
-                this.ary.push(5);
-            }, 100);
-            // this.ary = [1, 2, 3, 4, 5]
         }
     };
     __decorate([
@@ -11358,16 +11239,13 @@
         state
     ], exports.PageTest.prototype, "rotation", void 0);
     __decorate([
-        state({ shallow: false })
-    ], exports.PageTest.prototype, "test", void 0);
-    __decorate([
         state
-    ], exports.PageTest.prototype, "ary", void 0);
+    ], exports.PageTest.prototype, "test", void 0);
     __decorate([
         computed
     ], exports.PageTest.prototype, "color", null);
     __decorate([
-        watch('test', { deep: true })
+        watch('rotation')
     ], exports.PageTest.prototype, "function", null);
     __decorate([
         query('i[name="text"]')

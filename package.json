@@ -1,6 +1,6 @@
 {
   "name": "compelem",
-  "version": "0.20.0-b2",
+  "version": "0.20.0",
   "description": "A modern, reactive, fast, lightweight and flexible lib for building web components",
   "main": "index.js",
   "module": "index.js",

@@ -37,21 +37,23 @@ export class PageTest extends CompElem {
 
   //////////////////////////////////// styles
   //静态样式
-  static get styles(): Array<string | CSSStyleSheet> {
+  static get css(): Array<string | CSSStyleSheet> {
     return [`:host{
         font-size:16px;
-      }...`];
+      }
+      h2,p,i,h3{
+        ...
+        background-image:var(--test-color);
+        filter:hue-rotate(var(--test-hue-rotate));
+      }
+      ...`];
   }
-  //动态样式
-  get styles() {
-    return [
-      css`h2,p,i,h3{
-        background-image:${this.color};
-      }`,
-      css`h2,p,i,h3{
-        filter:hue-rotate(${this.rotation}deg);
-      }`,
-    ]
+  //动态样式变量
+  get cssVars() {
+    return {
+      testColor: this.color,
+      testHueRotate: `${this.rotation}deg`
+    }
   }
 
   @query('i[name="text"]')
@@ -84,7 +86,7 @@ export class PageTest extends CompElem {
             <i>for building</i>
             <h3>Web Components</h3>
             <p>
-              &lt;c-element&gt; <i name="text">...</i> &lt;/c-element&gt;
+              &lt;comp-element&gt; <i name="text">...</i> &lt;/comp-element&gt;
             </p>
             ${this.arg}
         </div>`
@@ -106,7 +108,7 @@ export class PageTest extends CompElem {
   render(): Template{
     return html`<div>Hello CompElem</div>`
   }
-  //对于无需内部样式的组件（如容器类）可返回null，此时不会创建Shadow DOM
+  //对于无需内部样式的组件（如容器类）可返回null（或跳过定义该方法），此时不会创建Shadow DOM
   render(){
     return null
   }
@@ -139,7 +141,7 @@ export class PageTest extends CompElem {
 - ### 无视图
   对于无体组件无需定义渲染函数，常用于layout、grid等结构控制相关组件。无视图组件仅支持global及host样式，如
   ```ts
-  static get hostStyle(): string {
+  static get hostCss(): string {
     return `
       l-main{
         display: block;
@@ -152,24 +154,25 @@ export class PageTest extends CompElem {
   同样，无视图组件的renderRoot/renderRoots/...等属性都为空
 
 - ### 样式
-  使用静态函数定义组件样式或全局样式（如弹框），对于包裹在上级组件内的动态样式（如:hover）时，可通过hostStyles进行指定
+  使用静态函数定义组件样式或全局样式（如弹框），对于包裹在上级组件内的伪类样式（如:hover）时，可通过hostCss进行指定
   ```ts
-  static get styles(): Array<string | CSSStyleSheet> {
+  static get css(): Array<string | CSSStyleSheet> {
     return [];
   }
-  static get globalStyle(): string {
+  static get globalCss(): string {
     return '';
   }
-  static get hostStyle(): string {
+  static get hostCss(): string {
     return '';
   }
   ```
-  对于需要动态控制 host 元素样式可以使用组件实例 getter
+  对于需要响应组件状态变化并动态更新样式时可以通过css变量进行变更，该方法会自动追踪内部所有响应状态
   ```ts
-  get styles(){
-    return [css`:host{
-      ${this.border?'border: 1px solid rgb(var(--l-color-border-secondary)); ':''}
-    }`]
+  get cssVars() {
+    return {
+      testColor: this.color,
+      testHueRotate: `${this.rotation}deg`
+    }
   }
   ```
 - ### 属性
@@ -221,7 +224,7 @@ export class PageTest extends CompElem {
   }
   ```
 
-  对于同类属性共享处理逻辑的监视，可以批量处理
+  对于同类属性共享处理逻辑的监视，可批量处理
 
   ```ts
   @watch(['height', 'minHeight', 'maxHeight'], { immediate: true })
@@ -231,7 +234,7 @@ export class PageTest extends CompElem {
   ```
 
 - ### 计算状态
-  计算状态会缓存 return 结果，只有当内部使用的任意属性/状态发生变化时才会重新计算
+  计算状态会缓存 return 结果，只有当内部使用的响应属性/状态发生变化时才会重新计算
   使用`@computed`注解的 Getter，如
   ```ts
   @computed
@@ -246,7 +249,7 @@ export class PageTest extends CompElem {
   @query('l-icon')
   iconEl: HTMLElement
   //ref
-  refNode: HTMLElement
+  refNode: RefObject
   ```
   ref可用于内部DOM被移出但仍需访问的场景，比如tooltip、toast、overlay等
   ```ts
@@ -263,18 +266,13 @@ export class PageTest extends CompElem {
   - `readonly` shadowRoot 阴影DOM，可能为空
   - `readonly` slots 插槽元素映射
   - `readonly` slotHooks 动态插槽钩子映射
-  - `readonly` styleSheets 组件样式对象列表
-  - `readonly` globalStyleSheet 通过静态getter创建的全局样式表对象，所有实例共享
+  - `readonly` cssSheets 组件样式对象列表
+  - `readonly` globalCssSheet 通过静态getter创建的全局样式表对象，所有实例共享
   - `readonly` attrs 组件特性
   - `readonly` props 组件属性
   - `readonly` isMounted 组件是否已挂载
   - `readonly` isDestroyed 组件是否已销毁
-  - slotComponent 所在插槽组件
-  - on(evName: string, hook: (e: Event) => void) 在root元素上绑定事件
-  - off(evName: string, hook?: (e: Event) => void) 在root元素上卸载事件
-  - addEvent(node: Node, evName: string, hook: (e: Event) => void) 在指定元素上绑定事件
-  - removeEvent(node: Node, evName: string, hook?: (e: Event) => void) 在指定元素上卸载事件
-  - emit(evName: string, arg: Record<string, any>, options?: {event?: Event;bubbles?: boolean;composed?: boolean;}) 抛出自定义事件
+  - emit(evName: string, arg: Record<string, any>, event?: Event) 抛出自定义事件
   - nextTick(cbk: () => void) 下一帧执行函数
   - forceUpdate() 强制更新一次视图
   - insertStyleSheet(sheet: string | CSSStyleSheet): CSSStyleSheet 向组件ShadowDOM插入样式表
@@ -434,16 +432,28 @@ return html` <l-tooltip>
 - @onced 定义一次性事件
 - @throttled 定义节流函数
 
-#### 继承
+### 继承
   部分指令可由子类继承不会覆盖，包括@state/@prop/@watch/@computed
 
 ## 事件
+在CompElem中有三类不同事件，分别返回原生事件对象及自定义对象
 
-在CompElem中事件分为三类
+1. 原生事件 —— `<div @click="..."` 在原生元素上可以监听原生事件，监听器回调参数返回原生事件对象
+2. 扩展原生事件 —— `<div @resize="..."` 在原生元素/组件元素上都可以监听扩展原生事件，监听器回调参数返回自定义数据对象
+3. 组件事件 —— `<l-select @change="..."` 在组件元素上默认仅可监听组件事件，监听器回调参数返回自定义数据对象
 
-1. 原生事件 —— `<div @click="..."`，监听器回调参数返回原生事件对象
-2. 扩展原生事件 —— `<div @resize="..."`，监听器回调参数返回`CustomEvent`事件对象
-3. 组件自定义事件 —— `<l-select @change="..."`，监听器回调参数返回`CustomEvent`事件对象
+### 组件原生事件
+如果想要在组件上监听原生事件如`click`等，需要使用`native`关键字
+```html
+<l-select @click.native="${...}"></l-select>
+```
+此时click事件监听器参数返回原生事件对象
+
+### 跨框架事件监听
+如果组件要用于非 `CompElem` 框架时，需要为组件添加 `emit-native`属性，这样框架会将组件事件转为`CustomEvent`
+```html
+<l-select @change="${...}" emit-native></l-select>
+```
 
 ### 事件修饰符
 通过`.`号可使用修饰符修饰事件如 `@scroll.throttle:100="${...}"`
@@ -466,3 +476,15 @@ return html` <l-tooltip>
 - resize 元素尺寸变化时触发
 - outside 鼠标点击元素外部时触发，可通过修饰符限制鼠标点击类型`outside.[mousedown/up/click/dblclick]`，默认click
 - mutate 内容变化时触发。基于  Mutation Observer API
+
+### 无视图组件事件
+当组件无内部视图或想要监听组件自身元素时，可使用`@event`装饰器
+```ts
+class CustomButton{
+  ...
+  @event('click.native', (comp) => comp)
+  onClick() {
+    this.emit('click')
+  }
+}
+```

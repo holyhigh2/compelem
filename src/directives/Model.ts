@@ -83,14 +83,14 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
       showError(`model - property '${rootPath}' is not defined on the instance of ` + renderComponent.tagName)
     }
 
-    let evList: Array<[string, Function, Node, Function?]> | undefined = renderComponent._eventList
+    let evList: Array<[string, Function, Node, Function?]> | undefined = renderComponent._eventBindList
 
     if (!isObject(modelValue) && !trim(modelValue)) modelValue = ''
     if (node instanceof CompElem) {
       node._initProps({ [updateProp]: modelValue })
 
       let evName = 'update:' + updateProp
-      evList.push([evName, function (e: CustomEvent) {
+      evList.push([evName, function (obj: Record<string, any>) {
         if (process.env.DEV)
           console.debug('Model =>', path)
         let ctx = this
@@ -99,7 +99,7 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
         if (!hasPath && pathFromWrapperComponent && get(ctx.wrapperComponent, rootPath) === get(ctx, pathFromWrapperComponent)) {
           ctx = ctx.wrapperComponent || ctx
         }
-        set(ctx, path, e.detail.value)
+        set(ctx, path, obj.value)
       }, node])
 
     } else if (node instanceof HTMLTextAreaElement) {

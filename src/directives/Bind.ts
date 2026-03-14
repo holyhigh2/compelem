@@ -22,7 +22,7 @@ export const bind = directive(function Bind(obj: Record<string, any>) {
       //判断是否prop
       let props: Record<string, any> = {};
       let attrs: Record<string, string> = {}
-      let propDefs = DefinitionPropMap.get(el.constructor.name)
+      let propDefs = DefinitionPropMap.get(el.constructor)
 
       each(obj, (v, k: string) => {
         if (Ignores.includes(k)) return;

@@ -3,9 +3,123 @@
  * @author holyhigh2
  */
 
-import { concat, each, eachRight, isArray, isFunction, isObject, isSymbol, size, slice } from "myfx";
+import { concat, eachRight, get, isArray, isFunction, isObject, isSymbol, size, slice, startsWith, toArray } from "myfx";
 import { CompElem } from "./CompElem";
+import { ComputedUpdateDepsMap, CssUpdateDepsMap, DATA_KEY, HasChangedPropOrStateMap, PROP_NAME_SLOTS, PropSyncKeySetMap, StateShallowKeySetMap, WatchDeepUpdateMap, WatchKeysDeepListMap, WatchKeysListMap, WatchKeysOnceMap, WatchUpdateMap } from "./constants";
 import { UpdatePoint, Updater } from "./types";
+import { _getSuper } from "./utils";
+
+
+export function getterValue(getter: Function | undefined, propertyKey: string, context: CompElem) {
+  let thisHost = context
+  let v = getter ? getter.call(thisHost) : Reflect.get(thisHost[DATA_KEY], propertyKey)
+
+  if (Collector.__collecting) {
+    Collector.__varPathList.push(propertyKey)
+  }
+  if (PROXY_MAP.has(v)) {
+    let contextList = EXTRA_CONTEXT_OF_VAR.get(v)
+    if (!contextList) {
+      contextList = new Set()
+      EXTRA_CONTEXT_OF_VAR.set(v, contextList)
+    }
+    contextList.add(thisHost.__thisRef)
+    return PROXY_MAP.get(v)!
+  }
+
+  if (isObject(v) && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v)) {
+    let keySet = StateShallowKeySetMap.get(thisHost.constructor)
+    let shallow = keySet?.has(propertyKey)
+    v = shallow || propertyKey === PROP_NAME_SLOTS ? v : reactive(v, thisHost, propertyKey)
+  }
+  return v
+}
+export function setterValue(propertyKey: string, v: any, context: CompElem) {
+  let thisHost = context
+  if (!thisHost.__inited) {
+    Reflect.set(thisHost[DATA_KEY], propertyKey, v);
+    return
+  }
+  let oldValue = thisHost[DATA_KEY][propertyKey]
+  let stateMap = HasChangedPropOrStateMap.get(thisHost.constructor)
+  let hasChanged = stateMap?.get(propertyKey)
+  if (hasChanged) {
+    if (!hasChanged.call(thisHost, v, oldValue, [propertyKey], v, oldValue)) return true;
+  } else {
+    //默认对比算法
+    if (Object.is(oldValue, v)) {
+      return true;
+    }
+  }
+
+  //check watch
+  requestWatchUpdate(thisHost, v, oldValue, propertyKey)
+
+  //check computed
+  requestComputedUpdate(thisHost, propertyKey)
+
+  //check css
+  requestCssUpdate(thisHost, propertyKey)
+
+  Reflect.set(thisHost[DATA_KEY], propertyKey, v);
+
+  thisHost._notify(oldValue, [propertyKey])
+
+  //update sync
+  let syncKeySet = PropSyncKeySetMap.get(thisHost.constructor)
+  if (syncKeySet?.has(propertyKey)) {
+    thisHost.emit('update' + ":" + propertyKey, { value: v })
+  }
+}
+
+function requestWatchUpdate(context: CompElem, newValue: any, oldValue: any, fullPath: string, rootObjNew?: any, rootObjOld?: any) {
+  let superComp = _getSuper(context.constructor as any)
+  let watchKeys = WatchKeysListMap.get(context.constructor) ?? WatchKeysListMap.get(superComp)
+  let watchKeysDeep = WatchKeysDeepListMap.get(context.constructor) ?? WatchKeysDeepListMap.get(superComp)
+  let watchDeepUpdateMap = WatchDeepUpdateMap.get(context.constructor) ?? WatchDeepUpdateMap.get(superComp)!
+  let watchUpdateMap = WatchUpdateMap.get(context.constructor) ?? WatchUpdateMap.get(superComp)!
+  let onceMap = WatchKeysOnceMap.get(context.constructor) ?? WatchKeysOnceMap.get(superComp)!
+
+  watchKeys?.forEach(wk => {
+    if (fullPath === wk ||
+      (startsWith(wk, fullPath + '.') && !Object.is(get(context._getPrivateData(), wk), get(newValue, wk))) ||
+      (startsWith(fullPath, wk + '.') && watchKeysDeep?.includes(wk) && !Object.is(get(context._getPrivateData(), wk), get(newValue, wk)))
+    ) {
+      concat(toArray(watchUpdateMap[wk]), toArray(watchDeepUpdateMap[wk])).forEach(fn => {
+        if (!fn) return
+        if (onceMap.get(wk) === true) return
+        context._watchUpdateArgsInNextTick.set(fn, {
+          newValue, oldValue, chain: fullPath.split('.'), rootObjNew, rootObjOld, fullMatch: wk === fullPath
+        })
+        context._watchUpdateSetInNextTick.add(fn)
+        if (onceMap.has(wk))
+          onceMap.set(wk, true)
+      })
+    }
+  })
+}
+function requestComputedUpdate(context: CompElem, fullPath: string) {
+  let depMap = ComputedUpdateDepsMap.get(context.constructor)
+  if (depMap?.has(fullPath)) {
+    depMap.get(fullPath)?.forEach(fn => {
+      context._computedUpdateSetInNextTick.add(fn)
+    })
+  }
+}
+function requestCssUpdate(context: CompElem, fullPath: string) {
+  let deps = CssUpdateDepsMap.get(context.constructor)
+  if (!deps) return
+
+  let pathChain = fullPath.split('.')
+  let path = ''
+  pathChain.forEach(p => {
+    path = path ? path + '.' + p : p
+
+    if (deps.has(path)) {
+      context._cssUpdateInNextTick = true
+    }
+  })
+}
 
 export const Collector = {
   popDirectiveQ() {
@@ -44,7 +158,7 @@ export const PROXY_MAP = new WeakMap<Record<string, any>, ProxyConstructor>()
 //对象值的创建上下文
 const OBJECT_VAR_ROOT_CONTEXT = new WeakMap<any, CompElem<any>>()
 //上级对象所在的扩展context
-export const EXTRA_CONTEXT_OF_VAR = new WeakMap<any, Set<CompElem<any>>>()
+export const EXTRA_CONTEXT_OF_VAR = new WeakMap<any, Set<WeakRef<CompElem<any>>>>()
 
 export function reactive(obj: Record<string, any>, context: CompElem<any>, rootProp?: string): ProxyConstructor {
   if (PROXY_MAP.has(obj)) return PROXY_MAP.get(obj)!
@@ -62,7 +176,10 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
         contextList = new Set()
         EXTRA_CONTEXT_OF_VAR.set(obj, contextList)
       }
-      contextList.add(context)
+      if (!contextList.values().some(v => v.deref() === context)) {
+        contextList.add(new WeakRef(context))
+      }
+
     }
 
     return obj as ProxyConstructor
@@ -104,7 +221,8 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
 
       let chain = OBJECT_VAR_PATH.get(receiver) ?? []
       let subChain = concat(chain, [prop])
-      let hasChanged = context._hasChangedPropOrStateMap?.get(subChain[0])
+      let stateMap = HasChangedPropOrStateMap.get(context.constructor)
+      let hasChanged = stateMap?.get(subChain[0])
       let moreThan1 = subChain.length > 1
       let rootObjNew = newValue
       let rootObjOld = ov
@@ -128,20 +246,27 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
 
       let k = subChain.join('.')
       //check watch
-      context._requestWatchUpdate(nv, ov, k, rootObjNew, rootObjOld)
+      requestWatchUpdate(context, nv, ov, k, rootObjNew, rootObjOld)
       //check computed
-      context._requestComputedUpdate(k)
+      requestComputedUpdate(context, k)
+      //check css
+      requestCssUpdate(context, k)
 
       notifyUpdate(context, rootObjOld, subChain, nv, ov)
 
-      each(extraContext!, ctx => {
+      extraContext?.forEach(ctxRef => {
+        let ctx = ctxRef.deref()
+        if (!ctx) return
+
         let ctxRootPath = ctx._wrapperProp[subChain[0]]
         let ck = subChain.join('.')
         ck = ck.replace(subChain[0], ctxRootPath)
         //check watch
-        ctx._requestWatchUpdate(nv, ov, ck)
+        requestWatchUpdate(ctx, nv, ov, ck)
         //check computed
-        ctx._requestComputedUpdate(ck)
+        requestComputedUpdate(ctx, ck)
+        //check css
+        requestCssUpdate(ctx, ck)
 
         notifyUpdate(ctx, rootObjOld, ck.split('.'), nv, ov)
       })

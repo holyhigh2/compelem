@@ -1,4 +1,5 @@
-import { DefinitionComputedMap } from "../constants";
+import { DATA_KEY, DefinitionComputedMap } from "../constants";
+import { Collector } from "../reactive";
 import { showError } from "../utils";
 
 /**
@@ -14,8 +15,21 @@ export function computed(target: any, propertyKey: string, descriptor: PropertyD
   if (!descriptor.get) {
     showError(`Computed '${propertyKey}' must be a getter`)
   }
-  if (!DefinitionComputedMap.has(target.constructor.name)) {
-    DefinitionComputedMap.set(target.constructor.name, {})
+  if (!DefinitionComputedMap.has(target.constructor)) {
+    DefinitionComputedMap.set(target.constructor, {})
   }
-  DefinitionComputedMap.get(target.constructor.name)![propertyKey] = descriptor.get!
+  DefinitionComputedMap.get(target.constructor)![propertyKey] = descriptor.get!
+
+  //getter
+  delete target[propertyKey]
+  Reflect.defineProperty(target, propertyKey, {
+    get() {
+      if (Collector.__collecting) {
+        Collector.__varPathList.push(propertyKey)
+      }
+      let v = Reflect.get(this[DATA_KEY], propertyKey)
+      return v
+    }
+  });
+  return Reflect.getOwnPropertyDescriptor(target, propertyKey)
 }

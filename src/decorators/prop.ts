@@ -1,9 +1,9 @@
 import { defaults, each, has, isLowerCaseChar, kebabCase, merge, set, toArray } from "myfx"
 import { CompElem } from "../CompElem"
-import { DefinitionPropMap, ObservedAttrsMap } from "../constants"
+import { DefinitionPropMap, HasChangedPropOrStateMap, ObservedAttrsMap, PropSyncKeySetMap } from "../constants"
+import { getterValue, setterValue } from "../reactive"
 import { PropOption } from "../types"
 import { _getSuper, showError } from "../utils"
-
 /**
  * 声明一个由外部传入的单向更新属性
  * @param options 可选参数 PropOption，如果type未定义则根据默认值自动推断类型
@@ -34,11 +34,11 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
   }
 
   let attrSet: Set<string> | undefined
-  if (!DefinitionPropMap.has(target.constructor.name)) {
+  if (!DefinitionPropMap.has(target.constructor)) {
     const mixinProps: Record<string, PropOption> = {}
     let parentCtor = target.constructor
     while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
-      merge(mixinProps, DefinitionPropMap.get(parentCtor.name) ?? {})
+      merge(mixinProps, DefinitionPropMap.get(parentCtor) ?? {})
     }
     attrSet = new Set<string>()
     each(mixinProps, (v, k) => {
@@ -47,8 +47,8 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
         attrSet?.add(kbb)
       }
     })
-    ObservedAttrsMap.set(target.constructor.name, attrSet)
-    DefinitionPropMap.set(target.constructor.name, mixinProps)
+    ObservedAttrsMap.set(target.constructor, attrSet)
+    DefinitionPropMap.set(target.constructor, mixinProps)
   }
   if (descriptor) {
     if (descriptor.get) options.getter = descriptor.get
@@ -56,7 +56,7 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
   }
   if (options.attribute) {
     if (!attrSet) {
-      attrSet = ObservedAttrsMap.get(target.constructor.name)
+      attrSet = ObservedAttrsMap.get(target.constructor)
     }
     let kbb = kebabCase(propertyKey)
     attrSet?.add(kbb)
@@ -67,11 +67,44 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
   }
   if (attrSet)
     target.constructor.observedAttributes = toArray(attrSet)
-  set(DefinitionPropMap.get(target.constructor.name)!, propertyKey, options)
+  set(DefinitionPropMap.get(target.constructor)!, propertyKey, options)
+
+  //cache tags
+  if (options.hasChanged) {
+    let changeMap = HasChangedPropOrStateMap.get(target.constructor)
+    if (!changeMap) {
+      changeMap = new Map()
+      HasChangedPropOrStateMap.set(target.constructor, changeMap)
+    }
+    changeMap.set(propertyKey, options.hasChanged)
+  }
+  if (options.sync) {
+    let keySet = PropSyncKeySetMap.get(target.constructor)
+    if (!keySet) {
+      keySet = new Set()
+      PropSyncKeySetMap.set(target.constructor, keySet)
+    }
+    keySet.add(propertyKey)
+  }
+
+  //setters & getters
+  Reflect.defineProperty(target, propertyKey, {
+    get() {
+      return getterValue(descriptor?.get, propertyKey, this)
+    },
+    set(v) {
+      if (descriptor?.set) {
+        descriptor.set(v)
+      } else {
+        setterValue(propertyKey, v, this)
+      }
+    },
+  })
+
 }
 
 //内部接口
 const emptySet = new Set<string>
 export function _getObservedAttrs(ctor: Function) {
-  return ObservedAttrsMap.get(ctor.name) ?? emptySet
+  return ObservedAttrsMap.get(ctor) ?? emptySet
 }

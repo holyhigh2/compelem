@@ -1,4 +1,3 @@
-import { CssTemplate } from "./render/CssTemplate";
 import { Template } from "./render/Template";
 
 /**
@@ -28,13 +27,13 @@ export interface IComponent<T = HTMLElement> {
   //动态slot中的render函数，可传递给子元素的动态插槽
   get slotHooks(): Record<string, (...args: any[]) => Template>;
   //通过静态getter创建的所有样式表对象，所有实例共享
-  get styleSheets(): CSSStyleSheet[];
+  get cssSheets(): CSSStyleSheet[];
   //通过静态getter创建的全局样式表对象，所有实例共享
-  get globalStyleSheet(): CSSStyleSheet;
+  get globalCssSheet(): CSSStyleSheet;
   //是否已挂载
   get isMounted(): boolean;
-  //响应式样式数组
-  get styles(): Array<CssTemplate>
+  //响应式css变量
+  get cssVars(): Record<string, string | number | undefined>
 
   //----------------------------------------------------- lifecycles —— 首次渲染
   // 1. 在props初始化及更新时调用，可添加或修改响应属性
@@ -73,18 +72,8 @@ export interface IComponent<T = HTMLElement> {
   emit(
     evName: string,
     arg: Record<string, any>,
-    options?: { event?: Event; bubbles?: boolean, composed?: boolean }
+    event?: Event
   ): void;
-  /**
-   * 在root上绑定事件
-   * @param evName
-   * @param hook
-   */
-  on(evName: string, hook: (e: Event) => void): void;
-  /**
-   * 下一帧执行
-   * @param cbk
-   */
   nextTick(cbk: () => void): void;
   /**
    * 强制更新一次视图

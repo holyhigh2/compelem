@@ -16,6 +16,7 @@ const AllResizeEls = new WeakMap;
 const AllOutsideDownEls: Array<Element | EvHadler>[] = [];
 const AllOutsideClickEls: Array<Element | EvHadler>[] = [];
 const AllOutsideDblClickEls: Array<Element | EvHadler>[] = [];
+const ResizeTargetInitSet = new WeakSet()
 const resizeObserver = new ResizeObserver((entries) => {
   for (const entry of entries) {
     const contentBoxSize = Array.isArray(entry.contentBoxSize)
@@ -25,17 +26,13 @@ const resizeObserver = new ResizeObserver((entries) => {
       ? entry.borderBoxSize[0]
       : entry.borderBoxSize;
 
+    if (!ResizeTargetInitSet.has(entry.target)) {
+      ResizeTargetInitSet.add(entry.target)
+      continue
+    }
     let cbk = AllResizeEls.get(entry.target)
     if (cbk) {
-      let ev = new CustomEvent('resize', {
-        bubbles: false,
-        cancelable: false,
-        detail: {
-          borderBox: { w: borderBoxSize.inlineSize, h: borderBoxSize.blockSize },
-          contentBox: { w: contentBoxSize.inlineSize, h: contentBoxSize.blockSize },
-        },
-      })
-      cbk(ev, entry.target)
+      cbk({ target: entry.target, contentBoxSize, borderBoxSize, type: 'resize' })
     }
   }
 });
@@ -62,7 +59,7 @@ enum MutationType {
   Attr = 'attr',
   Char = 'char'
 }
-const AllMutationEls = new WeakMap<Element, Record<string, EvHadler>>;
+const AllMutationEls = new WeakMap<Element, Record<string, any>>;
 const mutationObserver = new MutationObserver(mutations => {
   for (let i = 0; i < mutations.length; i++) {
     const mutation = mutations[i];
@@ -96,12 +93,8 @@ const mutationObserver = new MutationObserver(mutations => {
         break;
     }
     if (cbk) {
-      let ev = new CustomEvent('mutate', {
-        bubbles: false,
-        cancelable: false,
-        detail
-      })
-      cbk(ev)
+      detail.type = 'mutate'
+      cbk(detail)
     }
   }
 });
@@ -149,15 +142,7 @@ document.addEventListener('mousedown', e => {
 
   AllOutsideDownEls.forEach(([node, cbk]: [Node, any]) => {
     if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
-      let ev = new CustomEvent('outside', {
-        bubbles: false,
-        cancelable: false,
-        detail: {
-          currentTarget: node,
-          event: e
-        },
-      })
-      cbk(ev, node)
+      cbk({ type: 'outside', target: node, modifier: 'mousedown', event: e })
     }
   })
 }, false)
@@ -166,15 +151,7 @@ document.addEventListener('click', e => {
 
   AllOutsideClickEls.forEach(([node, cbk]: [Node, any]) => {
     if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
-      let ev = new CustomEvent('outside', {
-        bubbles: false,
-        cancelable: false,
-        detail: {
-          currentTarget: node,
-          event: e
-        },
-      })
-      cbk(ev, node)
+      cbk({ type: 'outside', target: node, modifier: 'click', event: e })
     }
   })
 }, false)
@@ -183,15 +160,7 @@ document.addEventListener('dblclick', e => {
 
   AllOutsideDblClickEls.forEach(([node, cbk]: [Node, any]) => {
     if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
-      let ev = new CustomEvent('outside', {
-        bubbles: false,
-        cancelable: false,
-        detail: {
-          currentTarget: node,
-          event: e
-        },
-      })
-      cbk(ev, node)
+      cbk({ type: 'outside', target: node, modifier: 'dblclick', event: e })
     }
   })
 }, false)

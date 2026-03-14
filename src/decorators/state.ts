@@ -1,6 +1,7 @@
 import { merge, set } from "myfx";
 import { CompElem } from "../CompElem";
-import { DefinitionStateMap } from "../constants";
+import { DefinitionStateMap, HasChangedPropOrStateMap, StateShallowKeySetMap } from "../constants";
+import { getterValue, setterValue } from "../reactive";
 import { StateOption } from "../types";
 import { _getSuper } from "../utils";
 
@@ -25,16 +26,44 @@ export function state(options: StateOption) {
 }
 
 function defineState(target: any, stateKey: string, options: StateOption) {
-  if (!DefinitionStateMap.has(target.constructor.name)) {
+  if (!DefinitionStateMap.has(target.constructor)) {
     const mixinStates = {}
     let parentCtor = target.constructor
     while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
-      merge(mixinStates, DefinitionStateMap.get(parentCtor.name) ?? {})
+      merge(mixinStates, DefinitionStateMap.get(parentCtor) ?? {})
     }
-    DefinitionStateMap.set(target.constructor.name, mixinStates)
+    DefinitionStateMap.set(target.constructor, mixinStates)
   }
   options.shallow = options.shallow || false;
-  set(DefinitionStateMap.get(target.constructor.name)!, stateKey, options)
+  set(DefinitionStateMap.get(target.constructor)!, stateKey, options)
+
+  //cache tags
+  if (options.hasChanged) {
+    let changeMap = HasChangedPropOrStateMap.get(target.constructor)
+    if (!changeMap) {
+      changeMap = new Map()
+      HasChangedPropOrStateMap.set(target.constructor, changeMap)
+    }
+    changeMap.set(stateKey, options.hasChanged)
+  }
+  if (options.shallow) {
+    let keySet = StateShallowKeySetMap.get(target.constructor)
+    if (!keySet) {
+      keySet = new Set()
+      StateShallowKeySetMap.set(target.constructor, keySet)
+    }
+    keySet.add(stateKey)
+  }
+
+  //setters & getters
+  Reflect.defineProperty(target.constructor.prototype, stateKey, {
+    get() {
+      return getterValue(undefined, stateKey, this)
+    },
+    set(v) {
+      setterValue(stateKey, v, this)
+    },
+  })
 }
 
 /**

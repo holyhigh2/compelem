@@ -4,6 +4,7 @@ import { addExtEvent, isExtEvent } from "./extends";
 
 const MODI_EV_DEBOUNCE = /,|^(debounce:.+)|(debounce$)/;
 const MODI_EV_THROTTLE = /,|^(throttle:.+)|(throttle$)/;
+const MODI_EV_NATIVE = 'native';
 const MODI_EV_SELF = 'self';
 const MODI_EV_STOP = 'stop';
 const MODI_EV_PREVENT = 'prevent';
@@ -30,6 +31,7 @@ const MODI_PARAM_DIVIDER = ":";
  * 原生通用 stop/prevent/self 可组合
  * 鼠标 left/right/middle 不可组合
  * 键盘 ctrl/alt/shift/meta 可组合 esc/letters... 不可组合,多个key并列式表示可选
+ * 组件 native 监听组件元素原生事件
  * 
  * 部分修饰符支持参数，使用冒号传参如：throttle:100 / debounce:100
  *************************************************************/
@@ -51,6 +53,10 @@ export function addEvent(fullName: string, cbk: EvHadler, node: Element, compone
   }
   if (isOnce) {
     c = once(c)
+  }
+
+  if (node instanceof CompElem && !parts.includes(MODI_EV_NATIVE)) {
+    return node._addEvent(evName, cbk)
   }
 
   if (isExtEvent(evName)) {
@@ -75,7 +81,6 @@ export function addEvent(fullName: string, cbk: EvHadler, node: Element, compone
       let checkKeys = map(parts, k => MODI_EV_KEYBOARD_KEY_MAP[k] || k)
       if (size(checkKeys) > 0 && !checkKeys.includes(e.key.toLowerCase())) return;
     }
-    console.debug(evName, c.name, node.tagName)
     c(e)
   }
   let capture = parts.includes(MODI_EV_CAPTURE) || false
