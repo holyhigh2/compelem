@@ -714,6 +714,10 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     if (!this.__inited) return
     if (Object.is(newValue, oldValue)) return
 
+    if (newValue === 'undefined') {
+      newValue = null
+    }
+
     let propName = camelCase(attributeName)
     let propDef: PropOption = DefinitionPropMap.get(this.constructor)![propName]
 
