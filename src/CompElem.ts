@@ -797,7 +797,11 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       }
       if (this.__updateSubViewDeps?.has(k)) {
         let ups = this.__updateSubViewDeps.get(k)
-        if (ups) toUpdateUps = toUpdateUps.union(ups)
+        if (ups) {
+          ups.forEach(up => {
+            toUpdateUps.add(up)
+          })
+        }
       }
     });
     //update watch

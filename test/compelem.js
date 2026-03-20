@@ -1,4 +1,4 @@
-/* compelem 0.20.0 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
+/* compelem 0.20.1 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
 (function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
@@ -7893,8 +7893,12 @@
         if (isOnce) {
             c = once(c);
         }
-        if (node instanceof CompElem && !parts.includes(MODI_EV_NATIVE)) {
-            return node._addEvent(evName, cbk);
+        if (node instanceof CompElem) {
+            if (node === component && !parts.includes(MODI_EV_NATIVE)) {
+                parts.push(MODI_EV_NATIVE);
+            }
+            if (!parts.includes(MODI_EV_NATIVE))
+                return node._addEvent(evName, cbk);
         }
         if (isExtEvent(evName)) {
             return addExtEvent(evName, node, c, parts);
@@ -8025,6 +8029,9 @@
         get wrapperComponent() {
             return this.__wrapperComponent?.deref();
         }
+        get slots() {
+            return EMPTY_SLOTS;
+        }
         get slotHooks() {
             return this.#slotHooks;
         }
@@ -8036,9 +8043,6 @@
         }
         get isMounted() {
             return this.#mounted;
-        }
-        get slots() {
-            return EMPTY_SLOTS;
         }
         #attrs;
         #props;
@@ -8182,7 +8186,7 @@
                 if (!node)
                     return;
                 let handler = cbk ? cbk.bind(this) : cbk;
-                let unbinder = addEvent(evName, handler, node);
+                let unbinder = addEvent(evName, handler, node, this);
                 v[3] = unbinder;
             });
             //event decoration
@@ -8196,7 +8200,7 @@
                     let eventTarget = targetFn ? targetFn(this) : this;
                     let cbk = get(this, fnName);
                     let handler = cbk ? cbk.bind(this) : cbk;
-                    let unbinder = addEvent(name, handler, eventTarget);
+                    let unbinder = addEvent(name, handler, eventTarget, this);
                     this.__docoEventMap.set(name + "@" + fnName, unbinder);
                 });
             }
@@ -8541,6 +8545,9 @@
                 return;
             if (Object.is(newValue, oldValue))
                 return;
+            if (newValue === 'undefined') {
+                newValue = null;
+            }
             let propName = camelCase(attributeName);
             let propDef = DefinitionPropMap.get(this.constructor)[propName];
             if (isBooleanProp(propDef.type)) {
@@ -8614,8 +8621,11 @@
                 }
                 if (this.__updateSubViewDeps?.has(k)) {
                     let ups = this.__updateSubViewDeps.get(k);
-                    if (ups)
-                        toUpdateUps = toUpdateUps.union(ups);
+                    if (ups) {
+                        ups.forEach(up => {
+                            toUpdateUps.add(up);
+                        });
+                    }
                 }
             });
             //update watch
@@ -8925,7 +8935,7 @@
                 SlotCompMap.set(slot, this);
             }
             let evName = 'slotchange';
-            let unbinder = addEvent(evName, this.#onSlotChangeHookBindThis, slot);
+            let unbinder = addEvent(evName, this.#onSlotChangeHookBindThis, slot, this);
             this._eventBindList.push([evName, this.#onSlotChangeHookBindThis, slot, unbinder]);
             //3. 保存参数
             if (!isEmpty(props)) {
@@ -11167,7 +11177,7 @@
         filter:hue-rotate(var(--test-hue-rotate));
       }`];
         }
-        //动态样式
+        //动态样式变量
         get cssVars() {
             return {
                 testColor: this.color,

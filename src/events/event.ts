@@ -55,8 +55,12 @@ export function addEvent(fullName: string, cbk: EvHadler, node: Element, compone
     c = once(c)
   }
 
-  if (node instanceof CompElem && !parts.includes(MODI_EV_NATIVE)) {
-    return node._addEvent(evName, cbk)
+  if (node instanceof CompElem) {
+    if (node === component && !parts.includes(MODI_EV_NATIVE)) {
+      parts.push(MODI_EV_NATIVE)
+    }
+    if (!parts.includes(MODI_EV_NATIVE))
+      return node._addEvent(evName, cbk)
   }
 
   if (isExtEvent(evName)) {
