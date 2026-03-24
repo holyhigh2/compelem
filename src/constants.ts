@@ -18,6 +18,7 @@ export enum Mode {
 }
 export const DefinitionCompEventMap = new Map<Function, Array<Record<string, any>>>()
 export const DefinitionTagMap = {} as Record<string, string>;
+export const DefinitionComponentMap = {} as Record<string, Function>;
 export const DefinitionComputedMap = new WeakMap<Function, Record<string, Getter>>()
 export const DefinitionStateMap = new WeakMap<Function, Record<string, StateOption>>()
 export const DefinitionPropMap = new WeakMap<Function, Record<string, PropOption>>()

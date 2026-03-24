@@ -1,4 +1,4 @@
-/* compelem 0.20.1 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
+/* compelem 0.20.2 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
 (function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
@@ -7144,6 +7144,7 @@
     })(Mode || (Mode = {}));
     const DefinitionCompEventMap = new Map();
     const DefinitionTagMap = {};
+    const DefinitionComponentMap = {};
     const DefinitionComputedMap = new WeakMap();
     const DefinitionStateMap = new WeakMap();
     const DefinitionPropMap = new WeakMap();
@@ -10490,7 +10491,7 @@
         return (target) => {
             if (target) {
                 DefinitionTagMap[target.name] = name;
-                customElements.define(name, target);
+                DefinitionComponentMap[name] = target;
             }
         };
     }
@@ -11120,7 +11121,16 @@
         };
     }, [EnterPointType.TEXT, EnterPointType.SLOT]);
 
+    function regComponents() {
+        each(DefinitionComponentMap, (clz, name) => {
+            customElements.define(name, clz);
+        });
+    }
+
     const Slogan = ['complete', 'componentize', 'compact', 'companion'];
+    setTimeout(() => {
+        regComponents();
+    }, 1000);
     exports.PageTest = class PageTest extends CompElem {
         //////////////////////////////////// props
         arg = '';

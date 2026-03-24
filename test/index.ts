@@ -1,6 +1,10 @@
-import { CompElem, Template, computed, html, prop, query, state, tag, watch } from '../src/index';
+import { CompElem, Template, computed, html, prop, query, state, tag, watch, regComponents } from '../src/index';
 
 const Slogan = ['complete', 'componentize', 'compact', 'companion']
+
+setTimeout(() => {
+  regComponents()
+}, 1000);
 
 @tag("page-test")
 export class PageTest extends CompElem {

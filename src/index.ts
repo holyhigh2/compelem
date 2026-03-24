@@ -1,3 +1,5 @@
+import { each } from "myfx";
+import { DefinitionComponentMap, DefinitionTagMap } from "./constants";
 import { buildHTML, createRef, html } from "./render/render";
 import { Template } from './render/Template';
 
@@ -31,6 +33,11 @@ export * from "./directives/Sync";
 export * from "./directives/When";
 
 export { buildHTML, createRef, html, Template };
+export function regComponents() {
+    each(DefinitionComponentMap, (clz, name) => {
+        customElements.define(name, clz as any)
+    })
+}
 
 export * from './CompElem';
 export * from './types';
