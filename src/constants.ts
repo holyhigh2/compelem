@@ -34,6 +34,7 @@ export const WatchImmediateListMap = new WeakMap<Function, Record<string, Set<Fu
 
 export const PropSyncKeySetMap = new WeakMap<Function, Set<string>>()
 export const StateShallowKeySetMap = new WeakMap<Function, Set<string>>()
+export const PropShallowKeySetMap = new WeakMap<Function, Set<string>>()
 export const HasChangedPropOrStateMap = new WeakMap<Function, Map<string, Function>>()
 
 export const ComputedUpdateDepsMap = new WeakMap<Function, Map<string, Set<Function>>>()

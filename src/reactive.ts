@@ -5,7 +5,7 @@
 
 import { concat, eachRight, get, isArray, isFunction, isObject, isSymbol, size, slice, startsWith, toArray } from "myfx";
 import { CompElem } from "./CompElem";
-import { ComputedUpdateDepsMap, CssUpdateDepsMap, DATA_KEY, HasChangedPropOrStateMap, PROP_NAME_SLOTS, PropSyncKeySetMap, StateShallowKeySetMap, WatchDeepUpdateMap, WatchKeysDeepListMap, WatchKeysListMap, WatchKeysOnceMap, WatchUpdateMap } from "./constants";
+import { ComputedUpdateDepsMap, CssUpdateDepsMap, DATA_KEY, HasChangedPropOrStateMap, PROP_NAME_SLOTS, PropShallowKeySetMap, PropSyncKeySetMap, StateShallowKeySetMap, WatchDeepUpdateMap, WatchKeysDeepListMap, WatchKeysListMap, WatchKeysOnceMap, WatchUpdateMap } from "./constants";
 import { UpdatePoint, Updater } from "./types";
 import { _getSuper } from "./utils";
 
@@ -30,6 +30,10 @@ export function getterValue(getter: Function | undefined, propertyKey: string, c
   if (isObject(v) && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v)) {
     let keySet = StateShallowKeySetMap.get(thisHost.constructor)
     let shallow = keySet?.has(propertyKey)
+    if (!shallow) {
+      keySet = PropShallowKeySetMap.get(thisHost.constructor)
+      shallow = keySet?.has(propertyKey)
+    }
     v = shallow || propertyKey === PROP_NAME_SLOTS ? v : reactive(v, thisHost, propertyKey)
   }
   return v
@@ -191,6 +195,8 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
       if (isSymbol(prop)) return value
       if (isFunction(value)) return value
       if (prop === 'length' && isArray(target)) return value
+      //ignores private props
+      if (prop.substring(0, 2) === '__') return value
 
       if (Collector.__collecting) {
         let supPath = OBJECT_VAR_PATH.has(receiver) ? concat(OBJECT_VAR_PATH.get(receiver)) : []
@@ -203,10 +209,9 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
 
       let reactiveVal = value
       if (isObject(value) && !isFunction(value) && !(value instanceof Node) && !Object.isFrozen(value)) {
+        let supPath = OBJECT_VAR_PATH.has(receiver) ? concat(OBJECT_VAR_PATH.get(receiver)) : []
 
         reactiveVal = reactive(value, context)
-
-        let supPath = OBJECT_VAR_PATH.has(receiver) ? concat(OBJECT_VAR_PATH.get(receiver)) : []
         supPath.push(prop)
         OBJECT_VAR_PATH.set(reactiveVal, supPath)
         PROXY_MAP.set(value, reactiveVal)

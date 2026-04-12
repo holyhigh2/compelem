@@ -91,6 +91,10 @@ export type StateOption = {
  */
 export type PropOption = {
     /**
+     * 是否浅层监控，默认false。如果属性值是由上级组件传递的state且已经指定shallow，则忽略该属性
+     */
+    shallow?: boolean,
+    /**
      * 参数类型
      */
     type: Constructor<any> | Array<Constructor<any>>,

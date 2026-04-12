@@ -1,6 +1,6 @@
 import { defaults, each, has, isLowerCaseChar, kebabCase, merge, set, toArray } from "myfx"
 import { CompElem } from "../CompElem"
-import { DefinitionPropMap, HasChangedPropOrStateMap, ObservedAttrsMap, PropSyncKeySetMap } from "../constants"
+import { DefinitionPropMap, HasChangedPropOrStateMap, ObservedAttrsMap, PropShallowKeySetMap, PropSyncKeySetMap } from "../constants"
 import { getterValue, setterValue } from "../reactive"
 import { PropOption } from "../types"
 import { _getSuper, showError } from "../utils"
@@ -25,6 +25,7 @@ export function prop(options: any) {
     options = defaults(descriptor, options)
     descriptor = undefined
   }
+  options.shallow = options.shallow || false;
   defineProp(target, propertyKey, options, descriptor)
 }
 
@@ -86,6 +87,14 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
     }
     keySet.add(propertyKey)
   }
+  if (options.shallow) {
+      let keySet = PropShallowKeySetMap.get(target.constructor)
+      if (!keySet) {
+        keySet = new Set()
+        PropShallowKeySetMap.set(target.constructor, keySet)
+      }
+      keySet.add(propertyKey)
+    }
 
   //setters & getters
   Reflect.defineProperty(target, propertyKey, {
