@@ -611,7 +611,7 @@ export function updateView(tmpl: Template, renderComponent: CompElem<any>, updat
 }
 
 export function updateSubScopeView(subScopeUpdatePoint: UpdatePoint, renderComponent: CompElem<any>, tmpl?: Template, changedKeys?: string[]): void {
-  if (!subScopeUpdatePoint) return
+  if (!subScopeUpdatePoint || subScopeUpdatePoint.__destroyed) return
   let node = subScopeUpdatePoint.node.deref()
 
   const executor = TextOrSlotDirectiveExecutorMap.get((node as any)._diName)!
