@@ -211,7 +211,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     if (!Reflect.getOwnPropertyDescriptor(this.constructor.prototype, 'slots')) {
       Reflect.defineProperty(this.constructor.prototype, 'slots', {
         get() {
-          return getterValue(undefined, 'slots', this)
+          return getterValue('slots', this)
         },
         set(v) {
           setterValue('slots', v, this)
@@ -241,10 +241,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     }
 
     this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, cssSheet]
-
-    // Keep ComponentStyleMap in sync for this constructor
-    const cur = ComponentStaticStyleMap.get(this.constructor) ?? [];
-    cur.push(cssSheet)
 
     return cssSheet;
   }
@@ -546,7 +542,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     }
 
     //5. Render
-
     Collector.start();
     let tmpl = this.render()
     Collector.end();
@@ -780,7 +775,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     let toBreak = !this.shouldUpdate(changed)
     if (toBreak) return
 
-    const changedKeys = Object.keys(changed)
     //update decorators
     let ary: DecoratorWrapper[] = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(_getSuper(this.constructor as any))!
     ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
@@ -843,11 +837,11 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     //2. update view
     if (this.#renderRoot?.deref()) {
       if (toUpdateView) {
-        updateView(this.render()!, this, this.__updateTree, changedKeys);
+        updateView(this.render()!, this, this.__updateTree, toUpdateUps);
       }
       if (size(toUpdateUps) > 0) {
         toUpdateUps.forEach(up => {
-          updateSubScopeView(up, this, undefined, changedKeys)
+          updateSubScopeView(up, this, undefined)
         })
       }
     }

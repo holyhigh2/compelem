@@ -27,8 +27,7 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
     if (oldArgs) {
       const oldValue = oldArgs[0]
       const newValue = modelValue
-      let nodeValue = get(node, updateProp)
-      if (!isObject(newValue) && Object.is(newValue, oldValue) && Object.is(nodeValue, newValue)) return
+      if (!isObject(newValue) && Object.is(newValue, oldValue)) return
 
       if (node instanceof CompElem) {
         node._updateProps({ [updateProp]: newValue })

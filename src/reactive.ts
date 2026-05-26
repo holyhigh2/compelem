@@ -10,9 +10,9 @@ import { UpdatePoint, Updater } from "./types";
 import { _getSuper } from "./utils";
 
 
-export function getterValue(getter: Function | undefined, propertyKey: string, context: CompElem) {
+export function getterValue(propertyKey: string, context: CompElem) {
   let thisHost = context
-  let v = getter ? getter.call(thisHost) : Reflect.get(thisHost[DATA_KEY], propertyKey)
+  let v = Reflect.get(thisHost[DATA_KEY], propertyKey)
 
   if (Collector.__collecting) {
     Collector.__varPathList.push(propertyKey)

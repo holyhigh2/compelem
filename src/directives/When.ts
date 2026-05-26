@@ -3,7 +3,7 @@ import { directive } from "../directive/index";
 import { html } from "../render/render";
 import { Template } from "../render/Template";
 import { DirectiveUpdateTag, EnterPointType, TmplFn } from "../types";
-
+const LastConditionMap = new WeakMap()
 /**
  * 分支指令，具有switch / else if 两种模式
  * @example
@@ -50,7 +50,14 @@ export const when = directive(function When(value: string | number, cases: Array
         return c == value;
       }
     })
-    if (oldArgs) return [DirectiveUpdateTag.REPLACE, call(tmplList[i] ?? defaultFn) as Template]
+    let lastCase = LastConditionMap.get(pointNode)
+    LastConditionMap.set(pointNode, i)
+    if (oldArgs) {
+      if (lastCase == i) {
+        return [DirectiveUpdateTag.UPDATE, call(tmplList[i] ?? defaultFn) as Template]
+      }
+      return [DirectiveUpdateTag.REPLACE, call(tmplList[i] ?? defaultFn) as Template]
+    }
 
     return [DirectiveUpdateTag.APPEND, call(tmplList[i] ?? defaultFn) as Template]
   };

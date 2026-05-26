@@ -58,7 +58,7 @@ function defineState(target: any, stateKey: string, options: StateOption) {
   //setters & getters
   Reflect.defineProperty(target.constructor.prototype, stateKey, {
     get() {
-      return getterValue(undefined, stateKey, this)
+      return getterValue(stateKey, this)
     },
     set(v) {
       setterValue(stateKey, v, this)

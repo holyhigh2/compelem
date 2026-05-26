@@ -3,7 +3,7 @@ import { CompElem } from "../CompElem"
 import { DefinitionPropMap, HasChangedPropOrStateMap, ObservedAttrsMap, PropShallowKeySetMap, PropSyncKeySetMap } from "../constants"
 import { getterValue, setterValue } from "../reactive"
 import { PropOption } from "../types"
-import { _getSuper, showError } from "../utils"
+import { _getSuper, showTagError } from "../utils"
 /**
  * 声明一个由外部传入的单向更新属性
  * @param options 可选参数 PropOption，如果type未定义则根据默认值自动推断类型
@@ -30,8 +30,10 @@ export function prop(options: any) {
 }
 
 function defineProp(target: any, propertyKey: string, options: PropOption, descriptor?: PropertyDescriptor) {
-  if (!isLowerCaseChar(propertyKey[0])) {
-    showError(`Prop '${propertyKey}' must be in CamelCase`)
+  if (process.env.DEV) {
+    if (!isLowerCaseChar(propertyKey[0])) {
+      showTagError(target.constructor.name, `Prop '${propertyKey}' must be in CamelCase`)
+    }
   }
 
   let attrSet: Set<string> | undefined
@@ -50,10 +52,6 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
     })
     ObservedAttrsMap.set(target.constructor, attrSet)
     DefinitionPropMap.set(target.constructor, mixinProps)
-  }
-  if (descriptor) {
-    if (descriptor.get) options.getter = descriptor.get
-    if (descriptor.set) options.setter = descriptor.set
   }
   if (options.attribute) {
     if (!attrSet) {
@@ -88,25 +86,21 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
     keySet.add(propertyKey)
   }
   if (options.shallow) {
-      let keySet = PropShallowKeySetMap.get(target.constructor)
-      if (!keySet) {
-        keySet = new Set()
-        PropShallowKeySetMap.set(target.constructor, keySet)
-      }
-      keySet.add(propertyKey)
+    let keySet = PropShallowKeySetMap.get(target.constructor)
+    if (!keySet) {
+      keySet = new Set()
+      PropShallowKeySetMap.set(target.constructor, keySet)
     }
+    keySet.add(propertyKey)
+  }
 
   //setters & getters
   Reflect.defineProperty(target, propertyKey, {
     get() {
-      return getterValue(descriptor?.get, propertyKey, this)
+      return getterValue(propertyKey, this)
     },
     set(v) {
-      if (descriptor?.set) {
-        descriptor.set(v)
-      } else {
-        setterValue(propertyKey, v, this)
-      }
+      setterValue(propertyKey, v, this)
     },
   })
 

@@ -1,5 +1,5 @@
-/* compelem 0.21.0 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
-(function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
+/* compelem 0.22.0 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
+(function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35730/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
     typeof define === 'function' && define.amd ? define(['exports'], factory) :
@@ -7158,6 +7158,7 @@
     const WatchImmediateListMap = new WeakMap();
     const PropSyncKeySetMap = new WeakMap();
     const StateShallowKeySetMap = new WeakMap();
+    const PropShallowKeySetMap = new WeakMap();
     const HasChangedPropOrStateMap = new WeakMap();
     const ComputedUpdateDepsMap = new WeakMap();
     const CssUpdateDepsMap = new WeakMap();
@@ -7254,9 +7255,9 @@
      * 用于提供全局state状态管理
      * @author holyhigh2
      */
-    function getterValue(getter, propertyKey, context) {
+    function getterValue(propertyKey, context) {
         let thisHost = context;
-        let v = getter ? getter.call(thisHost) : Reflect.get(thisHost[DATA_KEY], propertyKey);
+        let v = Reflect.get(thisHost[DATA_KEY], propertyKey);
         if (Collector.__collecting) {
             Collector.__varPathList.push(propertyKey);
         }
@@ -7272,6 +7273,10 @@
         if (isObject(v) && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v)) {
             let keySet = StateShallowKeySetMap.get(thisHost.constructor);
             let shallow = keySet?.has(propertyKey);
+            if (!shallow) {
+                keySet = PropShallowKeySetMap.get(thisHost.constructor);
+                shallow = keySet?.has(propertyKey);
+            }
             v = shallow || propertyKey === PROP_NAME_SLOTS$1 ? v : reactive(v, thisHost, propertyKey);
         }
         return v;
@@ -7426,6 +7431,9 @@
                     return value;
                 if (prop === 'length' && isArray(target))
                     return value;
+                //ignores private props
+                if (prop.substring(0, 2) === '__')
+                    return value;
                 if (Collector.__collecting) {
                     let supPath = OBJECT_VAR_PATH.has(receiver) ? concat(OBJECT_VAR_PATH.get(receiver)) : [];
                     supPath.push(prop);
@@ -7436,8 +7444,8 @@
                     return PROXY_MAP.get(value);
                 let reactiveVal = value;
                 if (isObject(value) && !isFunction(value) && !(value instanceof Node) && !Object.isFrozen(value)) {
-                    reactiveVal = reactive(value, context);
                     let supPath = OBJECT_VAR_PATH.has(receiver) ? concat(OBJECT_VAR_PATH.get(receiver)) : [];
+                    reactiveVal = reactive(value, context);
                     supPath.push(prop);
                     OBJECT_VAR_PATH.set(reactiveVal, supPath);
                     PROXY_MAP.set(value, reactiveVal);
@@ -7552,7 +7560,7 @@
             return (target, propertyKey, descriptor) => {
                 options.required = options.required || false;
                 options.attribute = options.attribute === false ? false : true;
-                defineProp(target, propertyKey, options, descriptor);
+                defineProp(target, propertyKey, options);
             };
         }
         let target = arguments[0], propertyKey = arguments[1], descriptor = arguments[2];
@@ -7561,11 +7569,14 @@
             options = defaults(descriptor, options);
             descriptor = undefined;
         }
-        defineProp(target, propertyKey, options, descriptor);
+        options.shallow = options.shallow || false;
+        defineProp(target, propertyKey, options);
     }
     function defineProp(target, propertyKey, options, descriptor) {
-        if (!isLowerCaseChar(propertyKey[0])) {
-            showError(`Prop '${propertyKey}' must be in CamelCase`);
+        {
+            if (!isLowerCaseChar(propertyKey[0])) {
+                showTagError(target.constructor.name, `Prop '${propertyKey}' must be in CamelCase`);
+            }
         }
         let attrSet;
         if (!DefinitionPropMap.has(target.constructor)) {
@@ -7583,12 +7594,6 @@
             });
             ObservedAttrsMap.set(target.constructor, attrSet);
             DefinitionPropMap.set(target.constructor, mixinProps);
-        }
-        if (descriptor) {
-            if (descriptor.get)
-                options.getter = descriptor.get;
-            if (descriptor.set)
-                options.setter = descriptor.set;
         }
         if (options.attribute) {
             if (!attrSet) {
@@ -7621,18 +7626,21 @@
             }
             keySet.add(propertyKey);
         }
+        if (options.shallow) {
+            let keySet = PropShallowKeySetMap.get(target.constructor);
+            if (!keySet) {
+                keySet = new Set();
+                PropShallowKeySetMap.set(target.constructor, keySet);
+            }
+            keySet.add(propertyKey);
+        }
         //setters & getters
         Reflect.defineProperty(target, propertyKey, {
             get() {
-                return getterValue(descriptor?.get, propertyKey, this);
+                return getterValue(propertyKey, this);
             },
             set(v) {
-                if (descriptor?.set) {
-                    descriptor.set(v);
-                }
-                else {
-                    setterValue(propertyKey, v, this);
-                }
+                setterValue(propertyKey, v, this);
             },
         });
     }
@@ -8092,7 +8100,7 @@
             if (!Reflect.getOwnPropertyDescriptor(this.constructor.prototype, 'slots')) {
                 Reflect.defineProperty(this.constructor.prototype, 'slots', {
                     get() {
-                        return getterValue(undefined, 'slots', this);
+                        return getterValue('slots', this);
                     },
                     set(v) {
                         setterValue('slots', v, this);
@@ -8122,9 +8130,6 @@
                 cssSheet = sheet;
             }
             this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, cssSheet];
-            // Keep ComponentStyleMap in sync for this constructor
-            const cur = ComponentStaticStyleMap.get(this.constructor) ?? [];
-            cur.push(cssSheet);
             return cssSheet;
         }
         /**
@@ -8667,7 +8672,7 @@
             //2. update view
             if (this.#renderRoot?.deref()) {
                 if (toUpdateView) {
-                    updateView(this.render(), this, this.__updateTree);
+                    updateView(this.render(), this, this.__updateTree, toUpdateUps);
                 }
                 if (size(toUpdateUps) > 0) {
                     toUpdateUps.forEach(up => {
@@ -10104,7 +10109,7 @@
         });
         return nodes;
     }
-    function updateView(tmpl, renderComponent, updatePoints, changedKeys) {
+    function updateView(tmpl, renderComponent, updatePoints, renderedUps) {
         if (isBlank(join(tmpl.strings)))
             return;
         let vars = tmpl.flatVars(renderComponent);
@@ -10135,6 +10140,8 @@
                 continue;
             let elNode = node;
             if (up.isDirective) {
+                if (renderedUps?.has(up))
+                    continue;
                 //指令
                 let [, oldArgs, executor, , varChain] = up.value;
                 if (!isArray(newValue))
@@ -10184,8 +10191,8 @@
         } //endfor
         // tmpl.destroy()
     }
-    function updateSubScopeView(subScopeUpdatePoint, renderComponent, tmpl, changedKeys) {
-        if (!subScopeUpdatePoint)
+    function updateSubScopeView(subScopeUpdatePoint, renderComponent, tmpl) {
+        if (!subScopeUpdatePoint || subScopeUpdatePoint.__destroyed)
             return;
         let node = subScopeUpdatePoint.node.deref();
         const executor = TextOrSlotDirectiveExecutorMap.get(node._diName);
@@ -10475,7 +10482,7 @@
         //setters & getters
         Reflect.defineProperty(target.constructor.prototype, stateKey, {
             get() {
-                return getterValue(undefined, stateKey, this);
+                return getterValue(stateKey, this);
             },
             set(v) {
                 setterValue(stateKey, v, this);
@@ -10831,8 +10838,7 @@
             if (oldArgs) {
                 const oldValue = oldArgs[0];
                 const newValue = modelValue;
-                let nodeValue = get(node, updateProp);
-                if (!isObject(newValue) && Object.is(newValue, oldValue) && Object.is(nodeValue, newValue))
+                if (!isObject(newValue) && Object.is(newValue, oldValue))
                     return;
                 if (node instanceof CompElem) {
                     node._updateProps({ [updateProp]: newValue });
@@ -11067,6 +11073,7 @@
         };
     }, [EnterPointType.PROP]);
 
+    const LastConditionMap = new WeakMap();
     /**
      * 分支指令，具有switch / else if 两种模式
      * @example
@@ -11115,8 +11122,14 @@
                     return c == value;
                 }
             });
-            if (oldArgs)
+            let lastCase = LastConditionMap.get(pointNode);
+            LastConditionMap.set(pointNode, i);
+            if (oldArgs) {
+                if (lastCase == i) {
+                    return [DirectiveUpdateTag.UPDATE, call(tmplList[i] ?? defaultFn)];
+                }
                 return [DirectiveUpdateTag.REPLACE, call(tmplList[i] ?? defaultFn)];
+            }
             return [DirectiveUpdateTag.APPEND, call(tmplList[i] ?? defaultFn)];
         };
     }, [EnterPointType.TEXT, EnterPointType.SLOT]);

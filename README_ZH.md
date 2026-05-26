@@ -170,8 +170,8 @@ export class PageTest extends CompElem {
   ```ts
   get cssVars() {
     return {
-      testColor: this.color,
-      testHueRotate: `${this.rotation}deg`
+      testColor: this.color,//会生成 --test-color 变量
+      testHueRotate: `${this.rotation}deg`//会生成 --test-hue-rotate 变量
     }
   }
   ```
@@ -184,16 +184,7 @@ export class PageTest extends CompElem {
   @prop round = true;//通过默认值自动推断属性类型
   @prop({ type: [Boolean,String] }) round = true;//多种类型使用数组定义
   @prop({ type: Array }) datalist: Array<string>;//没有默认值必须显式指定属性类型
-  @prop({ type: [String, Number], sync: true }) //通过get/set设置属性
-  get value() {
-    return this.__innerValue ?? ''
-  }
-  set value(v: any) {
-    this.__innerValue = v
-    if (isNil(v)) {
-      this.__innerValue = '';
-    }
-  }
+  @prop({ type: [String, Number], sync: true }) value;//sync为true时自动触发 update:value事件
   ```
 
   属性可以在组件内修改但默认不会同步父组件，除非显式指定`sync`或自行 emit `update:xxx` 事件
@@ -211,7 +202,7 @@ export class PageTest extends CompElem {
   ```
   状态仅能在组件内修改
   全部注解参数见 `StateOption`
-- ### 状态监视
+- ### 属性/状态监视
 
   使用`@watch`注解可以对属性/状态进行变化监视
 
@@ -234,20 +225,21 @@ export class PageTest extends CompElem {
   ```
 
 - ### 计算状态
-  计算状态会缓存 return 结果，只有当内部使用的响应属性/状态发生变化时才会重新计算
-  使用`@computed`注解的 Getter，如
+  计算状态会缓存计算结果，只有当内部使用的响应属性/状态发生变化时才会重新计算。创建计算状态使用`@computed`注解的 Getter，如
   ```ts
   @computed
   get hasHeader() {
     return !isEmpty(this.slots.header) || !!this.header
   }
   ```
-- ### 节点引用
+- ### 元素引用
   使用`@query/all`注解及`ref`属性
   ```ts
   //query
   @query('l-icon')
   iconEl: HTMLElement
+  @queryAll('l-icon')
+  iconEls: HTMLElement[]
   //ref
   refNode: RefObject
   ```
@@ -275,7 +267,7 @@ export class PageTest extends CompElem {
   - emit(evName: string, arg: Record<string, any>, event?: Event) 抛出自定义事件
   - nextTick(cbk: () => void) 下一帧执行函数
   - forceUpdate() 强制更新一次视图
-  - insertStyleSheet(sheet: string | CSSStyleSheet): CSSStyleSheet 向组件ShadowDOM插入样式表
+  - insertStyleSheet(sheet: string | CSSStyleSheet): CSSStyleSheet 向组件ShadowDOM插入样式表，仅影响组件实例
   - destroy() 销毁组件
 
 ## 组件渲染流程

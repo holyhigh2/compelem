@@ -118,16 +118,6 @@ export type PropOption = {
      */
     hasChanged?: (newValue: any, oldValue: any, changeChain: string[], subNewValue: any, subOldValue: any) => boolean,
     /**
-     * 设置属性getter，可以通过 get 函数方式设置
-     * @returns 
-     */
-    getter?: () => any,
-    /**
-     * 设置属性setter，可以通过 set 函数方式设置
-     * @returns 
-     */
-    setter?: (v: any) => void,
-    /**
      * 当传递参数值为string类型且参数类型不是string时会调用转换器进行转换
      * @param stringValue 
      * @returns 

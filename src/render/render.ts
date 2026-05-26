@@ -527,7 +527,7 @@ export function buildSubView(pointNode: Comment, tmpl: Template, component: Comp
   return nodes
 }
 
-export function updateView(tmpl: Template, renderComponent: CompElem<any>, updatePoints: UpdatePoint[], changedKeys?: string[]): void {
+export function updateView(tmpl: Template, renderComponent: CompElem<any>, updatePoints: UpdatePoint[], renderedUps?: Set<UpdatePoint>): void {
   if (isBlank(join(tmpl.strings))) return;
   let vars = tmpl.flatVars(renderComponent)
   for (let i = 0; i < updatePoints.length; i++) {
@@ -555,6 +555,8 @@ export function updateView(tmpl: Template, renderComponent: CompElem<any>, updat
 
     let elNode = node as HTMLElement
     if (up.isDirective) {
+      if (renderedUps?.has(up)) continue
+
       //指令
       let [, oldArgs, executor, , varChain] = up.value
 
@@ -610,7 +612,7 @@ export function updateView(tmpl: Template, renderComponent: CompElem<any>, updat
   // tmpl.destroy()
 }
 
-export function updateSubScopeView(subScopeUpdatePoint: UpdatePoint, renderComponent: CompElem<any>, tmpl?: Template, changedKeys?: string[]): void {
+export function updateSubScopeView(subScopeUpdatePoint: UpdatePoint, renderComponent: CompElem<any>, tmpl?: Template): void {
   if (!subScopeUpdatePoint || subScopeUpdatePoint.__destroyed) return
   let node = subScopeUpdatePoint.node.deref()
 
@@ -637,7 +639,7 @@ export function updateSubScopeView(subScopeUpdatePoint: UpdatePoint, renderCompo
     tmpl = new Template(tStrAry, tVarAry)
   }
 
-  updateView(tmpl, renderComponent, subScopeUpdatePoint.children!, changedKeys)
+  updateView(tmpl, renderComponent, subScopeUpdatePoint.children!)
 }
 
 //////////////////////////////////////////////////// interfaces
