@@ -138,7 +138,7 @@ export type DirectiveInstance = [
     symbol,
     Array<any>,// args
     DirectiveExecutor,// executor
-    (scopeType: string) => void,// scope checker
+    (scopeType: string, tagName: string) => void,// scope checker
     any[] // varChain
 ]
 

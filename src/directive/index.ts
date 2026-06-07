@@ -4,7 +4,7 @@ import { Collector } from "../reactive";
 import { buildSubView, updateSubScopeView } from "../render/render";
 import { Template } from "../render/Template";
 import { DirectiveExecutor, DirectiveInstance, DirectiveUpdateTag, EnterPointType, UpdatePoint } from "../types";
-import { DomUtil, showError } from "../utils";
+import { DomUtil, showError, showTagError } from "../utils";
 
 export const DI_COMMENT_START_NODE_MAP = new WeakMap<Node, Node>()
 export const TextOrSlotDirectiveExecutorMap = new Map<string, DirectiveExecutor>()
@@ -367,11 +367,11 @@ export function directive<T extends Array<any>>(
     if (includes(scopes, EnterPointType.TEXT) || includes(scopes, EnterPointType.SLOT))
       TextOrSlotDirectiveExecutorMap.set(name, executor)
     set(executor, '__scope', scopes[0])
-    return [sym, args, executor as any, (scopeType: string) => {
+    return [sym, args, executor as any, (scopeType: string, tagName: string) => {
       //校验scope
       if (!process.env.DEV) return
       if (!isEmpty(scopes) && !test(scopes.join(','), scopeType)) {
-        showError(`Directive '${Symbol.keyFor(sym)}' is out of scopes, expect '${scopes.join(',')}' bug got '${scopeType}'`);
+        showTagError(tagName, `Directive '${Symbol.keyFor(sym)}' is out of scopes, expect '${scopes.join(',')}' bug got '${scopeType}'`);
         return;
       }
     }, Collector.popDirectiveQ()]

@@ -81,7 +81,7 @@ export class Template {
     getHTML(comp: CompElem) {
         let [html, vars] = buildHTML(comp, this);
         let nodes = buildTmplate([], html, vars, comp);
-        return reduce(nodes, (a, v: HTMLElement) => a + (v.outerHTML ?? ''), '')
+        return reduce(nodes, (a, v: HTMLElement) => a + (v.nodeType == Node.TEXT_NODE ? v.nodeValue : (v.outerHTML ?? '')), '')
     }
     /**
      * 对var中的Template类型进行合并

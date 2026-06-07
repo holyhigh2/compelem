@@ -175,6 +175,17 @@ export class PageTest extends CompElem {
     }
   }
   ```
+  使用 `classes` 和 `styles` 指令设置元素样式
+  ```html
+  <div class="${classes({...})} c-class1" >
+  </div>
+  ```
+  动态样式类支持对象/数组/字符串格式，支持静态样式混写
+  ```html
+  <div style="${styles('cursor:pointer;...',{...})}" >
+  </div>
+  ```
+  动态内联样式支持字符串/对象两种格式
 - ### 属性
 
   属性是由组件外部提供参数的响应变量，可通过`@prop`注解定义

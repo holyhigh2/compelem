@@ -21,7 +21,6 @@ import {
   snakeCase,
   split,
   startsWith,
-  toArray,
   toString
 } from "myfx";
 import { CompElem } from "../CompElem";
@@ -178,7 +177,7 @@ export function buildTmplate(
         slotComponent = currentNode
       }
       let props: Record<string, any> = {};
-      let attrs = toArray<Attr>(currentNode.attributes);
+      let attrs = map(currentNode.attributes, item => ({ name: item.name, value: item.value }))
 
       for (let i = 0; i < attrs.length; i++) {
         const attr = attrs[i];
@@ -201,7 +200,7 @@ export function buildTmplate(
           //support directive only for now
           if (isArray(val) && isSymbol(val[0])) {
             let [, args, executor, checker, varChain] = val as DirectiveInstance
-            checker(EnterPointType.TAG)
+            checker(EnterPointType.TAG, renderComponent.tagName)
 
             let po = new UpdatePoint(varIndex, new WeakRef(currentNode))
             po.isDirective = true;
@@ -310,7 +309,7 @@ export function buildTmplate(
           if (keyNode && keyNode?.contains(currentNode)) {
             po.key = keyVal
           }
-          let varCacheObj: Record<string, any> | null = null
+
           if (
             name[0] === ATTR_PREFIX_PROP ||
             name[0] === ATTR_PREFIX_BOOLEAN ||
@@ -318,9 +317,13 @@ export function buildTmplate(
           ) {
             if (isArray(val) && isSymbol(val[0])) {
               let [, args, executor, checker, varChain] = val as DirectiveInstance
-              checker(EnterPointType.PROP)
-
+              let type = EnterPointType.PROP
               let attrName = name.substring(1)
+              if (attrName === EnterPointType.STYLE || attrName === EnterPointType.CLASS) {
+                type = attrName
+              }
+              checker(type, renderComponent.tagName)
+
               executor(currentNode, args, undefined, { renderComponent, slotComponent, varChain, attrName })
 
               po.value = val;
@@ -374,15 +377,15 @@ export function buildTmplate(
 
             if (isArray(val) && isSymbol(val[0])) {
               let type = EnterPointType.ATTR;
-              if (name === "class") {
+              if (name === EnterPointType.CLASS) {
                 type = EnterPointType.CLASS;
-              } else if (name === "style") {
+              } else if (name === EnterPointType.STYLE) {
                 type = EnterPointType.STYLE;
               }
 
               let [, ags, exec, checker] = val as DirectiveInstance
               if (process.env.DEV) {
-                checker(type)
+                checker(type, renderComponent.tagName)
               }
 
               po.isDirective = true;
@@ -396,7 +399,7 @@ export function buildTmplate(
             }
             value = replace(value, PLACEHOLDER_EXP, val)
             //回填
-            attr.value = value;
+            currentNode.getAttributeNode(name)!.value = value
             if (isDefined(value)) {
               currentNode.setAttribute(name, value)
             }
@@ -452,7 +455,7 @@ export function buildTmplate(
         let pType = slotComponent ? EnterPointType.SLOT : EnterPointType.TEXT
 
         let [, args, executor, checker, varChain] = val as DirectiveInstance
-        checker(pType)
+        checker(pType, renderComponent.tagName)
 
         po.directiveOldValue = [args, varChain]
         Collector.start()
@@ -661,14 +664,14 @@ export function html(
 const EXP_STR = /([a-z0-9"'])\s*>\s*</img
 
 class RefObject<T extends Node> {
-  #ref: WeakRef<T>
+  __ref: WeakRef<T> | undefined
 
   get current(): T | undefined {
-    return this.#ref?.deref()
+    return this.__ref?.deref()
   }
 
   __setRef(ref: WeakRef<T>) {
-    this.#ref = ref
+    this.__ref = ref
   }
 }
 /**
