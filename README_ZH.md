@@ -188,17 +188,17 @@ export class PageTest extends CompElem {
   动态内联样式支持字符串/对象两种格式
 - ### 属性
 
-  属性是由组件外部提供参数的响应变量，可通过`@prop`注解定义
+  属性是由组件外部提供参数的响应变量，可通过`@prop`注解定义。为了确保属性值仅来源于组件外部，属性无法直接进行赋值，仅支持在父组件视图中传递属性值
 
   ```ts
   @prop({ type: Boolean }) loading = false;//显式定义属性类型
   @prop round = true;//通过默认值自动推断属性类型
   @prop({ type: [Boolean,String] }) round = true;//多种类型使用数组定义
   @prop({ type: Array }) datalist: Array<string>;//没有默认值必须显式指定属性类型
-  @prop({ type: [String, Number], sync: true }) value;//sync为true时自动触发 update:value事件
+  @prop({ type: [String, Number], model: true }) value;//model为true时，对该属性赋值自动触发 update:value 事件
   ```
 
-  属性可以在组件内修改但默认不会同步父组件，除非显式指定`sync`或自行 emit `update:xxx` 事件
+  想要修改属性值可以通过 emit `update:xxx` 事件 通知父组件进行更新或显示声明某个属性为model，然后通过赋值自动触发 emit `update:xxx`
   全部注解参数见 `PropOption`
 
 - ### 状态
@@ -410,7 +410,6 @@ return html` <l-tooltip>
 | bind    | TAG       | 绑定属性/特性到标签上，根据标签类型及组件 prop 定义自动判断 | `<div a="b" ${bind(obj)}>`                             |
 | show    | TAG       | 隐藏/显示标签（基于 display）                               | `<div a="b" ${show(visible)}>`                         |
 | model   | TAG       | 双向绑定                                                    | `<div a="b" ${model(xx,modelPath?)}>`    
-| sync   | PROP       | 类似Model，实现属性的同步跟踪                                                    | `<l-dialog .visible="${sync(this.visible)}">`                             |
 | classes | CLASS     | 绑定样式类属性，支持对象/数组/字符串。可以和静态字符混用    | `<div class="otherClass ${classes(obj)}>"`             |
 | styles  | STYLE     | 绑定样式规则属性，支持对象/字符串。可以和静态字符混用       | `<div style="a:b;${styles(obj)}>"`                     |
 | forEach | TEXT/SLOT | 输出循环结构                                                | `...>${forEach(ary,(item)=>html`...`)}<...`            |
@@ -424,7 +423,7 @@ return html` <l-tooltip>
 ## 装饰器 Decorator
 
 - @state 定义组件内状态属性。可选参数{prop}，可指定 propName 初始化值
-- @prop 定义父组件参数，默认不可修改。可选参数{type,required,sync,getter,setter}
+- @prop 定义父组件参数，默认不可修改。可选参数{type,required,model,getter,setter}
   > 设置 getter/setter 后，该属性的`@watch` 将会失效
 - @query/queryAll 定义 CssSelector 查询结果
 - @tag 自定义组件的标签名
@@ -439,7 +438,7 @@ return html` <l-tooltip>
   部分指令可由子类继承不会覆盖，包括@state/@prop/@watch/@computed
 
 ## 事件
-在CompElem中有三类不同事件，分别返回原生事件对象及自定义对象
+在CompElem中有三类不同事件，分别返回原生事件对象或自定义对象
 
 1. 原生事件 —— `<div @click="..."` 在原生元素上可以监听原生事件，监听器回调参数返回原生事件对象
 2. 扩展原生事件 —— `<div @resize="..."` 在原生元素/组件元素上都可以监听扩展原生事件，监听器回调参数返回自定义数据对象

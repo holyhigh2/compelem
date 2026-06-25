@@ -1,5 +1,5 @@
 import { each } from "myfx";
-import { DefinitionComponentMap, DefinitionTagMap } from "./constants";
+import { DefinitionComponentMap } from "./constants";
 import { buildHTML, createRef, html } from "./render/render";
 import { Template } from './render/Template';
 
@@ -29,7 +29,6 @@ export * from "./directives/Model";
 export * from "./directives/Show";
 export * from "./directives/Slot";
 export * from "./directives/Styles";
-export * from "./directives/Sync";
 export * from "./directives/When";
 
 export { buildHTML, createRef, html, Template };

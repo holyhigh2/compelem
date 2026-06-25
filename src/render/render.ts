@@ -13,10 +13,10 @@ import {
   isSymbol,
   join,
   kebabCase,
+  last,
   map,
   replace,
   replaceAll,
-  set,
   size,
   snakeCase,
   split,
@@ -31,7 +31,7 @@ import {
   updateDirective
 } from "../directive/index";
 import { Collector } from "../reactive";
-import { DirectiveInstance, EnterPointType, UpdatePoint } from "../types";
+import { DirectiveInstance, EnterPointType, UpdatedSource, UpdatePoint } from "../types";
 import { DomUtil, getSlotComponent, showError, showTagError } from "../utils";
 import { Template } from "./Template";
 
@@ -221,7 +221,6 @@ export function buildTmplate(
         }//endif
         //@event.stop.prevent.debounce
         if (name[0] === ATTR_PREFIX_EVENT) {
-
           let val;
           let hasValue = false
           if (PLACEHOLDER_EXP.test(value)) {
@@ -299,6 +298,12 @@ export function buildTmplate(
           showTagError(currentNode.tagName,
             `Prop '${name}' must be an interpolation`
           );
+          continue;
+        }
+        //用于兼容其他框架会自动移除属性的场景
+        if (last(name) === ATTR_PREFIX_PROP) {
+          props[name.substring(0, name.length - 1)] = value;
+          currentNode.removeAttribute(name)
           continue;
         }
 
@@ -530,8 +535,10 @@ export function buildSubView(pointNode: Comment, tmpl: Template, component: Comp
   return nodes
 }
 
-export function updateView(tmpl: Template, renderComponent: CompElem<any>, updatePoints: UpdatePoint[], renderedUps?: Set<UpdatePoint>): void {
+export function updateView(tmpl: Template, renderComponent: CompElem<any>, updatePoints: UpdatePoint[], renderedUps?: Set<UpdatePoint>, changed?: Record<string, UpdatedSource>): void {
   if (isBlank(join(tmpl.strings))) return;
+  if (!updatePoints) return
+
   let vars = tmpl.flatVars(renderComponent)
   for (let i = 0; i < updatePoints.length; i++) {
     const up = updatePoints[i];
@@ -558,7 +565,7 @@ export function updateView(tmpl: Template, renderComponent: CompElem<any>, updat
 
     let elNode = node as HTMLElement
     if (up.isDirective) {
-      if (renderedUps?.has(up)) continue
+      renderedUps?.delete(up)
 
       //指令
       let [, oldArgs, executor, , varChain] = up.value
@@ -568,26 +575,21 @@ export function updateView(tmpl: Template, renderComponent: CompElem<any>, updat
 
       let [, newArgs] = newValue
 
-      const tsUp = null//renderComponent.__subScopes?.get(node!)
-      if (tsUp) {
-        // tsUp.value = newValue
-        up.directiveOldValue![0] = newArgs
-      }
-
-      updateDirective(node!, newArgs as any[], oldArgs, executor, renderComponent, slotComponent, varChain, up)
+      updateDirective(node!, newArgs as any[], oldArgs, executor, renderComponent, slotComponent, varChain, up, changed)
     } else if (up.isToggleProp) {
       //布尔特性
       if ((!!newValue) === oldValue) continue
 
       elNode.toggleAttribute(up.attrName, !!newValue)
-      set(elNode, up.attrName, !!newValue)
-
+      if (elNode instanceof CompElem) {
+        elNode.updateProps({ [up.attrName]: !!newValue })
+      }
     } else if (up.isProp) {
       //子组件属性
       if (!isObject(newValue) && newValue === oldValue) continue;
       //如果node是slot则触发组件的slot更新
       if (node instanceof CompElem) {
-        node._updateProps({ [up.attrName]: newValue });
+        node.updateProps({ [up.attrName]: newValue });
       } else if (node instanceof HTMLSlotElement) {
         renderComponent._updateSlot(node.getAttribute('name') || 'default', up.attrName, newValue)
       }
@@ -615,7 +617,7 @@ export function updateView(tmpl: Template, renderComponent: CompElem<any>, updat
   // tmpl.destroy()
 }
 
-export function updateSubScopeView(subScopeUpdatePoint: UpdatePoint, renderComponent: CompElem<any>, tmpl?: Template): void {
+export function updateSubScopeView(subScopeUpdatePoint: UpdatePoint, renderComponent: CompElem<any>, tmpl?: Template, updatedMap?: Record<string, UpdatedSource>): void {
   if (!subScopeUpdatePoint || subScopeUpdatePoint.__destroyed) return
   let node = subScopeUpdatePoint.node.deref()
 
@@ -624,7 +626,7 @@ export function updateSubScopeView(subScopeUpdatePoint: UpdatePoint, renderCompo
   let slotComponent = getSlotComponent(node!, renderComponent)
   const [oldArgs, varChain] = subScopeUpdatePoint.directiveOldValue!
   if (!tmpl) {
-    let rs = executor(node!, subScopeUpdatePoint.value[1], oldArgs, { renderComponent, slotComponent, varChain })!
+    let rs = executor(node!, subScopeUpdatePoint.value[1], oldArgs, { renderComponent, slotComponent, varChain, updatedMap })!
     if (!rs) return
     tmpl = rs[1]
   }
@@ -642,7 +644,7 @@ export function updateSubScopeView(subScopeUpdatePoint: UpdatePoint, renderCompo
     tmpl = new Template(tStrAry, tVarAry)
   }
 
-  updateView(tmpl, renderComponent, subScopeUpdatePoint.children!)
+  updateView(tmpl, renderComponent, subScopeUpdatePoint.children!, undefined, updatedMap)
 }
 
 //////////////////////////////////////////////////// interfaces

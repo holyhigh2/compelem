@@ -1,7 +1,7 @@
-import { defaults, each, has, isLowerCaseChar, kebabCase, merge, set, toArray } from "myfx"
+import { clone, defaults, each, has, isLowerCaseChar, kebabCase, merge, set, toArray } from "myfx"
 import { CompElem } from "../CompElem"
-import { DefinitionPropMap, HasChangedPropOrStateMap, ObservedAttrsMap, PropShallowKeySetMap, PropSyncKeySetMap } from "../constants"
-import { getterValue, setterValue } from "../reactive"
+import { DefinitionModelMap, DefinitionPropMap, HasChangedPropOrStateMap, ObservedAttrsMap, PropShallowKeySetMap } from "../constants"
+import { emitModelEvent, getterValue } from "../reactive"
 import { PropOption } from "../types"
 import { _getSuper, showTagError } from "../utils"
 /**
@@ -41,7 +41,7 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
     const mixinProps: Record<string, PropOption> = {}
     let parentCtor = target.constructor
     while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
-      merge(mixinProps, DefinitionPropMap.get(parentCtor) ?? {})
+      merge(mixinProps, clone(DefinitionPropMap.get(parentCtor) ?? {}))
     }
     attrSet = new Set<string>()
     each(mixinProps, (v, k) => {
@@ -60,12 +60,22 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
     let kbb = kebabCase(propertyKey)
     attrSet?.add(kbb)
   }
+  if (options.model) {
+    let modelList = DefinitionModelMap.get(target.constructor)
+    if (!modelList) {
+      modelList = []
+      DefinitionModelMap.set(target.constructor, modelList)
+    }
+    if (!modelList.includes(propertyKey))
+      modelList.push(propertyKey)
+  }
   //observeAttrs
   if (!has(target.constructor, 'observedAttributes')) {
     target.constructor.observedAttributes = []
   }
   if (attrSet)
     target.constructor.observedAttributes = toArray(attrSet)
+
   set(DefinitionPropMap.get(target.constructor)!, propertyKey, options)
 
   //cache tags
@@ -77,14 +87,7 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
     }
     changeMap.set(propertyKey, options.hasChanged)
   }
-  if (options.sync) {
-    let keySet = PropSyncKeySetMap.get(target.constructor)
-    if (!keySet) {
-      keySet = new Set()
-      PropSyncKeySetMap.set(target.constructor, keySet)
-    }
-    keySet.add(propertyKey)
-  }
+
   if (options.shallow) {
     let keySet = PropShallowKeySetMap.get(target.constructor)
     if (!keySet) {
@@ -100,7 +103,13 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
       return getterValue(propertyKey, this)
     },
     set(v) {
-      setterValue(propertyKey, v, this)
+      if (!DefinitionModelMap.get(target.constructor)?.includes(propertyKey)) {
+        if (process.env.DEV) {
+          showTagError(this.tagName, `Cannot assign the value '${v}' to the prop '${propertyKey}'`)
+        }
+        return
+      }
+      emitModelEvent(propertyKey, v, this)
     },
   })
 

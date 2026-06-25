@@ -37,15 +37,15 @@ import {
   trim,
   walkTree
 } from "myfx";
-import { ComponentDynamicCssUpdaterMap, ComputedUpdateDepsMap, CssUpdateDepsMap, DATA_KEY, DefinitionCompEventMap, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, PATH_SEPARATOR, SLOT_NAME_DEFAULT, WatchImmediateListMap, WatchKeysListMap, WatchKeysOnceMap } from "./constants";
+import { ComponentDynamicCssUpdaterMap, ComputedUpdateDepsMap, CssUpdateDepsMap, DATA_KEY, DefinitionCompEventMap, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, HasChangedPropOrStateMap, PATH_SEPARATOR, PropShallowKeySetMap, SLOT_NAME_DEFAULT, WatchImmediateListMap, WatchKeysListMap, WatchKeysOnceMap } from "./constants";
 import { DecoratorWrapper } from "./decorator";
 import { _getObservedAttrs } from "./decorators/prop";
 import { addEvent, EvHadler } from "./events/event";
 import { IComponent } from "./IComponent";
-import { Collector, getterValue, OBJECT_VAR_PATH, Queue, setterValue } from "./reactive";
+import { Collector, getterValue, OBJECT_VAR_PATH, Queue, requestUpdate, setterValue } from "./reactive";
 import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildView, updateSubScopeView, updateView } from "./render/render";
 import { Template } from "./render/Template";
-import { Constructor, DefaultProps, Getter, PropOption, SlotOptions, StateOption, TmplFn, UpdatePoint } from "./types";
+import { Constructor, DefaultProps, Getter, PropOption, SlotOptions, StateOption, TmplFn, UpdatedSource, UpdatePoint } from "./types";
 import { _getSuper, _toUpdatePath, getBooleanValue, isBooleanProp, showTagError } from "./utils";
 const PropTypeMap: Record<string, Constructor<any>> = {
   boolean: Boolean,
@@ -98,7 +98,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   #cid: number
   #slotPropsMap: Record<string, Partial<SlotOptions>> = {}
   __data_: Record<string, any> = {};
-  #updateSources: Record<string, { value: any; chain?: string[], oldValue?: any, end?: boolean, subNewValue?: any, subOldValue?: any }> = {};
+  #updateSources: Record<string, UpdatedSource> = {};
   #shadow: ShadowRoot;
   //保存所有渲染上下文 {CompElem/Directive}
   __updateTree: Array<UpdatePoint>
@@ -672,7 +672,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       each(this.slots, (nodeAry, k: string) => {
         nodeAry.filter(node => node.nodeType === Node.ELEMENT_NODE).forEach((node: Element) => {
           if (node instanceof CompElem) {
-            node._updateProps(props)
+            node.updateProps(props)
             return;
           }
           each(props, (v, k: string) => {
@@ -758,7 +758,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     }
 
     if (!this.isMounted) {
-      console.debug('target update...', this.tagName)
       this.#updateViewImmediately = true
       return
     }
@@ -837,11 +836,11 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     //2. update view
     if (this.#renderRoot?.deref()) {
       if (toUpdateView) {
-        updateView(this.render()!, this, this.__updateTree, toUpdateUps);
+        updateView(this.render()!, this, this.__updateTree, toUpdateUps, changed);
       }
       if (size(toUpdateUps) > 0) {
         toUpdateUps.forEach(up => {
-          updateSubScopeView(up, this, undefined)
+          updateSubScopeView(up, this, undefined, changed)
         })
       }
     }
@@ -910,7 +909,8 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         val = defaultVal;
         let attr =
           attrs.getNamedItem(kbKey) ||
-          attrs.getNamedItem(ATTR_PREFIX_PROP + kbKey);
+          attrs.getNamedItem(ATTR_PREFIX_PROP + kbKey) ||
+          attrs.getNamedItem(kbKey + ATTR_PREFIX_PROP);
         if (attr) {
           isInited = true;
           val = attr.value;
@@ -1065,9 +1065,11 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
    * @param attrs 
    */
   #propsReady = debounce(this.propsReady, 100)
-  _updateProps(props: Record<string, any>) {
+  updateProps(props: Record<string, any>) {
     let propDefs = DefinitionPropMap.get(this.constructor)
     if (!propDefs) return
+    if (!this.__inited) return
+
     let need2UpdateAttrs: Array<any> = []
     //存在attrs表示已初始化完成
     each(props, (v, k: string) => {
@@ -1076,11 +1078,35 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       if (!propDef) return
       v = this.#propTypeCheck(propDefs, ck, v)
 
+      let oldValue = this.__data_[ck]
+
+      let stateMap = HasChangedPropOrStateMap.get(this.constructor)
+      let hasChanged = stateMap?.get(ck)
+      if (hasChanged) {
+        if (!hasChanged.call(this, v, oldValue, [ck], v, oldValue)) return true;
+      } else {
+        if (isObject(v)) {
+          let shallowMap = PropShallowKeySetMap.get(this.constructor)
+          if (shallowMap?.has(ck)) {
+            //默认对比算法
+            if (Object.is(oldValue, v)) {
+              return true;
+            }
+          }
+        } else {
+          //默认对比算法
+          if (Object.is(oldValue, v)) {
+            return true;
+          }
+        }
+      }
+
       if (propDef.attribute && isDefined(v) && !isObject(v)) {
         need2UpdateAttrs.push([propDef, ck, v])
       }
 
-      set(this, ck, v)
+      set(this.__data_, ck, v)
+      requestUpdate(this, v, oldValue, [k])
     })
     assign(this.#props, props)
 
@@ -1269,7 +1295,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         if (propDefs)
           newValue = propDefs[camelName]._defaultValue
       }
-      this._updateProps({ [camelName]: newValue })
+      this.updateProps({ [camelName]: newValue })
     }
   }
 
@@ -1340,7 +1366,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         this.#updateNextImmediatelyQ = []
       }
 
-      console.debug('target update...', this.tagName)
       this.#updateNextImmediatelyQ.push(cbk)
       return
     }

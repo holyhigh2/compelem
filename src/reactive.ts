@@ -3,9 +3,9 @@
  * @author holyhigh2
  */
 
-import { concat, eachRight, get, isArray, isFunction, isObject, isSymbol, size, slice, startsWith, toArray } from "myfx";
+import { concat, get, isArray, isFunction, isObject, isSymbol, some, startsWith, toArray } from "myfx";
 import { CompElem } from "./CompElem";
-import { ComputedUpdateDepsMap, CssUpdateDepsMap, DATA_KEY, HasChangedPropOrStateMap, PROP_NAME_SLOTS, PropShallowKeySetMap, PropSyncKeySetMap, StateShallowKeySetMap, WatchDeepUpdateMap, WatchKeysDeepListMap, WatchKeysListMap, WatchKeysOnceMap, WatchUpdateMap } from "./constants";
+import { ComputedUpdateDepsMap, CssUpdateDepsMap, DATA_KEY, HasChangedPropOrStateMap, PROP_NAME_SLOTS, PropShallowKeySetMap, StateShallowKeySetMap, WatchDeepUpdateMap, WatchKeysDeepListMap, WatchKeysListMap, WatchKeysOnceMap, WatchUpdateMap } from "./constants";
 import { UpdatePoint, Updater } from "./types";
 import { _getSuper } from "./utils";
 
@@ -54,6 +54,9 @@ export function setterValue(propertyKey: string, v: any, context: CompElem) {
     if (Object.is(oldValue, v)) {
       return true;
     }
+    if (isObject(v) && PROXY_MAP.get(oldValue) === v) {
+      return true
+    }
   }
 
   //check watch
@@ -69,11 +72,9 @@ export function setterValue(propertyKey: string, v: any, context: CompElem) {
 
   thisHost._notify(oldValue, [propertyKey])
 
-  //update sync
-  let syncKeySet = PropSyncKeySetMap.get(thisHost.constructor)
-  if (syncKeySet?.has(propertyKey)) {
-    thisHost.emit('update' + ":" + propertyKey, { value: v })
-  }
+}
+export function emitModelEvent(propertyKey: string, v: any, context: CompElem) {
+  context.emit('update:' + propertyKey, { value: v })
 }
 
 function requestWatchUpdate(context: CompElem, newValue: any, oldValue: any, fullPath: string, rootObjNew?: any, rootObjOld?: any) {
@@ -92,10 +93,10 @@ function requestWatchUpdate(context: CompElem, newValue: any, oldValue: any, ful
       concat(toArray(watchUpdateMap[wk]), toArray(watchDeepUpdateMap[wk])).forEach(fn => {
         if (!fn) return
         if (onceMap.get(wk) === true) return
-        context._watchUpdateArgsInNextTick.set(fn, {
+        context._watchUpdateArgsInNextTick?.set(fn, {
           newValue, oldValue, chain: fullPath.split('.'), rootObjNew, rootObjOld, fullMatch: wk === fullPath
         })
-        context._watchUpdateSetInNextTick.add(fn)
+        context._watchUpdateSetInNextTick?.add(fn)
         if (onceMap.has(wk))
           onceMap.set(wk, true)
       })
@@ -180,7 +181,7 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
         contextList = new Set()
         EXTRA_CONTEXT_OF_VAR.set(obj, contextList)
       }
-      if (!contextList.values().some(v => v.deref() === context)) {
+      if (!some(contextList.values() as any, (v: WeakRef<any>) => v.deref() === context)) {
         contextList.add(new WeakRef(context))
       }
 
@@ -249,15 +250,7 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
 
       let extraContext = EXTRA_CONTEXT_OF_VAR.get(receiver)
 
-      let k = subChain.join('.')
-      //check watch
-      requestWatchUpdate(context, nv, ov, k, rootObjNew, rootObjOld)
-      //check computed
-      requestComputedUpdate(context, k)
-      //check css
-      requestCssUpdate(context, k)
-
-      notifyUpdate(context, rootObjOld, subChain, nv, ov)
+      requestUpdate(context, nv, ov, subChain)
 
       extraContext?.forEach(ctxRef => {
         let ctx = ctxRef.deref()
@@ -298,11 +291,23 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
 }
 
 export function notifyUpdate(context: CompElem, oldValue: any, path: string[], subNewValue?: any, subOldValue?: any) {
-  let i = size(path)
-  eachRight(path, (p) => {
-    let varPath = slice<string>(path, 0, i--)
-    context._notify(oldValue, varPath)
-  })
+  context._notify(oldValue, path)
+}
+
+export function requestUpdate(context: CompElem<any>, nv: any, ov: any, subChain: string[],) {
+  let rootObjNew = nv
+  let rootObjOld = ov
+  if (subChain.length > 1) {
+    rootObjOld = rootObjNew = context._getPrivateData()[subChain[0]]
+  }
+  let k = subChain.join('.')
+  requestWatchUpdate(context, nv, ov, k, rootObjNew, rootObjOld)
+  //check computed
+  requestComputedUpdate(context, k)
+  //check css
+  requestCssUpdate(context, k)
+
+  notifyUpdate(context, rootObjOld, subChain, nv, ov)
 }
 
 const QMap = new Map()

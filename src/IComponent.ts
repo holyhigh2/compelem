@@ -76,7 +76,7 @@ export interface IComponent<T = HTMLElement> {
   ): void;
   nextTick(cbk: () => void): void;
   /**
-   * 强制更新一次视图
+   * 强制更新视图
    */
   forceUpdate(): void;
   /**
@@ -84,4 +84,9 @@ export interface IComponent<T = HTMLElement> {
    * @param sheet 
    */
   insertStyleSheet(sheet: string | CSSStyleSheet): CSSStyleSheet | null;
+  /**
+   * 对于组件应用于原生环境或其他相似环境没有父组件但需要更新属性时调用
+   * @param props {属性名:值} 对象
+   */
+  updateProps(props: Record<string, any>): void
 }

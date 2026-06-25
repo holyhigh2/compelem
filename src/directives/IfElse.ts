@@ -1,5 +1,6 @@
 import { CompElem } from "../CompElem";
 import { directive } from "../directive/index";
+import { Template } from "../render/Template";
 import { DirectiveUpdateTag, EnterPointType, TmplFn } from "../types";
 
 const LastTmplMap = new WeakMap()
@@ -16,7 +17,10 @@ export const ifElse = directive(function IfElse(condition: boolean, ifTmpl: Tmpl
       //更新
       if (!!condi === !!oldArgs[0]) {
         let tmpl = LastTmplMap.get(el)
-        return [DirectiveUpdateTag.NONE, tmpl.call(renderComponent, condi)]
+        return [DirectiveUpdateTag.UPDATE, new Template(
+          ['', ''],
+          [tmpl.call(renderComponent, condi)]
+        )]
       }
       let tmpl = condi ? ifTmpl : elseTmpl
       LastTmplMap.set(el, tmpl)

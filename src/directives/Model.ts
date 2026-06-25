@@ -30,7 +30,7 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
       if (!isObject(newValue) && Object.is(newValue, oldValue)) return
 
       if (node instanceof CompElem) {
-        node._updateProps({ [updateProp]: newValue })
+        node.updateProps({ [updateProp]: newValue })
       } else if (node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) {
         node.setAttribute(updateProp, newValue + '')
         if (node instanceof HTMLSelectElement) {

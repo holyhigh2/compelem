@@ -12,7 +12,7 @@ import { showError } from "../utils";
  */
 export function computed(...args: any[]): void
 export function computed(target: any, propertyKey: string, descriptor: PropertyDescriptor) {
-  if (!descriptor.get) {
+  if (process.env.DEV && !descriptor.get) {
     showError(`Computed '${propertyKey}' must be a getter`)
   }
   if (!DefinitionComputedMap.has(target.constructor)) {

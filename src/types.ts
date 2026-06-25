@@ -19,6 +19,8 @@ export type SlotOptions = {
 
 export type TmplFn = (...args: any[]) => Template;
 
+export type UpdatedSource = { value: any; chain?: string[], oldValue?: any, end?: boolean, subNewValue?: any, subOldValue?: any }
+
 /**
  * 属性定义
  */
@@ -103,9 +105,9 @@ export type PropOption = {
      */
     required?: boolean,
     /**
-     * 是否可以修改属性，默认false
+     * 是否声明为一个双向绑定属性，默认false
      */
-    sync?: boolean
+    model?: boolean
     /**
      * 是否关联属性，prop会生成dom属性且当属性变动时自动更新值。默认true
      */
@@ -132,7 +134,7 @@ export type PropOption = {
     isValid?: (value: any, props?: Record<string, any>) => boolean
 }
 
-export type DirectiveExecutor = (node: Node, newArgs: any[], oldArgs: any[] | undefined, meta?: { renderComponent?: CompElem, slotComponent?: CompElem, varChain?: string[], attrName?: string }) => [DirectiveUpdateTag, Template?] | void
+export type DirectiveExecutor = (node: Node, newArgs: any[], oldArgs: any[] | undefined, meta?: { renderComponent?: CompElem, slotComponent?: CompElem, varChain?: string[], attrName?: string, updatedMap?: Record<string, UpdatedSource> }) => [DirectiveUpdateTag, Template?] | void
 
 export type DirectiveInstance = [
     symbol,

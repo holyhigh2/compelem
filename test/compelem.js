@@ -1,5 +1,5 @@
-/* compelem 0.22.0 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
-(function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35730/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
+/* compelem 0.23.0 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
+(function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
     typeof define === 'function' && define.amd ? define(['exports'], factory) :
@@ -7148,6 +7148,7 @@
     const DefinitionComputedMap = new WeakMap();
     const DefinitionStateMap = new WeakMap();
     const DefinitionPropMap = new WeakMap();
+    const DefinitionModelMap = new WeakMap();
     const DefinitionDecoratorMap = new Map();
     const ObservedAttrsMap = new Map();
     const WatchKeysOnceMap = new WeakMap();
@@ -7156,7 +7157,6 @@
     const WatchUpdateMap = new WeakMap();
     const WatchDeepUpdateMap = new WeakMap();
     const WatchImmediateListMap = new WeakMap();
-    const PropSyncKeySetMap = new WeakMap();
     const StateShallowKeySetMap = new WeakMap();
     const PropShallowKeySetMap = new WeakMap();
     const HasChangedPropOrStateMap = new WeakMap();
@@ -7299,6 +7299,9 @@
             if (Object.is(oldValue, v)) {
                 return true;
             }
+            if (isObject(v) && PROXY_MAP.get(oldValue) === v) {
+                return true;
+            }
         }
         //check watch
         requestWatchUpdate(thisHost, v, oldValue, propertyKey);
@@ -7308,11 +7311,9 @@
         requestCssUpdate(thisHost, propertyKey);
         Reflect.set(thisHost[DATA_KEY], propertyKey, v);
         thisHost._notify(oldValue, [propertyKey]);
-        //update sync
-        let syncKeySet = PropSyncKeySetMap.get(thisHost.constructor);
-        if (syncKeySet?.has(propertyKey)) {
-            thisHost.emit('update' + ":" + propertyKey, { value: v });
-        }
+    }
+    function emitModelEvent(propertyKey, v, context) {
+        context.emit('update:' + propertyKey, { value: v });
     }
     function requestWatchUpdate(context, newValue, oldValue, fullPath, rootObjNew, rootObjOld) {
         let superComp = _getSuper(context.constructor);
@@ -7330,10 +7331,10 @@
                         return;
                     if (onceMap.get(wk) === true)
                         return;
-                    context._watchUpdateArgsInNextTick.set(fn, {
+                    context._watchUpdateArgsInNextTick?.set(fn, {
                         newValue, oldValue, chain: fullPath.split('.'), rootObjNew, rootObjOld, fullMatch: wk === fullPath
                     });
-                    context._watchUpdateSetInNextTick.add(fn);
+                    context._watchUpdateSetInNextTick?.add(fn);
                     if (onceMap.has(wk))
                         onceMap.set(wk, true);
                 });
@@ -7414,7 +7415,7 @@
                     contextList = new Set();
                     EXTRA_CONTEXT_OF_VAR.set(obj, contextList);
                 }
-                if (!contextList.values().some(v => v.deref() === context)) {
+                if (!some(contextList.values(), (v) => v.deref() === context)) {
                     contextList.add(new WeakRef(context));
                 }
             }
@@ -7479,14 +7480,7 @@
                 let nv = newValue;
                 let rs = Reflect.set(target, prop, nv);
                 let extraContext = EXTRA_CONTEXT_OF_VAR.get(receiver);
-                let k = subChain.join('.');
-                //check watch
-                requestWatchUpdate(context, nv, ov, k, rootObjNew, rootObjOld);
-                //check computed
-                requestComputedUpdate(context, k);
-                //check css
-                requestCssUpdate(context, k);
-                notifyUpdate(context, rootObjOld, subChain);
+                requestUpdate(context, nv, ov, subChain);
                 extraContext?.forEach(ctxRef => {
                     let ctx = ctxRef.deref();
                     if (!ctx)
@@ -7520,11 +7514,21 @@
         return proxyObject;
     }
     function notifyUpdate(context, oldValue, path, subNewValue, subOldValue) {
-        let i = size(path);
-        eachRight(path, (p) => {
-            let varPath = slice(path, 0, i--);
-            context._notify(oldValue, varPath);
-        });
+        context._notify(oldValue, path);
+    }
+    function requestUpdate(context, nv, ov, subChain) {
+        let rootObjNew = nv;
+        let rootObjOld = ov;
+        if (subChain.length > 1) {
+            rootObjOld = rootObjNew = context._getPrivateData()[subChain[0]];
+        }
+        let k = subChain.join('.');
+        requestWatchUpdate(context, nv, ov, k, rootObjNew, rootObjOld);
+        //check computed
+        requestComputedUpdate(context, k);
+        //check css
+        requestCssUpdate(context, k);
+        notifyUpdate(context, rootObjOld, subChain);
     }
     const QMap = new Map();
     class Queue {
@@ -7583,7 +7587,7 @@
             const mixinProps = {};
             let parentCtor = target.constructor;
             while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
-                merge(mixinProps, DefinitionPropMap.get(parentCtor) ?? {});
+                merge(mixinProps, clone(DefinitionPropMap.get(parentCtor) ?? {}));
             }
             attrSet = new Set();
             each(mixinProps, (v, k) => {
@@ -7602,6 +7606,15 @@
             let kbb = kebabCase(propertyKey);
             attrSet?.add(kbb);
         }
+        if (options.model) {
+            let modelList = DefinitionModelMap.get(target.constructor);
+            if (!modelList) {
+                modelList = [];
+                DefinitionModelMap.set(target.constructor, modelList);
+            }
+            if (!modelList.includes(propertyKey))
+                modelList.push(propertyKey);
+        }
         //observeAttrs
         if (!has(target.constructor, 'observedAttributes')) {
             target.constructor.observedAttributes = [];
@@ -7618,14 +7631,6 @@
             }
             changeMap.set(propertyKey, options.hasChanged);
         }
-        if (options.sync) {
-            let keySet = PropSyncKeySetMap.get(target.constructor);
-            if (!keySet) {
-                keySet = new Set();
-                PropSyncKeySetMap.set(target.constructor, keySet);
-            }
-            keySet.add(propertyKey);
-        }
         if (options.shallow) {
             let keySet = PropShallowKeySetMap.get(target.constructor);
             if (!keySet) {
@@ -7640,7 +7645,13 @@
                 return getterValue(propertyKey, this);
             },
             set(v) {
-                setterValue(propertyKey, v, this);
+                if (!DefinitionModelMap.get(target.constructor)?.includes(propertyKey)) {
+                    {
+                        showTagError(this.tagName, `Cannot assign the value '${v}' to the prop '${propertyKey}'`);
+                    }
+                    return;
+                }
+                emitModelEvent(propertyKey, v, this);
             },
         });
     }
@@ -8516,7 +8527,7 @@
                 each(this.slots, (nodeAry, k) => {
                     nodeAry.filter(node => node.nodeType === Node.ELEMENT_NODE).forEach((node) => {
                         if (node instanceof CompElem) {
-                            node._updateProps(props);
+                            node.updateProps(props);
                             return;
                         }
                         each(props, (v, k) => {
@@ -8596,7 +8607,6 @@
                 this.#updateSources[pathStr] = { value: v, chain: pathStr === PROP_NAME_SLOTS ? [PROP_NAME_SLOTS] : varPath, oldValue: ov, end: varPath.length === chain.length, subNewValue, subOldValue };
             }
             if (!this.isMounted) {
-                console.debug('target update...', this.tagName);
                 this.#updateViewImmediately = true;
                 return;
             }
@@ -8672,11 +8682,11 @@
             //2. update view
             if (this.#renderRoot?.deref()) {
                 if (toUpdateView) {
-                    updateView(this.render(), this, this.__updateTree, toUpdateUps);
+                    updateView(this.render(), this, this.__updateTree, toUpdateUps, changed);
                 }
                 if (size(toUpdateUps) > 0) {
                     toUpdateUps.forEach(up => {
-                        updateSubScopeView(up, this, undefined);
+                        updateSubScopeView(up, this, undefined, changed);
                     });
                 }
             }
@@ -8743,7 +8753,8 @@
                 else {
                     val = defaultVal;
                     let attr = attrs.getNamedItem(kbKey) ||
-                        attrs.getNamedItem(ATTR_PREFIX_PROP + kbKey);
+                        attrs.getNamedItem(ATTR_PREFIX_PROP + kbKey) ||
+                        attrs.getNamedItem(kbKey + ATTR_PREFIX_PROP);
                     if (attr) {
                         isInited = true;
                         val = attr.value;
@@ -8887,9 +8898,11 @@
          * @param attrs
          */
         #propsReady = debounce(this.propsReady, 100);
-        _updateProps(props) {
+        updateProps(props) {
             let propDefs = DefinitionPropMap.get(this.constructor);
             if (!propDefs)
+                return;
+            if (!this.__inited)
                 return;
             let need2UpdateAttrs = [];
             //存在attrs表示已初始化完成
@@ -8899,10 +8912,35 @@
                 if (!propDef)
                     return;
                 v = this.#propTypeCheck(propDefs, ck, v);
+                let oldValue = this.__data_[ck];
+                let stateMap = HasChangedPropOrStateMap.get(this.constructor);
+                let hasChanged = stateMap?.get(ck);
+                if (hasChanged) {
+                    if (!hasChanged.call(this, v, oldValue, [ck], v, oldValue))
+                        return true;
+                }
+                else {
+                    if (isObject(v)) {
+                        let shallowMap = PropShallowKeySetMap.get(this.constructor);
+                        if (shallowMap?.has(ck)) {
+                            //默认对比算法
+                            if (Object.is(oldValue, v)) {
+                                return true;
+                            }
+                        }
+                    }
+                    else {
+                        //默认对比算法
+                        if (Object.is(oldValue, v)) {
+                            return true;
+                        }
+                    }
+                }
                 if (propDef.attribute && isDefined(v) && !isObject(v)) {
                     need2UpdateAttrs.push([propDef, ck, v]);
                 }
-                set(this, ck, v);
+                set(this.__data_, ck, v);
+                requestUpdate(this, v, oldValue, [k]);
             });
             assign(this.#props, props);
             need2UpdateAttrs.forEach(([propDef, key, v]) => {
@@ -9083,7 +9121,7 @@
                     if (propDefs)
                         newValue = propDefs[camelName]._defaultValue;
                 }
-                this._updateProps({ [camelName]: newValue });
+                this.updateProps({ [camelName]: newValue });
             }
         }
         _regSubViewDeps(props, up) {
@@ -9142,7 +9180,6 @@
                 if (!this.#updateNextImmediatelyQ) {
                     this.#updateNextImmediatelyQ = [];
                 }
-                console.debug('target update...', this.tagName);
                 this.#updateNextImmediatelyQ.push(cbk);
                 return;
             }
@@ -9238,7 +9275,7 @@
         getHTML(comp) {
             let [html, vars] = buildHTML(comp, this);
             let nodes = buildTmplate([], html, vars, comp);
-            return reduce(nodes, (a, v) => a + (v.outerHTML ?? ''), '');
+            return reduce(nodes, (a, v) => a + (v.nodeType == Node.TEXT_NODE ? v.nodeValue : (v.outerHTML ?? '')), '');
         }
         /**
          * 对var中的Template类型进行合并
@@ -9425,16 +9462,16 @@
         });
         return addGroup;
     }
-    function updateDirective(pointNode, newArgs, oldArgs, executor, renderComponent, slotComponent, varChain, up) {
+    function updateDirective(pointNode, newArgs, oldArgs, executor, renderComponent, slotComponent, varChain, up, updatedMap) {
         let rs;
         let isTextOrSlot = [EnterPointType.TEXT, EnterPointType.SLOT].includes(get(executor, '__scope', ''));
         if (isTextOrSlot) {
             Collector.start();
-            rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain });
+            rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain, updatedMap });
             Collector.end(renderComponent, up);
         }
         else {
-            rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain });
+            rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain, updatedMap });
         }
         if (!rs)
             return;
@@ -9493,6 +9530,8 @@
                 tmpl.vars.forEach(v => {
                     if (v instanceof Template) {
                         const k = v.getKey();
+                        if (!k)
+                            return;
                         newTmpls[k] = v;
                         newKeys[k] = true;
                         newSeq.push(k);
@@ -9699,9 +9738,9 @@
             if (includes(scopes, EnterPointType.TEXT) || includes(scopes, EnterPointType.SLOT))
                 TextOrSlotDirectiveExecutorMap.set(name, executor);
             set(executor, '__scope', scopes[0]);
-            return [sym, args, executor, (scopeType) => {
+            return [sym, args, executor, (scopeType, tagName) => {
                     if (!isEmpty(scopes) && !test(scopes.join(','), scopeType)) {
-                        showError(`Directive '${Symbol.keyFor(sym)}' is out of scopes, expect '${scopes.join(',')}' bug got '${scopeType}'`);
+                        showTagError(tagName, `Directive '${Symbol.keyFor(sym)}' is out of scopes, expect '${scopes.join(',')}' bug got '${scopeType}'`);
                         return;
                     }
                 }, Collector.popDirectiveQ()];
@@ -9821,7 +9860,7 @@
                     slotComponent = currentNode;
                 }
                 let props = {};
-                let attrs = toArray(currentNode.attributes);
+                let attrs = map(currentNode.attributes, item => ({ name: item.name, value: item.value }));
                 for (let i = 0; i < attrs.length; i++) {
                     const attr = attrs[i];
                     let { name, value } = attr;
@@ -9835,7 +9874,7 @@
                         //support directive only for now
                         if (isArray(val) && isSymbol(val[0])) {
                             let [, args, executor, checker, varChain] = val;
-                            checker(EnterPointType.TAG);
+                            checker(EnterPointType.TAG, renderComponent.tagName);
                             let po = new UpdatePoint(varIndex, new WeakRef(currentNode));
                             po.isDirective = true;
                             po.value = val;
@@ -9915,6 +9954,12 @@
                         showTagError(currentNode.tagName, `Prop '${name}' must be an interpolation`);
                         continue;
                     }
+                    //用于兼容其他框架会自动移除属性的场景
+                    if (last(name) === ATTR_PREFIX_PROP) {
+                        props[name.substring(0, name.length - 1)] = value;
+                        currentNode.removeAttribute(name);
+                        continue;
+                    }
                     if (PLACEHOLDER_EXP.test(value)) {
                         let val = vars[varIndex];
                         let po = new UpdatePoint(varIndex, new WeakRef(currentNode), name.replace(/\.|\?|@/, ''), value);
@@ -9927,8 +9972,12 @@
                             name[0] === ATTR_PREFIX_REF) {
                             if (isArray(val) && isSymbol(val[0])) {
                                 let [, args, executor, checker, varChain] = val;
-                                checker(EnterPointType.PROP);
+                                let type = EnterPointType.PROP;
                                 let attrName = name.substring(1);
+                                if (attrName === EnterPointType.STYLE || attrName === EnterPointType.CLASS) {
+                                    type = attrName;
+                                }
+                                checker(type, renderComponent.tagName);
                                 executor(currentNode, args, undefined, { renderComponent, slotComponent, varChain, attrName });
                                 po.value = val;
                                 po.isDirective = true;
@@ -9982,15 +10031,15 @@
                             let args;
                             if (isArray(val) && isSymbol(val[0])) {
                                 let type = EnterPointType.ATTR;
-                                if (name === "class") {
+                                if (name === EnterPointType.CLASS) {
                                     type = EnterPointType.CLASS;
                                 }
-                                else if (name === "style") {
+                                else if (name === EnterPointType.STYLE) {
                                     type = EnterPointType.STYLE;
                                 }
                                 let [, ags, exec, checker] = val;
                                 {
-                                    checker(type);
+                                    checker(type, renderComponent.tagName);
                                 }
                                 po.isDirective = true;
                                 po.attrName = name;
@@ -10000,7 +10049,7 @@
                             }
                             value = replace(value, PLACEHOLDER_EXP, val);
                             //回填
-                            attr.value = value;
+                            currentNode.getAttributeNode(name).value = value;
                             if (isDefined(value)) {
                                 currentNode.setAttribute(name, value);
                             }
@@ -10046,7 +10095,7 @@
                     po.value = val;
                     let pType = slotComponent ? EnterPointType.SLOT : EnterPointType.TEXT;
                     let [, args, executor, checker, varChain] = val;
-                    checker(pType);
+                    checker(pType, renderComponent.tagName);
                     po.directiveOldValue = [args, varChain];
                     Collector.start();
                     let tmpl = executor(comment, args, undefined, { renderComponent, slotComponent, varChain });
@@ -10109,8 +10158,10 @@
         });
         return nodes;
     }
-    function updateView(tmpl, renderComponent, updatePoints, renderedUps) {
+    function updateView(tmpl, renderComponent, updatePoints, renderedUps, changed) {
         if (isBlank(join(tmpl.strings)))
+            return;
+        if (!updatePoints)
             return;
         let vars = tmpl.flatVars(renderComponent);
         for (let i = 0; i < updatePoints.length; i++) {
@@ -10140,22 +10191,23 @@
                 continue;
             let elNode = node;
             if (up.isDirective) {
-                if (renderedUps?.has(up))
-                    continue;
+                renderedUps?.delete(up);
                 //指令
                 let [, oldArgs, executor, , varChain] = up.value;
                 if (!isArray(newValue))
                     continue;
                 let slotComponent = getSlotComponent(node, renderComponent);
                 let [, newArgs] = newValue;
-                updateDirective(node, newArgs, oldArgs, executor, renderComponent, slotComponent, varChain, up);
+                updateDirective(node, newArgs, oldArgs, executor, renderComponent, slotComponent, varChain, up, changed);
             }
             else if (up.isToggleProp) {
                 //布尔特性
                 if ((!!newValue) === oldValue)
                     continue;
                 elNode.toggleAttribute(up.attrName, !!newValue);
-                set(elNode, up.attrName, !!newValue);
+                if (elNode instanceof CompElem) {
+                    elNode.updateProps({ [up.attrName]: !!newValue });
+                }
             }
             else if (up.isProp) {
                 //子组件属性
@@ -10163,7 +10215,7 @@
                     continue;
                 //如果node是slot则触发组件的slot更新
                 if (node instanceof CompElem) {
-                    node._updateProps({ [up.attrName]: newValue });
+                    node.updateProps({ [up.attrName]: newValue });
                 }
                 else if (node instanceof HTMLSlotElement) {
                     renderComponent._updateSlot(node.getAttribute('name') || 'default', up.attrName, newValue);
@@ -10191,7 +10243,7 @@
         } //endfor
         // tmpl.destroy()
     }
-    function updateSubScopeView(subScopeUpdatePoint, renderComponent, tmpl) {
+    function updateSubScopeView(subScopeUpdatePoint, renderComponent, tmpl, updatedMap) {
         if (!subScopeUpdatePoint || subScopeUpdatePoint.__destroyed)
             return;
         let node = subScopeUpdatePoint.node.deref();
@@ -10199,7 +10251,7 @@
         let slotComponent = getSlotComponent(node, renderComponent);
         const [oldArgs, varChain] = subScopeUpdatePoint.directiveOldValue;
         if (!tmpl) {
-            let rs = executor(node, subScopeUpdatePoint.value[1], oldArgs, { renderComponent, slotComponent, varChain });
+            let rs = executor(node, subScopeUpdatePoint.value[1], oldArgs, { renderComponent, slotComponent, varChain, updatedMap });
             if (!rs)
                 return;
             tmpl = rs[1];
@@ -10217,7 +10269,7 @@
             tStrAry.push('1');
             tmpl = new Template(tStrAry, tVarAry);
         }
-        updateView(tmpl, renderComponent, subScopeUpdatePoint.children);
+        updateView(tmpl, renderComponent, subScopeUpdatePoint.children, undefined, updatedMap);
     }
     //////////////////////////////////////////////////// interfaces
     /**
@@ -10230,12 +10282,12 @@
     }
     const EXP_STR = /([a-z0-9"'])\s*>\s*</img;
     class RefObject {
-        #ref;
+        __ref;
         get current() {
-            return this.#ref?.deref();
+            return this.__ref?.deref();
         }
         __setRef(ref) {
-            this.#ref = ref;
+            this.__ref = ref;
         }
     }
     function setWrapper(target, wrapperComponent) {
@@ -10651,7 +10703,6 @@
         };
     }, [EnterPointType.CLASS]);
 
-    const LastValueMap = new WeakMap();
     const LastTmplMap$1 = new WeakMap();
     /**
      * 循环列表并自动优化列表更新
@@ -10659,21 +10710,17 @@
      * 使用序号作为key时可能会导致异常问题
      */
     directive(function ForEach(value, cbk) {
-        return (pointNode, newArgs, oldArgs, { varChain }) => {
+        return (pointNode, newArgs, oldArgs, { varChain, updatedMap }) => {
             let el = pointNode;
             let lastRenderTmpl = comboTmpl(newArgs[0], newArgs[1], el);
-            if (oldArgs && oldArgs[0]) {
+            if (oldArgs && oldArgs[0] && size(newArgs[0]) === size(oldArgs[0])) {
                 //更新
-                const lastAry = LastValueMap.get(el);
-                // const lastRenderTmpl = LastTmplMap.get(el)
-                let startNode = DI_COMMENT_START_NODE_MAP.get(pointNode);
-                let nodes = DomUtil.getNodes(startNode, pointNode);
-                if (isEmpty(nodes) && (!newArgs || isEmpty(newArgs[0])))
+                let updatedKey = keys(updatedMap).find(k => endsWith(k, last(varChain)));
+                if (updatedKey && get(updatedMap, [updatedKey, 'end'], true)) {
+                    const lastRenderTmpl = LastTmplMap$1.get(el);
                     return [DirectiveUpdateTag.NONE, lastRenderTmpl];
-                if (lastAry && isMatch(lastAry, newArgs[0]) && lastAry.length === newArgs[0].length)
-                    return [DirectiveUpdateTag.NONE, lastRenderTmpl];
+                }
             }
-            LastValueMap.set(el, clone(newArgs[0]));
             if (oldArgs) {
                 return [DirectiveUpdateTag.UPDATE, lastRenderTmpl];
             }
@@ -10779,7 +10826,7 @@
                 //更新
                 if (!!condi === !!oldArgs[0]) {
                     let tmpl = LastTmplMap.get(el);
-                    return [DirectiveUpdateTag.NONE, tmpl.call(renderComponent, condi)];
+                    return [DirectiveUpdateTag.UPDATE, new Template(['', ''], [tmpl.call(renderComponent, condi)])];
                 }
                 let tmpl = condi ? ifTmpl : elseTmpl;
                 LastTmplMap.set(el, tmpl);
@@ -10803,7 +10850,7 @@
             if (oldArgs) {
                 //更新
                 if (condi === oldArgs[0])
-                    return [DirectiveUpdateTag.NONE, condi ? render() : html ``];
+                    return [DirectiveUpdateTag.UPDATE, new Template(['', ''], [condi ? render() : html ``])];
                 if (condi) {
                     return [DirectiveUpdateTag.REPLACE, condi ? render() : html ``];
                 }
@@ -10841,7 +10888,7 @@
                 if (!isObject(newValue) && Object.is(newValue, oldValue))
                     return;
                 if (node instanceof CompElem) {
-                    node._updateProps({ [updateProp]: newValue });
+                    node.updateProps({ [updateProp]: newValue });
                 }
                 else if (node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) {
                     node.setAttribute(updateProp, newValue + '');
@@ -11050,28 +11097,6 @@
             el.style.cssText = cssText + ePairs.join(';');
         };
     }, [EnterPointType.STYLE]);
-
-    /**
-     * 类似Model，实现属性的同步跟踪
-     * 设置组件prop，并监控 @update:prop 事件
-     * @param syncValue 双向绑定的组件变量
-     */
-    directive(function Sync(syncValue) {
-        return (pointNode, newArgs, oldArgs, { renderComponent, varChain, attrName }) => {
-            const targetComponent = pointNode;
-            if (oldArgs) {
-                if (!isEqual(newArgs, oldArgs)) {
-                    targetComponent._updateProps({ [attrName]: newArgs[0] });
-                }
-                return;
-            }
-            let modelPath = last(varChain);
-            targetComponent._initProps({ [attrName]: newArgs[0] });
-            targetComponent.addEventListener('update:' + attrName, (e) => {
-                set(renderComponent, modelPath, e.detail.value);
-            });
-        };
-    }, [EnterPointType.PROP]);
 
     const LastConditionMap = new WeakMap();
     /**

@@ -3,7 +3,7 @@ import { CompElem } from "../CompElem";
 import { Collector } from "../reactive";
 import { buildSubView, updateSubScopeView } from "../render/render";
 import { Template } from "../render/Template";
-import { DirectiveExecutor, DirectiveInstance, DirectiveUpdateTag, EnterPointType, UpdatePoint } from "../types";
+import { DirectiveExecutor, DirectiveInstance, DirectiveUpdateTag, EnterPointType, UpdatedSource, UpdatePoint } from "../types";
 import { DomUtil, showError, showTagError } from "../utils";
 
 export const DI_COMMENT_START_NODE_MAP = new WeakMap<Node, Node>()
@@ -65,15 +65,15 @@ function addNodes(adds: Record<string, any>[], newTmpls: Record<string, Template
   return addGroup
 }
 
-export function updateDirective(pointNode: Node, newArgs: any[], oldArgs: any[], executor: DirectiveExecutor, renderComponent: CompElem, slotComponent: CompElem, varChain: any[], up: UpdatePoint) {
+export function updateDirective(pointNode: Node, newArgs: any[], oldArgs: any[], executor: DirectiveExecutor, renderComponent: CompElem, slotComponent: CompElem, varChain: any[], up: UpdatePoint, updatedMap?: Record<string, UpdatedSource>) {
   let rs
   let isTextOrSlot = [EnterPointType.TEXT, EnterPointType.SLOT].includes(get(executor, '__scope', ''))
   if (isTextOrSlot) {
     Collector.start()
-    rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain })
+    rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain, updatedMap })
     Collector.end(renderComponent, up)
   } else {
-    rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain })
+    rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain, updatedMap })
   }
 
   if (!rs) return
@@ -143,6 +143,8 @@ export function updateDirective(pointNode: Node, newArgs: any[], oldArgs: any[],
       tmpl.vars.forEach(v => {
         if (v instanceof Template) {
           const k = v.getKey()
+          if (!k) return
+
           newTmpls[k] = v
           newKeys[k] = true
           newSeq.push(k)

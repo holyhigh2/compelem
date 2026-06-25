@@ -1,18 +1,18 @@
 import {
-  clone,
-  isEmpty,
-  isMatch,
+  endsWith,
+  get,
+  keys,
   last,
   map,
+  size,
   trim
 } from "myfx";
 import { EXP_KEY } from "../constants";
-import { DI_COMMENT_START_NODE_MAP, directive } from "../directive/index";
+import { directive } from "../directive/index";
 import { Template } from "../render/Template";
-import { DirectiveUpdateTag, EnterPointType, TmplFn } from "../types";
-import { DomUtil, showError } from "../utils";
+import { DirectiveUpdateTag, EnterPointType, TmplFn, UpdatedSource } from "../types";
+import { showError } from "../utils";
 
-const LastValueMap = new WeakMap()
 const LastTmplMap = new WeakMap()
 
 /**
@@ -21,20 +21,18 @@ const LastTmplMap = new WeakMap()
  * 使用序号作为key时可能会导致异常问题
  */
 export const forEach = directive(function ForEach(value: any[] | Record<string, any>, cbk: TmplFn) {
-  return (pointNode: Node, newArgs: any[], oldArgs: any[] | undefined, { varChain }: { varChain: string[] }) => {
+  return (pointNode: Node, newArgs: any[], oldArgs: any[] | undefined, { varChain, updatedMap }: { varChain: string[], updatedMap: Record<string, UpdatedSource> }) => {
     let el = pointNode
     let lastRenderTmpl = comboTmpl(newArgs[0], newArgs[1], el)
-    if (oldArgs && oldArgs[0]) {
+    if (oldArgs && oldArgs[0] && size(newArgs[0]) === size(oldArgs[0])) {
       //更新
-      const lastAry = LastValueMap.get(el)
-      // const lastRenderTmpl = LastTmplMap.get(el)
-      let startNode = DI_COMMENT_START_NODE_MAP.get(pointNode)!
-      let nodes = DomUtil.getNodes(startNode, pointNode)
-      if (isEmpty(nodes) && (!newArgs || isEmpty(newArgs[0]))) return [DirectiveUpdateTag.NONE, lastRenderTmpl]
-      if (lastAry && isMatch(lastAry, newArgs[0]) && lastAry.length === newArgs[0].length) return [DirectiveUpdateTag.NONE, lastRenderTmpl]
-    }
 
-    LastValueMap.set(el, clone(newArgs[0]))
+      let updatedKey = keys(updatedMap).find(k => endsWith(k, last(varChain)))
+      if (updatedKey && get(updatedMap, [updatedKey!, 'end'], true)) {
+        const lastRenderTmpl = LastTmplMap.get(el)
+        return [DirectiveUpdateTag.NONE, lastRenderTmpl]
+      }
+    }
 
     if (oldArgs) {
       return [DirectiveUpdateTag.UPDATE, lastRenderTmpl]

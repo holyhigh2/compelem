@@ -1,5 +1,6 @@
 import { directive } from "../directive/index";
 import { html } from "../render/render";
+import { Template } from "../render/Template";
 import { DirectiveUpdateTag, EnterPointType, TmplFn } from "../types";
 
 /**
@@ -11,7 +12,10 @@ export const ifTrue = directive(function IfTrue(condition: boolean, tmplFn: Tmpl
   return (pointNode: Node, [condi, render]: any[], oldArgs: any[] | undefined) => {
     if (oldArgs) {
       //更新
-      if (condi === oldArgs[0]) return [DirectiveUpdateTag.NONE, condi ? render() : html``]
+      if (condi === oldArgs[0]) return [DirectiveUpdateTag.UPDATE, new Template(
+        ['', ''],
+        [condi ? render() : html``]
+      )]
       if (condi) {
         return [DirectiveUpdateTag.REPLACE, condi ? render() : html``]
       }

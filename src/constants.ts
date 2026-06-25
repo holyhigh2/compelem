@@ -22,6 +22,7 @@ export const DefinitionComponentMap = {} as Record<string, Function>;
 export const DefinitionComputedMap = new WeakMap<Function, Record<string, Getter>>()
 export const DefinitionStateMap = new WeakMap<Function, Record<string, StateOption>>()
 export const DefinitionPropMap = new WeakMap<Function, Record<string, PropOption>>()
+export const DefinitionModelMap = new WeakMap<Function, string[]>()
 export const DefinitionDecoratorMap = new Map<Function, DecoratorWrapper[]>()
 export const ObservedAttrsMap = new Map<Function, Set<string>>()
 
@@ -32,7 +33,6 @@ export const WatchUpdateMap = new WeakMap<Function, Record<string, Set<Function>
 export const WatchDeepUpdateMap = new WeakMap<Function, Record<string, Set<Function>>>()
 export const WatchImmediateListMap = new WeakMap<Function, Record<string, Set<Function>>>()
 
-export const PropSyncKeySetMap = new WeakMap<Function, Set<string>>()
 export const StateShallowKeySetMap = new WeakMap<Function, Set<string>>()
 export const PropShallowKeySetMap = new WeakMap<Function, Set<string>>()
 export const HasChangedPropOrStateMap = new WeakMap<Function, Map<string, Function>>()
