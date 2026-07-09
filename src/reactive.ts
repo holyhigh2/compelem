@@ -70,8 +70,7 @@ export function setterValue(propertyKey: string, v: any, context: CompElem) {
 
   Reflect.set(thisHost[DATA_KEY], propertyKey, v);
 
-  thisHost._notify(oldValue, [propertyKey])
-
+  thisHost._notify(v, oldValue, [propertyKey])
 }
 export function emitModelEvent(propertyKey: string, v: any, context: CompElem) {
   context.emit('update:' + propertyKey, { value: v })
@@ -266,7 +265,7 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
         //check css
         requestCssUpdate(ctx, ck)
 
-        notifyUpdate(ctx, rootObjOld, ck.split('.'), nv, ov)
+        notifyUpdate(ctx, rootObjNew, rootObjOld, ck.split('.'), nv, ov)
       })
 
       return rs;
@@ -290,8 +289,8 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
   return proxyObject
 }
 
-export function notifyUpdate(context: CompElem, oldValue: any, path: string[], subNewValue?: any, subOldValue?: any) {
-  context._notify(oldValue, path)
+export function notifyUpdate(context: CompElem, newValue: any, oldValue: any, path: string[], subNewValue?: any, subOldValue?: any) {
+  context._notify(newValue, oldValue, path)
 }
 
 export function requestUpdate(context: CompElem<any>, nv: any, ov: any, subChain: string[],) {
@@ -307,7 +306,7 @@ export function requestUpdate(context: CompElem<any>, nv: any, ov: any, subChain
   //check css
   requestCssUpdate(context, k)
 
-  notifyUpdate(context, rootObjOld, subChain, nv, ov)
+  notifyUpdate(context, rootObjNew, rootObjOld, subChain, nv, ov)
 }
 
 const QMap = new Map()

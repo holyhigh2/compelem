@@ -1,7 +1,7 @@
 import { CompElem } from "../CompElem";
 import { directive } from "../directive/index";
 import { Template } from "../render/Template";
-import { DirectiveUpdateTag, EnterPointType, TmplFn } from "../types";
+import { DirectiveUpdateTag, EnterPointType, TplFn } from "../types";
 
 const LastTmplMap = new WeakMap()
 /**
@@ -9,7 +9,7 @@ const LastTmplMap = new WeakMap()
  * @param condition 条件 
  * @param tmpl 模板
  */
-export const ifElse = directive(function IfElse(condition: boolean, ifTmpl: TmplFn, elseTmpl: TmplFn) {
+export const ifElse = directive(function IfElse(condition: boolean, ifTmpl: TplFn, elseTmpl: TplFn) {
   return (pointNode: Node, [condi, ifTmpl, elseTmpl]: any[], oldArgs: any[] | undefined, { renderComponent }: { renderComponent: CompElem }) => {
     let el = pointNode as HTMLElement
 

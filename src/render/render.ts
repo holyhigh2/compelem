@@ -214,7 +214,7 @@ export function buildTmplate(
 
             varIndex++;
 
-            executor(currentNode, args, undefined, { renderComponent, slotComponent, varChain })
+            executor(currentNode, args, undefined, { renderComponent, slotComponent, varChain, pointType: EnterPointType.TAG })
           }
           currentNode.removeAttribute(name)
           continue;
@@ -329,7 +329,7 @@ export function buildTmplate(
               }
               checker(type, renderComponent.tagName)
 
-              executor(currentNode, args, undefined, { renderComponent, slotComponent, varChain, attrName })
+              executor(currentNode, args, undefined, { renderComponent, slotComponent, varChain, attrName, pointType: type })
 
               po.value = val;
               po.isDirective = true;
@@ -380,8 +380,9 @@ export function buildTmplate(
             let executor
             let args
 
+            let type = ''
             if (isArray(val) && isSymbol(val[0])) {
-              let type = EnterPointType.ATTR;
+              type = EnterPointType.ATTR;
               if (name === EnterPointType.CLASS) {
                 type = EnterPointType.CLASS;
               } else if (name === EnterPointType.STYLE) {
@@ -409,7 +410,7 @@ export function buildTmplate(
               currentNode.setAttribute(name, value)
             }
 
-            executor && executor(currentNode, args!, undefined, { renderComponent, slotComponent })
+            executor && executor(currentNode, args!, undefined, { renderComponent, slotComponent, pointType: type })
           }
 
           updatePoints.push(po)
@@ -464,7 +465,7 @@ export function buildTmplate(
 
         po.directiveOldValue = [args, varChain]
         Collector.start()
-        let tmpl = executor(comment, args, undefined, { renderComponent, slotComponent, varChain })!
+        let tmpl = executor(comment, args, undefined, { renderComponent, slotComponent, varChain, pointType: pType })!
         Collector.end(renderComponent, po)
 
         //render
@@ -626,7 +627,7 @@ export function updateSubScopeView(subScopeUpdatePoint: UpdatePoint, renderCompo
   let slotComponent = getSlotComponent(node!, renderComponent)
   const [oldArgs, varChain] = subScopeUpdatePoint.directiveOldValue!
   if (!tmpl) {
-    let rs = executor(node!, subScopeUpdatePoint.value[1], oldArgs, { renderComponent, slotComponent, varChain, updatedMap })!
+    let rs = executor(node!, subScopeUpdatePoint.value[1], oldArgs, { renderComponent, slotComponent, varChain, updatedMap, pointType: get(executor, '__scope', EnterPointType.TEXT) })!
     if (!rs) return
     tmpl = rs[1]
   }
@@ -649,11 +650,11 @@ export function updateSubScopeView(subScopeUpdatePoint: UpdatePoint, renderCompo
 
 //////////////////////////////////////////////////// interfaces
 /**
- * 标签函数，用于构建模板
+ * HTML模板函数，用于构建模板
  * @param strings
  * @param vars
  */
-export function html(
+export function h(
   strings: TemplateStringsArray,
   ...vars: any
 ): Template {

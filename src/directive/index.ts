@@ -67,13 +67,14 @@ function addNodes(adds: Record<string, any>[], newTmpls: Record<string, Template
 
 export function updateDirective(pointNode: Node, newArgs: any[], oldArgs: any[], executor: DirectiveExecutor, renderComponent: CompElem, slotComponent: CompElem, varChain: any[], up: UpdatePoint, updatedMap?: Record<string, UpdatedSource>) {
   let rs
-  let isTextOrSlot = [EnterPointType.TEXT, EnterPointType.SLOT].includes(get(executor, '__scope', ''))
+  let pointType = get<any>(executor, '__scope', '')
+  let isTextOrSlot = [EnterPointType.TEXT, EnterPointType.SLOT].includes(pointType)
   if (isTextOrSlot) {
     Collector.start()
-    rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain, updatedMap })
+    rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain, updatedMap, pointType })
     Collector.end(renderComponent, up)
   } else {
-    rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain, updatedMap })
+    rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain, updatedMap, pointType })
   }
 
   if (!rs) return

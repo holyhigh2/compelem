@@ -10,7 +10,7 @@ import {
 import { EXP_KEY } from "../constants";
 import { directive } from "../directive/index";
 import { Template } from "../render/Template";
-import { DirectiveUpdateTag, EnterPointType, TmplFn, UpdatedSource } from "../types";
+import { DirectiveUpdateTag, EnterPointType, TplFn, UpdatedSource } from "../types";
 import { showError } from "../utils";
 
 const LastTmplMap = new WeakMap()
@@ -20,7 +20,7 @@ const LastTmplMap = new WeakMap()
  * foreach循环的只能是节点，且必须有key属性。非节点元素会被过滤掉
  * 使用序号作为key时可能会导致异常问题
  */
-export const forEach = directive(function ForEach(value: any[] | Record<string, any>, cbk: TmplFn) {
+export const forEach = directive(function ForEach(value: any[] | Record<string, any>, cbk: TplFn) {
   return (pointNode: Node, newArgs: any[], oldArgs: any[] | undefined, { varChain, updatedMap }: { varChain: string[], updatedMap: Record<string, UpdatedSource> }) => {
     let el = pointNode
     let lastRenderTmpl = comboTmpl(newArgs[0], newArgs[1], el)
@@ -41,7 +41,7 @@ export const forEach = directive(function ForEach(value: any[] | Record<string, 
   };
 }, [EnterPointType.TEXT, EnterPointType.SLOT])
 
-function comboTmpl(value: any[] | Record<string, any>, cbk: TmplFn, el: Node) {
+function comboTmpl(value: any[] | Record<string, any>, cbk: TplFn, el: Node) {
   //1. 产生模板
   let tmpls = map<any, any, Template>(value, (v, k) => {
     return cbk(v, k);

@@ -1,4 +1,4 @@
-import { CompElem, Template, computed, html, prop, query, state, tag, watch, regComponents } from '../src/index';
+import { CompElem, Template, computed, h, prop, query, regComponents, state, tag, watch } from '../src/index';
 
 const Slogan = ['complete', 'componentize', 'compact', 'companion']
 
@@ -114,7 +114,7 @@ export class PageTest extends CompElem {
   }
   render(): Template {
     console.log('render......')
-    return html`<div>
+    return h`<div>
             <i>Welcome to</i>
             <br>
             <h2>CompElem</h2>

@@ -17,7 +17,7 @@ export type SlotOptions = {
     hook: Function
 }
 
-export type TmplFn = (...args: any[]) => Template;
+export type TplFn = (...args: any[]) => Template;
 
 export type UpdatedSource = { value: any; chain?: string[], oldValue?: any, end?: boolean, subNewValue?: any, subOldValue?: any }
 
@@ -134,7 +134,7 @@ export type PropOption = {
     isValid?: (value: any, props?: Record<string, any>) => boolean
 }
 
-export type DirectiveExecutor = (node: Node, newArgs: any[], oldArgs: any[] | undefined, meta?: { renderComponent?: CompElem, slotComponent?: CompElem, varChain?: string[], attrName?: string, updatedMap?: Record<string, UpdatedSource> }) => [DirectiveUpdateTag, Template?] | void
+export type DirectiveExecutor = (node: Node, newArgs: any[], oldArgs: any[] | undefined, meta?: { pointType?: string, renderComponent?: CompElem, slotComponent?: CompElem, varChain?: string[], attrName?: string, updatedMap?: Record<string, UpdatedSource> }) => [DirectiveUpdateTag, Template?] | void
 
 export type DirectiveInstance = [
     symbol,

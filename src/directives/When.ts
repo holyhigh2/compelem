@@ -1,35 +1,35 @@
 import { call, each, findIndex, isFunction } from "myfx";
 import { directive } from "../directive/index";
-import { html } from "../render/render";
+import { h } from "../render/render";
 import { Template } from "../render/Template";
-import { DirectiveUpdateTag, EnterPointType, TmplFn } from "../types";
+import { DirectiveUpdateTag, EnterPointType, TplFn } from "../types";
 const LastConditionMap = new WeakMap()
 /**
  * 分支指令，具有switch / else if 两种模式
  * @example
  *  switch 模式
  * ${when(var, {
-    closed: () => html``, //case 1
-    connecting: () => html``, //case 2
-    default: () => html``// default是switch模式下的关键字key
+    closed: () => h``, //case 1
+    connecting: () => h``, //case 2
+    default: () => h``// default是switch模式下的关键字key
    })}
 
    else if 模式
  * ${when(this.editingTitle, [
-    [(v: any) => v.substring(2) > 0, () => html`<div style="${PageHome.tunnelLight}"></div>`],
-    [(v: any) => v == 'closed', () => html`<div style="${PageHome.tunnelLight}"></div>`],
-    [() => true, () => html`默认`]
+    [(v: any) => v.substring(2) > 0, () => h`<div style="${PageHome.tunnelLight}"></div>`],
+    [(v: any) => v == 'closed', () => h`<div style="${PageHome.tunnelLight}"></div>`],
+    [() => true, () => h`默认`]
     ])}
  * 
  * @param condition 条件 
  * @param tmpl 模板
  */
-export const when = directive(function When(value: string | number, cases: Array<[(v: any) => boolean, TmplFn]> | Record<string | number, TmplFn>) {
-  return (pointNode: Node, [value, cases]: [string | number, Array<[(v: any) => boolean, TmplFn]> | Record<string | number, TmplFn>], oldArgs: any[] | undefined) => {
-    let defaultFn: TmplFn = () => html``;
+export const when = directive(function When(value: string | number, cases: Array<[(v: any) => boolean, TplFn]> | Record<string | number, TplFn>) {
+  return (pointNode: Node, [value, cases]: [string | number, Array<[(v: any) => boolean, TplFn]> | Record<string | number, TplFn>], oldArgs: any[] | undefined) => {
+    let defaultFn: TplFn = () => h``;
     let conditionList: any[] = []
-    let tmplList: TmplFn[] = []
-    each(cases, (v: Array<TmplFn> | TmplFn, k) => {
+    let tmplList: TplFn[] = []
+    each(cases, (v: Array<TplFn> | TplFn, k) => {
       if (isFunction(v)) {
         conditionList.push(k);
         tmplList.push(v);
@@ -40,7 +40,7 @@ export const when = directive(function When(value: string | number, cases: Array
         tmplList.push(tmplFn);
       }
       if (k === 'default') {
-        defaultFn = v as TmplFn
+        defaultFn = v as TplFn
       }
     })
     let i = findIndex(conditionList, c => {

@@ -76,7 +76,7 @@ export class PageTest extends CompElem {
     }, 5000);
   }
   render(): Template {
-    return html`<div>
+    return h`<div>
             <i>Welcome to</i>
             <br>
             <h2>CompElem</h2>
@@ -106,7 +106,7 @@ export class PageTest extends CompElem {
   使用`render()`函数定义组件视图模板
   ```ts
   render(): Template{
-    return html`<div>Hello CompElem</div>`
+    return h`<div>Hello CompElem</div>`
   }
   //对于无需内部样式的组件（如容器类）可返回null（或跳过定义该方法），此时不会创建Shadow DOM
   render(){
@@ -128,7 +128,7 @@ export class PageTest extends CompElem {
 
   ```ts
   render(): Template{
-    return html`<svg *view-box:camel="">...</svg>`// <svg viewBox="">
+    return h`<svg *view-box:camel="">...</svg>`// <svg viewBox="">
   }
   ```
 
@@ -258,7 +258,7 @@ export class PageTest extends CompElem {
   ```ts
   divRef = createRef<HTMLDivElement>();
   //视图片段
-  return html` <l-icon></l-icon>
+  return h` <l-icon></l-icon>
     <div ref="${divRef}"></div>`;
   ```
 - ### 内置属性及函数
@@ -353,9 +353,9 @@ CompElem 组件既可以在 CompElem 环境内调用，也可以直接在原生�
 
 ```ts
 //仅可用于CompElem组件中
-return html` <l-tooltip>
+return h` <l-tooltip>
   ${slot(
-    (args: Record<string, any>) => html`
+    (args: Record<string, any>) => h`
       <div>我是动态内容-${args.data.id}</div>
     `,
     "content"
@@ -412,13 +412,12 @@ return html` <l-tooltip>
 | model   | TAG       | 双向绑定                                                    | `<div a="b" ${model(xx,modelPath?)}>`    
 | classes | CLASS     | 绑定样式类属性，支持对象/数组/字符串。可以和静态字符混用    | `<div class="otherClass ${classes(obj)}>"`             |
 | styles  | STYLE     | 绑定样式规则属性，支持对象/字符串。可以和静态字符混用       | `<div style="a:b;${styles(obj)}>"`                     |
-| forEach | TEXT/SLOT | 输出循环结构                                                | `...>${forEach(ary,(item)=>html`...`)}<...`            |
-| ifTrue  | TEXT/SLOT | 当条件为 true 时输出模板内容                                | `...>${ifTrue(condition,()=>html`...`)}<...`           |
-| ifElse  | TEXT/SLOT | 当条件为 true/false 时输出对应模板内容                      | ` ...>${ifElse(condition,()=>html``,()=>html``)}<... ` |
-| when    | TEXT/SLOT | 多条件分支，支持 switch/ifelse 两种模式                     | ` ...>${when(condition,{c1:()=>html``,c2:...})}<... `  |
-| slot    | SLOT      | 动态插槽                                                    | ` ...>${slot((args) => html``)}<... `                  |
-| htmlD    | TAG      | 向指定元素插入HTML内容                                                    | `<div a="b" ${htmlD('<b>1</b>')}>`                  |
-| htmlC    | TEXT/SLOT      | 向指定文本位置插入指定HTML内容                                                    | `...>${htmlC('<b>1</b>')}><...`                  |
+| forEach | TEXT/SLOT | 输出循环结构                                                | `...>${forEach(ary,(item)=>h`...`)}<...`            |
+| ifTrue  | TEXT/SLOT | 当条件为 true 时输出模板内容                                | `...>${ifTrue(condition,()=>h`...`)}<...`           |
+| ifElse  | TEXT/SLOT | 当条件为 true/false 时输出对应模板内容                      | ` ...>${ifElse(condition,()=>h``,()=>h``)}<... ` |
+| when    | TEXT/SLOT | 多条件分支，支持 switch/ifelse 两种模式                     | ` ...>${when(condition,{c1:()=>h``,c2:...})}<... `  |
+| slot    | SLOT      | 动态插槽                                                    | ` ...>${slot((args) => h``)}<... `                  |
+| html    | TAG/TEXT/SLOT      | 向指定元素/文本位置插入HTML内容                                                    | `<div a="b" ${html('<b>1</b>')}> ...>${html('<b>1</b>')}<...`                  |
 
 ## 装饰器 Decorator
 

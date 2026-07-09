@@ -1,6 +1,6 @@
 import { each } from "myfx";
 import { DefinitionComponentMap } from "./constants";
-import { buildHTML, createRef, html } from "./render/render";
+import { buildHTML, createRef, h } from "./render/render";
 import { Template } from './render/Template';
 
 //decorators
@@ -21,8 +21,7 @@ export * from "./directive/index";
 export * from "./directives/Bind";
 export * from "./directives/Classes";
 export * from "./directives/ForEach";
-export * from "./directives/HtmlC";
-export * from "./directives/HtmlD";
+export * from "./directives/Html";
 export * from "./directives/IfElse";
 export * from "./directives/IfTrue";
 export * from "./directives/Model";
@@ -31,7 +30,7 @@ export * from "./directives/Slot";
 export * from "./directives/Styles";
 export * from "./directives/When";
 
-export { buildHTML, createRef, html, Template };
+export { buildHTML, createRef, h, Template };
 export function regComponents() {
     each(DefinitionComponentMap, (clz, name) => {
         customElements.define(name, clz as any)

@@ -1,4 +1,4 @@
-/* compelem 0.23.0 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
+/* compelem 0.24.0 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
 (function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
@@ -7310,7 +7310,7 @@
         //check css
         requestCssUpdate(thisHost, propertyKey);
         Reflect.set(thisHost[DATA_KEY], propertyKey, v);
-        thisHost._notify(oldValue, [propertyKey]);
+        thisHost._notify(v, oldValue, [propertyKey]);
     }
     function emitModelEvent(propertyKey, v, context) {
         context.emit('update:' + propertyKey, { value: v });
@@ -7494,7 +7494,7 @@
                     requestComputedUpdate(ctx, ck);
                     //check css
                     requestCssUpdate(ctx, ck);
-                    notifyUpdate(ctx, rootObjOld, ck.split('.'));
+                    notifyUpdate(ctx, rootObjNew, rootObjOld, ck.split('.'));
                 });
                 return rs;
             }
@@ -7513,8 +7513,8 @@
         }
         return proxyObject;
     }
-    function notifyUpdate(context, oldValue, path, subNewValue, subOldValue) {
-        context._notify(oldValue, path);
+    function notifyUpdate(context, newValue, oldValue, path, subNewValue, subOldValue) {
+        context._notify(newValue, oldValue, path);
     }
     function requestUpdate(context, nv, ov, subChain) {
         let rootObjNew = nv;
@@ -7528,7 +7528,7 @@
         requestComputedUpdate(context, k);
         //check css
         requestCssUpdate(context, k);
-        notifyUpdate(context, rootObjOld, subChain);
+        notifyUpdate(context, rootObjNew, rootObjOld, subChain);
     }
     const QMap = new Map();
     class Queue {
@@ -8597,12 +8597,12 @@
          * @param rootStateKey 如果是对象内部属性变更，会返回根属性名
          * @returns
          */
-        _notify(ov, chain, subNewValue, subOldValue) {
+        _notify(nv = undefined, ov, chain, subNewValue, subOldValue) {
             let varPath = [];
             for (let i = 0; i < chain.length; i++) {
                 const seg = chain[i];
                 varPath.push(seg);
-                let v = get(this, varPath);
+                let v = get(this, varPath) ?? nv;
                 let pathStr = _toUpdatePath(varPath);
                 this.#updateSources[pathStr] = { value: v, chain: pathStr === PROP_NAME_SLOTS ? [PROP_NAME_SLOTS] : varPath, oldValue: ov, end: varPath.length === chain.length, subNewValue, subOldValue };
             }
@@ -8661,7 +8661,7 @@
                 if (!isObject(newValue) && newValue === oldValue)
                     return;
                 this.__data_[k] = newValue;
-                this._notify(oldValue, [k]);
+                this._notify(newValue, oldValue, [k]);
             });
             this._computedUpdateSetInNextTick?.clear();
             // update css
@@ -8902,8 +8902,10 @@
             let propDefs = DefinitionPropMap.get(this.constructor);
             if (!propDefs)
                 return;
-            if (!this.__inited)
+            if (!this.__inited) {
+                assign(this.#props, props);
                 return;
+            }
             let need2UpdateAttrs = [];
             //存在attrs表示已初始化完成
             each(props, (v, k) => {
@@ -8940,7 +8942,7 @@
                     need2UpdateAttrs.push([propDef, ck, v]);
                 }
                 set(this.__data_, ck, v);
-                requestUpdate(this, v, oldValue, [k]);
+                requestUpdate(this, v, oldValue, [ck]);
             });
             assign(this.#props, props);
             need2UpdateAttrs.forEach(([propDef, key, v]) => {
@@ -9464,14 +9466,15 @@
     }
     function updateDirective(pointNode, newArgs, oldArgs, executor, renderComponent, slotComponent, varChain, up, updatedMap) {
         let rs;
-        let isTextOrSlot = [EnterPointType.TEXT, EnterPointType.SLOT].includes(get(executor, '__scope', ''));
+        let pointType = get(executor, '__scope', '');
+        let isTextOrSlot = [EnterPointType.TEXT, EnterPointType.SLOT].includes(pointType);
         if (isTextOrSlot) {
             Collector.start();
-            rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain, updatedMap });
+            rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain, updatedMap, pointType });
             Collector.end(renderComponent, up);
         }
         else {
-            rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain, updatedMap });
+            rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain, updatedMap, pointType });
         }
         if (!rs)
             return;
@@ -9884,7 +9887,7 @@
                                 po.key = keyVal;
                             }
                             varIndex++;
-                            executor(currentNode, args, undefined, { renderComponent, slotComponent, varChain });
+                            executor(currentNode, args, undefined, { renderComponent, slotComponent, varChain, pointType: EnterPointType.TAG });
                         }
                         currentNode.removeAttribute(name);
                         continue;
@@ -9978,7 +9981,7 @@
                                     type = attrName;
                                 }
                                 checker(type, renderComponent.tagName);
-                                executor(currentNode, args, undefined, { renderComponent, slotComponent, varChain, attrName });
+                                executor(currentNode, args, undefined, { renderComponent, slotComponent, varChain, attrName, pointType: type });
                                 po.value = val;
                                 po.isDirective = true;
                             }
@@ -10029,8 +10032,9 @@
                             po.value = val;
                             let executor;
                             let args;
+                            let type = '';
                             if (isArray(val) && isSymbol(val[0])) {
-                                let type = EnterPointType.ATTR;
+                                type = EnterPointType.ATTR;
                                 if (name === EnterPointType.CLASS) {
                                     type = EnterPointType.CLASS;
                                 }
@@ -10053,7 +10057,7 @@
                             if (isDefined(value)) {
                                 currentNode.setAttribute(name, value);
                             }
-                            executor && executor(currentNode, args, undefined, { renderComponent, slotComponent });
+                            executor && executor(currentNode, args, undefined, { renderComponent, slotComponent, pointType: type });
                         }
                         updatePoints.push(po);
                         varIndex++;
@@ -10098,7 +10102,7 @@
                     checker(pType, renderComponent.tagName);
                     po.directiveOldValue = [args, varChain];
                     Collector.start();
-                    let tmpl = executor(comment, args, undefined, { renderComponent, slotComponent, varChain });
+                    let tmpl = executor(comment, args, undefined, { renderComponent, slotComponent, varChain, pointType: pType });
                     Collector.end(renderComponent, po);
                     //render
                     if (tmpl) {
@@ -10251,7 +10255,7 @@
         let slotComponent = getSlotComponent(node, renderComponent);
         const [oldArgs, varChain] = subScopeUpdatePoint.directiveOldValue;
         if (!tmpl) {
-            let rs = executor(node, subScopeUpdatePoint.value[1], oldArgs, { renderComponent, slotComponent, varChain, updatedMap });
+            let rs = executor(node, subScopeUpdatePoint.value[1], oldArgs, { renderComponent, slotComponent, varChain, updatedMap, pointType: get(executor, '__scope', EnterPointType.TEXT) });
             if (!rs)
                 return;
             tmpl = rs[1];
@@ -10273,11 +10277,11 @@
     }
     //////////////////////////////////////////////////// interfaces
     /**
-     * 标签函数，用于构建模板
+     * HTML模板函数，用于构建模板
      * @param strings
      * @param vars
      */
-    function html(strings, ...vars) {
+    function h(strings, ...vars) {
         return new Template(isString(strings) ? [strings] : strings, vars);
     }
     const EXP_STR = /([a-z0-9"'])\s*>\s*</img;
@@ -10783,35 +10787,35 @@
     }
 
     let compiler = document.createElement('div');
+    let startNodeMap = new WeakMap();
     /**
-     * 向指定文本位置插入指定HTML内容
-     * @param htmlStr html内容
-     */
-    directive(function HtmlC(htmlStr) {
-        return (pointNode, newArgs, oldArgs, { renderComponent, slotComponent }) => {
-            if (oldArgs && newArgs[0] == oldArgs[0])
-                return;
-            if (isNil(newArgs[0]))
-                return;
-            compiler.innerHTML = convertHTML(newArgs[0]);
-            pointNode.after(...compiler.childNodes);
-        };
-    }, [EnterPointType.TEXT, EnterPointType.SLOT]);
-
-    /**
-     * 向元素中插入指定HTML内容
+     * 向元素/文本中插入指定HTML内容
      * 注意，应用该指令的元素内部不应再出现表达式，否则会导致异常显示
      * @param htmlStr html内容
      */
-    directive(function HtmlD(htmlStr) {
+    directive(function Html(htmlStr) {
         return (pointNode, newArgs, oldArgs, { renderComponent, slotComponent }) => {
             if (oldArgs && newArgs[0] == oldArgs[0])
                 return;
             if (isNil(newArgs[0]))
                 return;
-            pointNode.innerHTML = convertHTML(newArgs[0]);
+            if (isElement(pointNode)) {
+                (pointNode).innerHTML = convertHTML(newArgs[0]);
+            }
+            else {
+                let startNode = startNodeMap.get(pointNode);
+                if (!startNode) {
+                    startNode = pointNode.previousSibling;
+                    startNodeMap.set(pointNode, startNode);
+                }
+                compiler.innerHTML = convertHTML(newArgs[0]);
+                if (!isBlank(oldArgs)) {
+                    DomUtil.remove(startNode, pointNode);
+                }
+                pointNode.before(...compiler.childNodes);
+            }
         };
-    }, [EnterPointType.TAG]);
+    }, [EnterPointType.TAG, EnterPointType.TEXT, EnterPointType.SLOT]);
 
     const LastTmplMap = new WeakMap();
     /**
@@ -10845,19 +10849,19 @@
      * @param condition 条件
      * @param tmpl 模板
      */
-    directive(function IfTrue(condition, tmplFn) {
+    directive(function IfTrue(condition, tplFn) {
         return (pointNode, [condi, render], oldArgs) => {
             if (oldArgs) {
                 //更新
                 if (condi === oldArgs[0])
-                    return [DirectiveUpdateTag.UPDATE, new Template(['', ''], [condi ? render() : html ``])];
+                    return [DirectiveUpdateTag.UPDATE, new Template(['', ''], [condi ? render() : h ``])];
                 if (condi) {
-                    return [DirectiveUpdateTag.REPLACE, condi ? render() : html ``];
+                    return [DirectiveUpdateTag.REPLACE, condi ? render() : h ``];
                 }
                 return [DirectiveUpdateTag.REMOVE];
             }
             else {
-                return [DirectiveUpdateTag.APPEND, condi ? render() : html ``];
+                return [DirectiveUpdateTag.APPEND, condi ? render() : h ``];
             }
         };
     }, [EnterPointType.TEXT, EnterPointType.SLOT]);
@@ -11121,7 +11125,7 @@
      */
     directive(function When(value, cases) {
         return (pointNode, [value, cases], oldArgs) => {
-            let defaultFn = () => html ``;
+            let defaultFn = () => h ``;
             let conditionList = [];
             let tmplList = [];
             each(cases, (v, k) => {
@@ -11265,7 +11269,7 @@
         }
         render() {
             console.log('render......');
-            return html `<div>
+            return h `<div>
             <i>Welcome to</i>
             <br>
             <h2>CompElem</h2>

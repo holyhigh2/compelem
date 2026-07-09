@@ -45,7 +45,7 @@ import { IComponent } from "./IComponent";
 import { Collector, getterValue, OBJECT_VAR_PATH, Queue, requestUpdate, setterValue } from "./reactive";
 import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildView, updateSubScopeView, updateView } from "./render/render";
 import { Template } from "./render/Template";
-import { Constructor, DefaultProps, Getter, PropOption, SlotOptions, StateOption, TmplFn, UpdatedSource, UpdatePoint } from "./types";
+import { Constructor, DefaultProps, Getter, PropOption, SlotOptions, StateOption, TplFn, UpdatedSource, UpdatePoint } from "./types";
 import { _getSuper, _toUpdatePath, getBooleanValue, isBooleanProp, showTagError } from "./utils";
 const PropTypeMap: Record<string, Constructor<any>> = {
   boolean: Boolean,
@@ -747,12 +747,12 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
    * @param rootStateKey 如果是对象内部属性变更，会返回根属性名
    * @returns
    */
-  _notify(ov: any, chain: string[], subNewValue?: any, subOldValue?: any) {
+  _notify(nv: any = undefined, ov: any, chain: string[], subNewValue?: any, subOldValue?: any) {
     let varPath = [];
     for (let i = 0; i < chain.length; i++) {
       const seg = chain[i];
       varPath.push(seg);
-      let v = get(this, varPath);
+      let v = get(this, varPath) ?? nv;
       let pathStr = _toUpdatePath(varPath);
       this.#updateSources[pathStr] = { value: v, chain: pathStr === PROP_NAME_SLOTS ? [PROP_NAME_SLOTS] : varPath, oldValue: ov, end: varPath.length === chain.length, subNewValue, subOldValue };
     }
@@ -814,7 +814,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       if (!isObject(newValue) && newValue === oldValue) return
 
       this.__data_[k] = newValue
-      this._notify(oldValue, [k])
+      this._notify(newValue, oldValue, [k])
     })
     this._computedUpdateSetInNextTick?.clear()
     // update css
@@ -1068,7 +1068,10 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   updateProps(props: Record<string, any>) {
     let propDefs = DefinitionPropMap.get(this.constructor)
     if (!propDefs) return
-    if (!this.__inited) return
+    if (!this.__inited) {
+      assign(this.#props, props)
+      return
+    }
 
     let need2UpdateAttrs: Array<any> = []
     //存在attrs表示已初始化完成
@@ -1106,7 +1109,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       }
 
       set(this.__data_, ck, v)
-      requestUpdate(this, v, oldValue, [k])
+      requestUpdate(this, v, oldValue, [ck])
     })
     assign(this.#props, props)
 
@@ -1280,8 +1283,8 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     }
 
   }
-  _asyncDirectives = new WeakMap<TmplFn, any>()
-  renderAsync(cbk: TmplFn, ...args: any[]) {
+  _asyncDirectives = new WeakMap<TplFn, any>()
+  renderAsync(cbk: TplFn, ...args: any[]) {
   }
 
   #attrChanged(name: string, oldValue: string | null, newValue: string | null) {
