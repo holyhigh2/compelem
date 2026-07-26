@@ -1,5 +1,6 @@
-import { closest, isBlank, isString, isUndefined, some, toPath } from "myfx";
+import { assign, closest, isBlank, isString, isUndefined, some, toPath } from "myfx";
 import { CompElem } from "./CompElem";
+import { ComponentUninitializedSubComponentPropMap, DefinitionComponentMap } from "./constants";
 
 export function showError(msg: string): void {
   console.error(`[CompElem]`, msg);
@@ -97,4 +98,18 @@ export function getSlotComponent(node: Node, renderComponent: CompElem) {
   let documentFragment = closest(node!, (n: any) => n.host && n.host instanceof CompElem, 'parentNode')
   if (documentFragment && documentFragment.host === renderComponent) return undefined
   return documentFragment ? documentFragment.host : undefined
+}
+
+export function isCompElemNode(node: Element) {
+  return !!DefinitionComponentMap[node.tagName.toLowerCase()]
+}
+
+export function addUninitializedSubComponentProp(wrapperComponent: CompElem, node: Element, props: Record<string, any>) {
+  let propMap = ComponentUninitializedSubComponentPropMap.get(wrapperComponent)
+  if (!propMap) {
+    propMap = new Map()
+    ComponentUninitializedSubComponentPropMap.set(wrapperComponent, propMap)
+  }
+  let p = propMap.get(node) ?? {}
+  propMap.set(node, assign(p, props))
 }

@@ -39,7 +39,7 @@ export default [{
     json(),
   ],
   watch: {
-    include: 'test/**', // 监视 src 目录下的所有文件
+    include: 'test/**/*',
   }
 }
 ];

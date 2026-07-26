@@ -3,7 +3,6 @@
  */
 import { CompElem } from "./CompElem";
 import { Template } from "./render/Template";
-import { DomUtil } from "./utils";
 
 export type Constructor<T> = new (...args: any[]) => T;
 export type Getter = () => any;
@@ -18,6 +17,7 @@ export type SlotOptions = {
 }
 
 export type TplFn = (...args: any[]) => Template;
+export type KeyFn = (item: any, k: string | number, i: number) => string | number;
 
 export type UpdatedSource = { value: any; chain?: string[], oldValue?: any, end?: boolean, subNewValue?: any, subOldValue?: any }
 
@@ -28,8 +28,6 @@ export enum EnterPointType {
     ATTR = "attr", //属性，文本内容，可以内嵌多插值
     PROP = "prop", //参数，智能内嵌一个插值
     TEXT = "text",
-    CLASS = "class",
-    STYLE = "style",
     SLOT = "slot",
     TAG = 'tag' //在标签内但不是属性内
 }
@@ -134,22 +132,23 @@ export type PropOption = {
     isValid?: (value: any, props?: Record<string, any>) => boolean
 }
 
-export type DirectiveExecutor = (node: Node, newArgs: any[], oldArgs: any[] | undefined, meta?: { pointType?: string, renderComponent?: CompElem, slotComponent?: CompElem, varChain?: string[], attrName?: string, updatedMap?: Record<string, UpdatedSource> }) => [DirectiveUpdateTag, Template?] | void
+export type DirectiveExecutor = (node: Node, newArgs: any[], oldArgs: any[] | undefined, meta?: { pointType?: string, renderComponent?: CompElem, slotComponent?: CompElem, varChain?: string[], attrName?: string, updatedMap?: Record<string, UpdatedSource> }) => [DirectiveUpdateTag, ...any] | void
 
 export type DirectiveInstance = [
-    symbol,
-    Array<any>,// args
+    // symbol,
     DirectiveExecutor,// executor
-    (scopeType: string, tagName: string) => void,// scope checker
+    Array<any>,// args
+    Function,// scope checker
     any[] // varChain
 ]
 
 export enum DirectiveUpdateTag {
     NONE = 'NONE',//框架不处理
+    REFRESH = 'REFRESH',//刷新视图
     REMOVE = 'REMOVE',//删除指令创建的节点
     REPLACE = 'REPLACE',//删除已有节点后插入
     UPDATE = 'UPDATE',//对比更新
-    APPEND = 'APPEND'
+    INIT = 'INIT'//首次渲染
 }
 
 export type DefaultProps = Partial<{
@@ -160,104 +159,3 @@ export type DefaultProps = Partial<{
     //组件的默认prop
     [key: string]: Record<string, any>
 }>
-
-/**
- * 视图更新点
- */
-export class UpdatePoint {
-    //在子视图中的平级key
-    key: string
-    //表达式对应的vars位置
-    varIndex: number
-    value: any
-    //表达式所在节点，可能是元素/文本
-    node: WeakRef<Node>;
-    //如果在属性中，属性名
-    attrName: string
-    //属性值模板
-    attrTmpl: string
-    isText: boolean = false;
-    //是否模板
-    // isTmpl: boolean = false;
-    isDirective: boolean = false;
-    //是否组件
-    isComponent: boolean = false;
-    //是否组件属性
-    isProp: boolean = false;
-    //是否布尔属性
-    isToggleProp: boolean = false;
-    //是否被更新，对于 key，event，ref等属性不需要更新，仅用于占位
-    isPlaceholder: boolean
-
-    __destroyed = false
-    directiveOldValue: Array<any> | null
-    children: UpdatePoint[] | null
-    parent: UpdatePoint | null
-
-    constructor(varIndex: number, node?: WeakRef<Node>, attrName?: string, attrTmpl?: string) {
-        this.varIndex = varIndex
-        if (node)
-            this.node = node;
-        if (attrName)
-            this.attrName = attrName;
-        if (attrTmpl) {
-            this.attrTmpl = attrTmpl
-        }
-    }
-
-    static createFrom(up: UpdatePoint) {
-        let newUp = new UpdatePoint(up.varIndex, up.node!, up.attrName, up.attrTmpl)
-        newUp.key = up.key
-        newUp.value = up.value
-        newUp.isText = up.isText
-        newUp.isDirective = up.isDirective
-        newUp.isComponent = up.isComponent
-        newUp.isProp = up.isProp
-        newUp.isToggleProp = up.isToggleProp
-        newUp.isPlaceholder = up.isPlaceholder
-        return newUp
-    }
-
-    destroy(contextComponent?: CompElem<any>) {
-        if (this.__destroyed) return;
-        this.__destroyed = true
-        let node = this.node
-        let children = this.children
-        let parent = this.parent
-        //clean up
-        this.node = this.value = this.directiveOldValue = this.children = this.parent = null as any
-        if (!node) return
-        //sup scope
-        let pChildren = parent?.children || contextComponent?.__updateTree
-        if (pChildren) {
-            // let i = findIndex(pChildren, c => c === this)
-            // pChildren[i] = null
-            // remove(pChildren, c => c === this)
-        }
-
-        // contextComponent?._unregDeps(node.deref()!)
-
-        //sub scopes
-        let updatePoints = children
-        updatePoints?.forEach((up, i) => {
-            up.destroy(contextComponent);
-        });
-
-        if (node instanceof CompElem) {
-            node.destroy()
-        }
-        if (contextComponent) {
-            DomUtil.clear(node.deref() as Element, contextComponent)
-        }
-
-        (node.deref() as any)?.remove()
-    }
-
-    insert(up: UpdatePoint) {
-        up.parent = this
-        if (!this.children) {
-            this.children = []
-        }
-        this.children.push(up)
-    }
-}

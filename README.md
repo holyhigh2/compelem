@@ -398,8 +398,6 @@ return h` <l-tooltip>
 |ATTR|特性|可用于任何特性值之中，仅能插入一个|`attr="${xxx}"`|
 |PROP|属性|可用于任何属性值之中，必须是组件标签，仅能插入一个|`.value="${xxx}"`|
 |TEXT|文本|标签体内，可插入多个|`<div>${xx1}${xx2}${...}</div>`|
-|CLASS|样式类|用于 class 属性值中，仅能插入一个|`class="a ${b}"`|
-|STYLE|样式规则|用于 style 属性值中，仅能插入一个|`style="a:1;${b}"`|
 |SLOT|插槽|与 TEXT 类似，但标签必须是组件||
 |TAG|标签|直接插入在节点标签上|`<div a="b" ${show(..)}>`|
 
@@ -410,9 +408,9 @@ return h` <l-tooltip>
 | bind    | TAG       | 绑定属性/特性到标签上，根据标签类型及组件 prop 定义自动判断 | `<div a="b" ${bind(obj)}>`                             |
 | show    | TAG       | 隐藏/显示标签（基于 display）                               | `<div a="b" ${show(visible)}>`                         |
 | model   | TAG       | 双向绑定                                                    | `<div a="b" ${model(xx,modelPath?)}>`    
-| classes | CLASS     | 绑定样式类属性，支持对象/数组/字符串。可以和静态字符混用    | `<div class="otherClass ${classes(obj)}>"`             |
-| styles  | STYLE     | 绑定样式规则属性，支持对象/字符串。可以和静态字符混用       | `<div style="a:b;${styles(obj)}>"`                     |
-| forEach | TEXT/SLOT | 输出循环结构                                                | `...>${forEach(ary,(item)=>h`...`)}<...`            |
+| classes | TAG     | 绑定样式类属性，支持对象/数组/字符串。可以和静态字符混用    | `<div class="otherClass" ${classes(obj)}>`             |
+| styles  | TAG     | 绑定样式规则属性，支持对象/字符串。可以和静态字符混用       | `<div style="a:b" ${styles(obj)}>`                     |
+| forEach | TEXT/SLOT | 输出循环结构                                                | `...>${forEach(ary, item=>item.id, (item)=>h`...`)}<...`            |
 | ifTrue  | TEXT/SLOT | 当条件为 true 时输出模板内容                                | `...>${ifTrue(condition,()=>h`...`)}<...`           |
 | ifElse  | TEXT/SLOT | 当条件为 true/false 时输出对应模板内容                      | ` ...>${ifElse(condition,()=>h``,()=>h``)}<... ` |
 | when    | TEXT/SLOT | 多条件分支，支持 switch/ifelse 两种模式                     | ` ...>${when(condition,{c1:()=>h``,c2:...})}<... `  |

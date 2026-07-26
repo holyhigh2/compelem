@@ -5,7 +5,7 @@ import { convertHTML } from "../render/render";
 import { EnterPointType } from "../types";
 import { DomUtil } from "../utils";
 
-let compiler = document.createElement('div')
+let compiler = document.createElement('template')
 let startNodeMap = new WeakMap()
 /**
  * 向元素/文本中插入指定HTML内容
@@ -13,7 +13,7 @@ let startNodeMap = new WeakMap()
  * @param htmlStr html内容
  */
 export const html = directive(function Html(htmlStr?: string) {
-  return (pointNode: Node, newArgs: any[], oldArgs: any[] | undefined, { renderComponent, slotComponent }: { renderComponent: CompElem, slotComponent: CompElem }) => {
+  return (pointNode: Node, newArgs: any[], oldArgs: any[] | undefined, { renderComponent }: { renderComponent: CompElem }) => {
     if (oldArgs && newArgs[0] == oldArgs[0]) return
     if (isNil(newArgs[0])) return
 
@@ -22,14 +22,15 @@ export const html = directive(function Html(htmlStr?: string) {
     } else {
       let startNode = startNodeMap.get(pointNode)
       if (!startNode) {
-        startNode = pointNode.previousSibling
+        startNode = document.createTextNode('')
+        pointNode.parentNode?.insertBefore(startNode, pointNode)
         startNodeMap.set(pointNode, startNode)
       }
       compiler.innerHTML = convertHTML(newArgs[0]);
       if (!isBlank(oldArgs)) {
         DomUtil.remove(startNode, pointNode)
       }
-      (pointNode as HTMLElement).before(...compiler.childNodes)
+      (pointNode as HTMLElement).before(compiler.content.cloneNode(true))
     }
   };
 }, [EnterPointType.TAG, EnterPointType.TEXT, EnterPointType.SLOT])

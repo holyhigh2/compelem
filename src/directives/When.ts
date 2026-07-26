@@ -1,9 +1,11 @@
-import { call, each, findIndex, isFunction } from "myfx";
+import { each, findIndex, isFunction } from "myfx";
+import { CompElem } from "../CompElem";
 import { directive } from "../directive/index";
 import { h } from "../render/render";
-import { Template } from "../render/Template";
+import { TemplateMeta } from "../render/TemplateMeta";
 import { DirectiveUpdateTag, EnterPointType, TplFn } from "../types";
 const LastConditionMap = new WeakMap()
+const BranchTmplMMap = new WeakMap<Node, TemplateMeta[]>()
 /**
  * 分支指令，具有switch / else if 两种模式
  * @example
@@ -25,7 +27,7 @@ const LastConditionMap = new WeakMap()
  * @param tmpl 模板
  */
 export const when = directive(function When(value: string | number, cases: Array<[(v: any) => boolean, TplFn]> | Record<string | number, TplFn>) {
-  return (pointNode: Node, [value, cases]: [string | number, Array<[(v: any) => boolean, TplFn]> | Record<string | number, TplFn>], oldArgs: any[] | undefined) => {
+  return (pointNode: Node, [value, cases]: [string | number, Array<[(v: any) => boolean, TplFn]> | Record<string | number, TplFn>], oldArgs: any[] | undefined, { renderComponent }: { renderComponent: CompElem }) => {
     let defaultFn: TplFn = () => h``;
     let conditionList: any[] = []
     let tmplList: TplFn[] = []
@@ -52,13 +54,22 @@ export const when = directive(function When(value: string | number, cases: Array
     })
     let lastCase = LastConditionMap.get(pointNode)
     LastConditionMap.set(pointNode, i)
+    let tplAry = BranchTmplMMap.get(pointNode)
+    if (!tplAry) {
+      tplAry = []
+      BranchTmplMMap.set(pointNode, tplAry)
+    }
+    if (!tplAry[i]) {
+      let tmplM = new TemplateMeta((tmplList[i] ?? defaultFn).call(renderComponent), renderComponent)
+      tplAry[i] = tmplM
+    }
     if (oldArgs) {
       if (lastCase == i) {
-        return [DirectiveUpdateTag.UPDATE, call(tmplList[i] ?? defaultFn) as Template]
+        return [DirectiveUpdateTag.REFRESH, tmplList[i] ?? defaultFn]
       }
-      return [DirectiveUpdateTag.REPLACE, call(tmplList[i] ?? defaultFn) as Template]
+      return [DirectiveUpdateTag.REPLACE, tmplList[i] ?? defaultFn, tplAry[i]]
     }
 
-    return [DirectiveUpdateTag.APPEND, call(tmplList[i] ?? defaultFn) as Template]
+    return [DirectiveUpdateTag.INIT, tmplList[i] ?? defaultFn, tplAry[i]]
   };
 }, [EnterPointType.TEXT, EnterPointType.SLOT])

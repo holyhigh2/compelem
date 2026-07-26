@@ -1,8 +1,11 @@
 import { find, get, isObject, isString, last, set, split, toPath, trim } from "myfx";
 import { CompElem } from "../CompElem";
+import { DefinitionComponentMap } from "../constants";
 import { directive } from "../directive/index";
+import { addEmitEvent } from "../events/event";
+import { OBJECT_VAR_ROOT_PATH_IN_CONTEXT } from "../reactive";
 import { EnterPointType } from "../types";
-import { showError } from "../utils";
+import { addUninitializedSubComponentProp, showError } from "../utils";
 
 export const enum ModelTriggerType {
   CHANGE = 'change',
@@ -23,7 +26,7 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
   return (pointNode: Node, [modelValue, updateProp, modelProp]: any[], oldArgs: any[] | undefined, { varChain, renderComponent }: { renderComponent: CompElem; varChain: string[] }) => {
 
     updateProp = updateProp ?? 'value'
-    const node = pointNode
+    const node = pointNode as Element
     if (oldArgs) {
       const oldValue = oldArgs[0]
       const newValue = modelValue
@@ -78,29 +81,37 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
     }
 
     const rootPath = split(path, '.')[0]
-    if (!(rootPath in renderComponent) && !renderComponent._wrapperProp[rootPath]) {
+    let contextVarPathMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(renderComponent)
+    let rootPathInContext = ''
+    if (contextVarPathMap) {
+      rootPathInContext = contextVarPathMap[rootPath]
+    }
+
+    if (!(rootPath in renderComponent) && (rootPathInContext && !(rootPathInContext in renderComponent))) {
       showError(`model - property '${rootPath}' is not defined on the instance of ` + renderComponent.tagName)
     }
 
     let evList: Array<[string, Function, Node, Function?]> | undefined = renderComponent._eventBindList
 
     if (!isObject(modelValue) && !trim(modelValue)) modelValue = ''
-    if (node instanceof CompElem) {
-      node._initProps({ [updateProp]: modelValue })
+    let ctor = DefinitionComponentMap[node.tagName.toLowerCase()]
+
+    if (ctor) {
+      addUninitializedSubComponentProp(renderComponent, node, { [updateProp]: modelValue })
 
       let evName = 'update:' + updateProp
-      evList.push([evName, function (obj: Record<string, any>) {
+      addEmitEvent(node, renderComponent, evName, function (obj: Record<string, any>) {
         if (process.env.DEV)
           console.debug('Model =>', path)
         let ctx = this
+        //todo 这里需要测试
         let pathFromWrapperComponent = ctx._wrapperProp[rootPath]
         let hasPath = rootPath in ctx
         if (!hasPath && pathFromWrapperComponent && get(ctx.wrapperComponent, rootPath) === get(ctx, pathFromWrapperComponent)) {
           ctx = ctx.wrapperComponent || ctx
         }
         set(ctx, path, obj.value)
-      }, node])
-
+      })
     } else if (node instanceof HTMLTextAreaElement) {
       node.setAttribute(updateProp, modelValue + '');
 

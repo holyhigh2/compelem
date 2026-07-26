@@ -1,5 +1,6 @@
-import { debounce, find, map, once, remove, size, throttle } from "myfx";
+import { debounce, find, get, map, noop, once, remove, set, size, throttle } from "myfx";
 import { CompElem } from "../CompElem";
+import { DefinitionComponentMap } from "../constants";
 import { addExtEvent, isExtEvent } from "./extends";
 
 const MODI_EV_DEBOUNCE = /,|^(debounce:.+)|(debounce$)/;
@@ -55,12 +56,15 @@ export function addEvent(fullName: string, cbk: EvHadler, node: Element, compone
     c = once(c)
   }
 
-  if (node instanceof CompElem) {
+  let ctor = DefinitionComponentMap[node.tagName.toLowerCase()]
+  if (ctor) {
     if (node === component && !parts.includes(MODI_EV_NATIVE)) {
       parts.push(MODI_EV_NATIVE)
     }
-    if (!parts.includes(MODI_EV_NATIVE))
-      return node._addEvent(evName, cbk)
+    if (!parts.includes(MODI_EV_NATIVE)) {
+      addEmitEvent(node, component, evName, c)
+      return noop
+    }
   }
 
   if (isExtEvent(evName)) {
@@ -97,4 +101,15 @@ export function addEvent(fullName: string, cbk: EvHadler, node: Element, compone
     node.removeEventListener(evName, listener, options)
     if (remove) node = null as any
   }
+}
+
+export function addEmitEvent(node: Element, component: CompElem<any>, evName: string, c: EvHadler) {
+  let eventSourceSn = get<number>(node, '__c_emit_event_') ?? component._subComponentEventSn++
+  set(node, '__c_emit_event_', eventSourceSn)
+  let evMap = component._subComponentEventMap.get(eventSourceSn)
+  if (!evMap) {
+    evMap = {}
+    component._subComponentEventMap.set(eventSourceSn, evMap)
+  }
+  evMap[evName] = c
 }

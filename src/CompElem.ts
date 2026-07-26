@@ -37,15 +37,16 @@ import {
   trim,
   walkTree
 } from "myfx";
-import { ComponentDynamicCssUpdaterMap, ComputedUpdateDepsMap, CssUpdateDepsMap, DATA_KEY, DefinitionCompEventMap, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, HasChangedPropOrStateMap, PATH_SEPARATOR, PropShallowKeySetMap, SLOT_NAME_DEFAULT, WatchImmediateListMap, WatchKeysListMap, WatchKeysOnceMap } from "./constants";
+import { ComponentDynamicCssUpdaterMap, ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, ComputedUpdateDepsMap, CssUpdateDepsMap, DATA_KEY, DefinitionCompEventMap, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, HasChangedPropOrStateMap, PATH_SEPARATOR, PropShallowKeySetMap, SLOT_NAME_DEFAULT, WatchImmediateListMap, WatchKeysListMap, WatchKeysOnceMap } from "./constants";
 import { DecoratorWrapper } from "./decorator";
 import { _getObservedAttrs } from "./decorators/prop";
 import { addEvent, EvHadler } from "./events/event";
 import { IComponent } from "./IComponent";
 import { Collector, getterValue, OBJECT_VAR_PATH, Queue, requestUpdate, setterValue } from "./reactive";
-import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildView, updateSubScopeView, updateView } from "./render/render";
+import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildVars, buildView, updateSubScopeView, updateView } from "./render/render";
 import { Template } from "./render/Template";
-import { Constructor, DefaultProps, Getter, PropOption, SlotOptions, StateOption, TplFn, UpdatedSource, UpdatePoint } from "./types";
+import { UpdatePoint } from "./render/UpdatePoint";
+import { Constructor, DefaultProps, Getter, PropOption, SlotOptions, StateOption, TplFn, UpdatedSource } from "./types";
 import { _getSuper, _toUpdatePath, getBooleanValue, isBooleanProp, showTagError } from "./utils";
 const PropTypeMap: Record<string, Constructor<any>> = {
   boolean: Boolean,
@@ -86,7 +87,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       }
       return []
     })
-    //todo...
+
     DefaultGlobalProps = options.global!
     each(options, (v, k) => {
       if (test(k[0], /[A-Z]/)) {
@@ -103,7 +104,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   //保存所有渲染上下文 {CompElem/Directive}
   __updateTree: Array<UpdatePoint>
   _eventBindList: Array<[string, Function, Node, Function?]>
-  _listerners: Record<string, Function> = {};
+
   __docoEventMap: Map<string, Function>
 
   __updateSubViewDeps: Map<string, Set<UpdatePoint>>
@@ -116,6 +117,9 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   _watchUpdateArgsInNextTick: Map<Function, Record<string, any>>
 
   _computedUpdateSetInNextTick: Set<Function>
+
+  _subComponentEventSn = 0
+  _subComponentEventMap = new Map<number, Record<string, Function>>()
 
   get [Symbol.toStringTag]() {
     return this.constructor.name;
@@ -139,7 +143,16 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     return this.#parentComponent?.deref();
   }
   get wrapperComponent(): CompElem | undefined {
-    return this.__wrapperComponent?.deref();
+    // if (!this.#wrapperComponent) {
+    //   let wrapperRoot = closest<ShadowRoot>(
+    //     this.parentNode!,
+    //     (node) =>
+    //       node instanceof ShadowRoot && !!node.host,
+    //     "parentNode"
+    //   );
+    //   this.#wrapperComponent = wrapperRoot ? new WeakRef(wrapperRoot.host as CompElem) : undefined
+    // }
+    return this.#wrapperComponent?.deref();
   }
   get slots(): Record<string, Array<Node>> {
     return EMPTY_SLOTS
@@ -161,7 +174,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   #renderRoot: WeakRef<HTMLElement> | undefined
   #renderRoots: WeakRef<HTMLElement>[]
   #parentComponent: WeakRef<CompElem> | undefined
-  __wrapperComponent: WeakRef<CompElem> | undefined
+  #wrapperComponent: WeakRef<CompElem> | undefined
   #slotsEl: Record<string, HTMLSlotElement> = {};
   #slotHooks: Record<string, (...args: any[]) => Template> = {};
   #slotNodes: Record<string, Node[]> = {};
@@ -270,6 +283,19 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         : new WeakRef((node as ShadowRoot)!.host as CompElem)
       : undefined;
 
+    // let wrapperRoot = closest<ShadowRoot>(
+    //   this.parentNode!,
+    //   (node) =>
+    //     node instanceof ShadowRoot && !!node.host,
+    //   "parentNode"
+    // );
+    let wrapper = ComponentUninitializedWrapperComponentMap.get(this)
+    if (wrapper) {
+      this.#wrapperComponent = new WeakRef(wrapper)
+      ComponentUninitializedWrapperComponentMap.delete(this)
+    }
+    // this.#wrapperComponent = wrapperRoot ? new WeakRef(wrapperRoot.host as CompElem) : undefined
+
     if (!CompElem.__l_globalRule.parentNode) {
       document.head.appendChild(CompElem.__l_globalRule)
     }
@@ -287,9 +313,9 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         }
         set(this.constructor, 'hostCssSheet', styleSheet)
       }
-      let styleRoot = this.__wrapperComponent?.deref()?.shadowRoot ?? this.#parentComponent?.deref()?.shadowRoot ?? this.ownerDocument
+      let styleRoot = this.#wrapperComponent?.deref()?.shadowRoot ?? this.#parentComponent?.deref()?.shadowRoot ?? this.ownerDocument
       //detached el
-      if (this.__wrapperComponent && !this.__wrapperComponent.deref()?.shadowRoot?.contains(this)) {
+      if (this.#wrapperComponent && !this.#wrapperComponent.deref()?.shadowRoot?.contains(this)) {
         styleRoot = closest(this, n => n instanceof HTMLDocument || n instanceof ShadowRoot, 'parentNode')!
       }
       if (styleRoot && styleSheet && !styleRoot.adoptedStyleSheets.includes(styleSheet)) {
@@ -310,7 +336,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       let [evName, cbk, node, binded] = v
       if (binded) return
       if (!node) return
-      let handler = cbk ? cbk.bind(this) : cbk
+      let handler = cbk && (get(globalThis, cbk.name) !== cbk) ? cbk.bind(this) : cbk
       let unbinder = addEvent(evName, handler, node, this)
       v[3] = unbinder
     })
@@ -325,7 +351,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
         let eventTarget = targetFn ? targetFn(this) : this
         let cbk = get(this, fnName) as Function
-        let handler = cbk ? cbk.bind(this) : cbk
+        let handler = cbk && (get(globalThis, cbk.name) !== cbk) ? cbk.bind(this) : cbk
         let unbinder = addEvent(name, handler, eventTarget, this)
         this.__docoEventMap.set(name + "@" + fnName, unbinder!)
       })
@@ -366,8 +392,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
     //events
     this.__unbindEvents()
-
-    this._listerners = null as any
 
     this.__docoEventMap?.clear()
     this.__docoEventMap = this._eventBindList = null as any
@@ -431,7 +455,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       this.__updateTree =
       this.#parentComponent =
       this._asyncDirectives =
-      this.__wrapperComponent = null as any
+      this.#wrapperComponent = null as any
     //unmount
 
     this.destroyed()
@@ -550,7 +574,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       this.constructor.prototype._viewDeps = viewDeps
     }
 
-    let nodes: NodeListOf<ChildNode> | undefined
+    let fragment: DocumentFragment | undefined
     if (tmpl === null) {
       this.#renderRoots = []
       this.#renderRoot = undefined
@@ -561,9 +585,9 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       });
 
       this.#shadow.adoptedStyleSheets = [...DefaultCss, ...(ComponentStaticStyleMap.get(this.constructor) ?? [])];
-      nodes = buildView(tmpl, this)
-      if (nodes) {
-        this.#renderRoots = filter<HTMLElement>(nodes, (n: Node) => n.nodeType === Node.ELEMENT_NODE).map<WeakRef<HTMLElement>>(n => new WeakRef(n))
+      fragment = buildView(tmpl, this)
+      if (fragment && size(fragment.children) > 0) {
+        this.#renderRoots = filter<HTMLElement>(fragment.children, (n: Node) => n.nodeType === Node.ELEMENT_NODE).map<WeakRef<HTMLElement>>(n => new WeakRef(n))
         this.#renderRoot = this.#renderRoots[0]
       }
     }
@@ -573,6 +597,11 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     /////////////////////////////////////////////////// slots
     this.#updateSlotsAry()
     //slot hook
+    let slotMap = ComponentUninitializedSlotFunctionMap.get(this)
+    if (slotMap) {
+      this.#slotHooks = slotMap
+      ComponentUninitializedSlotFunctionMap.delete(this)
+    }
     each(this.#slotHooks, (v, k: string) => {
       this.#updateSlot(k)
     })
@@ -621,8 +650,10 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         }
       }
 
-      if (nodes)
-        this.#shadow.append(...nodes)
+      if (fragment && size(fragment.children) > 0) {
+        this.#shadow.append(fragment)
+        ComponentUninitializedSubComponentPropMap.delete(this)
+      }
 
       ary && ary.forEach(dw => {
         dw.mounted(this, (key, value) => {
@@ -836,7 +867,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     //2. update view
     if (this.#renderRoot?.deref()) {
       if (toUpdateView) {
-        updateView(this.render()!, this, this.__updateTree, toUpdateUps, changed);
+        updateView(buildVars(this.render()!), this, this.__updateTree, toUpdateUps, changed);
       }
       if (size(toUpdateUps) > 0) {
         toUpdateUps.forEach(up => {
@@ -863,7 +894,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(_getSuper(this.constructor as any))
     let attrs = this.attributes;
     let tagName = this.tagName;
-    let parentProps = this.#props;
+    let parentProps = merge(this.#props ?? {}, ComponentUninitializedSubComponentPropMap.get(this.wrapperComponent!)?.get(this) ?? {});
     let filterAttrs: Record<string, string> = {}
     each(attrs, ({ name, value }) => {
       if (name[0] === ATTR_PREFIX_EVENT ||
@@ -1165,9 +1196,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     }
 
   }
-  _bindSlotHook(name: string, hook: (...args: any[]) => Template) {
-    this.#slotHooks[name] = hook
-  }
   //slot变量变动时触发
   #updateSlots: Set<string> = new Set()
   _updateSlot(name: string, propName?: string, value?: any) {
@@ -1264,7 +1292,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     this.renderAsync(hook, get(slotMap, 'props'))
     const rc = this._asyncDirectives.get(hook)
 
-    //todo 如果要做成通用异步指令，元素必须插入到指令挂载的位置，并且slot的插入节点还要去掉注释
     let nodes = rc?.buildView(hook(get(slotMap, 'props')))!
     let nnodes = reject(toArray<Node>(nodes), n => n.nodeType === Node.COMMENT_NODE);
 
@@ -1346,18 +1373,16 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         })
       );
     } else {
-      if (this._listerners[evName]) {
-        this._listerners[evName](arg)
-      }
+      let evSrc = get<number>(this, '__c_emit_event_')
+      this.wrapperComponent?._callEmitEvent(evSrc, evName, arg)
     }
 
   }
 
-  _addEvent(evName: string, hook: (e: Event) => void) {
-    if (!this._listerners) {
-      this._listerners = {}
-    }
-    this._listerners[evName] = hook
+  _callEmitEvent(evSrc: number, evName: string, arg: Record<string, any>) {
+    let evMap = this._subComponentEventMap.get(evSrc)
+    let evFn = get(evMap, evName)
+    if (isFunction(evFn)) evFn.call(this, arg)
   }
   /**
    * 下一帧执行

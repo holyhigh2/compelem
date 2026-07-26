@@ -1,4 +1,5 @@
 import { CompElem } from "../CompElem";
+import { ComponentUninitializedSlotFunctionMap } from "../constants";
 import { directive } from "../directive/index";
 import { EnterPointType, TplFn } from "../types";
 
@@ -12,6 +13,11 @@ export const slot = directive(function Slot(cbk: TplFn, slotName?: string) {
     if (oldArgs) return
 
     cbk = cbk.bind(renderComponent)
-    slotComponent._bindSlotHook(slotName || 'default', cbk)
+    let slotMap = ComponentUninitializedSlotFunctionMap.get(slotComponent)
+    if (!slotMap) {
+      slotMap = {}
+      ComponentUninitializedSlotFunctionMap.set(slotComponent, slotMap)
+    }
+    slotMap[slotName || 'default'] = cbk
   };
 }, [EnterPointType.SLOT])

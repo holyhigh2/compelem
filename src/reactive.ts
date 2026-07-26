@@ -3,10 +3,11 @@
  * @author holyhigh2
  */
 
-import { concat, get, isArray, isFunction, isObject, isSymbol, some, startsWith, toArray } from "myfx";
+import { concat, get, isArray, isFunction, isObject, isSymbol, startsWith, toArray } from "myfx";
 import { CompElem } from "./CompElem";
 import { ComputedUpdateDepsMap, CssUpdateDepsMap, DATA_KEY, HasChangedPropOrStateMap, PROP_NAME_SLOTS, PropShallowKeySetMap, StateShallowKeySetMap, WatchDeepUpdateMap, WatchKeysDeepListMap, WatchKeysListMap, WatchKeysOnceMap, WatchUpdateMap } from "./constants";
-import { UpdatePoint, Updater } from "./types";
+import { UpdatePoint } from "./render/UpdatePoint";
+import { Updater } from "./types";
 import { _getSuper } from "./utils";
 
 
@@ -23,8 +24,19 @@ export function getterValue(propertyKey: string, context: CompElem) {
       contextList = new Set()
       EXTRA_CONTEXT_OF_VAR.set(v, contextList)
     }
+    let wVkMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(context)
+    if (!wVkMap) {
+      wVkMap = {}
+      OBJECT_VAR_ROOT_PATH_IN_CONTEXT.set(context, wVkMap)
+    }
+    let rs = PROXY_MAP.get(v)
+    if (OBJECT_VAR_ROOT_CONTEXT.get(rs) !== context) {
+      let srcPath = OBJECT_VAR_PATH.get(rs)
+      if (srcPath)
+        wVkMap[srcPath[0]] = propertyKey
+    }
     contextList.add(thisHost.__thisRef)
-    return PROXY_MAP.get(v)!
+    return rs
   }
 
   if (isObject(v) && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v)) {
@@ -155,7 +167,7 @@ export const Collector = {
 }
 
 //对象值在不同上下文的根路径
-const OBJECT_VAR_ROOT_PATH_IN_CONTEXT = new WeakMap<CompElem<any>, WeakMap<ProxyConstructor, string>>()
+export const OBJECT_VAR_ROOT_PATH_IN_CONTEXT = new WeakMap<CompElem<any>, Record<string, string>>()
 export const OBJECT_VAR_PATH = new WeakMap<any, Array<string>>()
 //缓存已经创建的proxy对象
 export const PROXY_MAP = new WeakMap<Record<string, any>, ProxyConstructor>()
@@ -167,24 +179,16 @@ export const EXTRA_CONTEXT_OF_VAR = new WeakMap<any, Set<WeakRef<CompElem<any>>>
 export function reactive(obj: Record<string, any>, context: CompElem<any>, rootProp?: string): ProxyConstructor {
   if (PROXY_MAP.has(obj)) return PROXY_MAP.get(obj)!
   if (OBJECT_VAR_ROOT_CONTEXT.has(obj)) {
-    if (rootProp) {
-      let pathMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(context)
-      if (!pathMap) {
-        pathMap = new WeakMap()
-        OBJECT_VAR_ROOT_PATH_IN_CONTEXT.set(context, pathMap)
-      }
-      pathMap.set(obj as ProxyConstructor, rootProp)
-
-      let contextList = EXTRA_CONTEXT_OF_VAR.get(obj)
-      if (!contextList) {
-        contextList = new Set()
-        EXTRA_CONTEXT_OF_VAR.set(obj, contextList)
-      }
-      if (!some(contextList.values() as any, (v: WeakRef<any>) => v.deref() === context)) {
-        contextList.add(new WeakRef(context))
-      }
-
-    }
+    // if (rootProp) {
+    //   let contextList = EXTRA_CONTEXT_OF_VAR.get(obj)
+    //   if (!contextList) {
+    //     contextList = new Set()
+    //     EXTRA_CONTEXT_OF_VAR.set(obj, contextList)
+    //   }
+    //   if (!some(contextList.values() as any, (v: WeakRef<any>) => v.deref() === context)) {
+    //     contextList.add(new WeakRef(context))
+    //   }
+    // }
 
     return obj as ProxyConstructor
   }
@@ -279,11 +283,6 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
   PROXY_MAP.set(obj, proxyObject)
   if (rootProp) {
     OBJECT_VAR_ROOT_CONTEXT.set(proxyObject, context)
-    if (!OBJECT_VAR_ROOT_PATH_IN_CONTEXT.has(context)) {
-      let pathMap = new WeakMap()
-      pathMap.set(proxyObject, rootProp)
-      OBJECT_VAR_ROOT_PATH_IN_CONTEXT.set(context, pathMap)
-    }
   }
 
   return proxyObject

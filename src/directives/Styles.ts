@@ -5,7 +5,7 @@ import { CssHelper } from "../helpers";
 import { EnterPointType } from "../types";
 
 /**
- * 根据变量内容设置元素样式，仅能用于style属性
+ * 根据变量内容设置元素样式，与静态样式自动合并
  * @param styles 对象/字符串
  */
 export const styles = directive(function Styles(...styles: (Record<string, string> | string)[]) {
@@ -20,4 +20,4 @@ export const styles = directive(function Styles(...styles: (Record<string, strin
 
     el.style.cssText = cssText + ePairs.join(';');
   }
-}, [EnterPointType.STYLE])
+}, [EnterPointType.TAG])

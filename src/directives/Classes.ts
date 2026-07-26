@@ -4,7 +4,7 @@ import { directive } from "../directive/index";
 import { EnterPointType } from "../types";
 const ClassLastMap = new WeakMap()
 /**
- * 根据变量内容自动插入class，仅能用于class属性
+ * 根据变量内容自动插入class，与静态class自动合并
  * @param styles 对象/数组/字符串
  */
 export const classes = directive(function Classes(clazz: Record<string, boolean | string> | Array<string> | string) {
@@ -35,4 +35,4 @@ export const classes = directive(function Classes(clazz: Record<string, boolean 
     lastCls = concat(rs);
     ClassLastMap.set(el, lastCls)
   }
-}, [EnterPointType.CLASS])
+}, [EnterPointType.TAG])

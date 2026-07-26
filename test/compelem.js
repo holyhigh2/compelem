@@ -1,5 +1,5 @@
-/* compelem 0.24.0 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
-(function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
+/* compelem 0.25.0 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
+(function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35730/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
     typeof define === 'function' && define.amd ? define(['exports'], factory) :
@@ -34,10 +34,10 @@
     };
 
     /**
-       * myfx v1.14.1
+       * myfx v1.15.10
        * A modular utility library with more utils, higher performance and simpler declarations ...
        * https://github.com/holyhigh2/myfx
-       * (c) 2021-2025 @holyhigh2 may be freely distributed under the MIT license
+       * (c) 2021-2026 @holyhigh2 may be freely distributed under the MIT license
        */
       /**
      * 判断参数是否为Array对象的实例
@@ -206,6 +206,20 @@
         return v instanceof Set || Object.prototype.toString.call(v) === '[object Set]';
     }
 
+    /**
+     * 返回对象/Map的所有key数组
+     *
+     * > 只返回对象的自身可枚举属性
+     *
+     * @example
+     * let f = new Function("this.a=1;this.b=2;");
+     * f.prototype.c = 3;
+     * //[a,b]
+     * console.log(_.keys(new f()))
+     *
+     * @param obj
+     * @returns key数组
+     */
     function keys(obj) {
         if (obj === null || obj === undefined)
             return [];
@@ -290,7 +304,7 @@
     /**
      * 向数组末尾追加一个或多个元素并返回
      *
-     * > 该函数会修改原数组
+     * @effect 修改原数组
      *
      * @example
      * //[1, 2, 3, 4]
@@ -325,7 +339,7 @@
      * console.log(_.chunk([1,2,3,4],3))
      *
      * @param array 数组，非数组返回空数组
-     * @param [size=1] 子数组长度
+     * @param size 子数组长度
      * @returns 拆分后的新数组
      * @since 0.23.0
      */
@@ -342,6 +356,23 @@
         return rs;
     }
 
+    /**
+     * 返回参数列表中的第一个值,即<code>f(x) = x</code>。该函数可以用来为高阶函数提供数据如过滤列表或map，也用作默认迭代器
+     * @example
+     * //[1,2,4,'a','1']
+     * console.log(_.filter([0,1,false,2,4,undefined,'a','1','',null],_.identity))
+     * const list = [
+     *  {name:'a',value:1},
+     *  {name:'b',value:2},
+     *  {name:'c',value:3}
+     * ]
+     * //list
+     * console.log(_.map(list,_.identity))
+     *
+     * @param v
+     * @returns 第一个参数
+     * @since 0.17.0
+     */
     function identity(v) {
         return v;
     }
@@ -359,13 +390,33 @@
         return toArray(array).filter(identity);
     }
 
-    function each(collection, callback) {
+    /**
+     * 对集合元素进行顺序遍历。
+     * 注意，object类型无法保证遍历顺序
+     *
+     * @example
+     * //1、2、3
+     * _.each(new Set([1,2,3]),console.log)
+     * //a、b、c
+     * _.each({'1':'a','2':'b','3':'c'},console.log)
+     * //1、{"a":1}、[2,3]
+     * _.each([1,{a:1},[2,3]],console.log)
+     * //h/o/l/y/h/i/g/h
+     * _.each('holyhigh',console.log)
+     * //遍历元素集合
+     * const x=[];_.each(document.body.children,v=>x.push(v));console.log(x)
+     *
+     * @param collection 任何可遍历的集合类型，比如array / arraylike / set / map / object / ...
+     * @param callback (value[,index|key[,collection][,i]]);回调函数，如果返回false会立即中断遍历
+     * @param startIndex 遍历起始索引
+     */
+    function each(collection, callback, startIndex = 0) {
         let values;
         let keys;
         if (isString(collection) || isArrayLike(collection)) {
             let size = collection.length;
-            for (let i = 0; i < size; i++) {
-                const r = callback(collection[i], i, collection);
+            for (let i = startIndex; i < size; i++) {
+                const r = callback(collection[i], i, collection, i);
                 if (r === false)
                     return;
             }
@@ -373,8 +424,8 @@
         else if (isSet(collection)) {
             let size = collection.size;
             values = collection.values();
-            for (let i = 0; i < size; i++) {
-                const r = callback(values.next().value, i, collection);
+            for (let i = startIndex; i < size; i++) {
+                const r = callback(values.next().value, i, collection, i);
                 if (r === false)
                     return;
             }
@@ -383,8 +434,8 @@
             let size = collection.size;
             keys = collection.keys();
             values = collection.values();
-            for (let i = 0; i < size; i++) {
-                const r = callback(values.next().value, keys.next().value, collection);
+            for (let i = startIndex; i < size; i++) {
+                const r = callback(values.next().value, keys.next().value, collection, i);
                 if (r === false)
                     return;
             }
@@ -392,9 +443,9 @@
         else if (isObject(collection)) {
             keys = Object.keys(collection);
             let size = keys.length;
-            for (let i = 0; i < size; i++) {
+            for (let i = startIndex; i < size; i++) {
                 const k = keys[i];
-                const r = callback(collection[k], k, collection);
+                const r = callback(collection[k], k, collection, i);
                 if (r === false)
                     return;
             }
@@ -505,12 +556,15 @@
      *
      * @param array 数组
      * @param value 填充值
-     * @param [start=0] 起始索引，包含
-     * @param [end] 终止索引，不包含
+     * @param start 起始索引，包含
+     * @param end 终止索引，不包含
      * @returns 填充后的新数组
      */
     function fill(array, value, start = 0, end) {
         const rs = toArray(array);
+        if (end && end > 0 && rs.length < end) {
+            rs.length = end;
+        }
         rs.fill(value, start, end);
         return rs;
     }
@@ -530,7 +584,21 @@
         return v === undefined;
     }
 
-    function toPath$1(path) {
+    /**
+     * 解析path并返回数组
+     * @example
+     * //['a', 'b', '2', 'c']
+     * console.log(_.toPath('a.b[2].c'))
+     * //['a', 'b', 'c', '1']
+     * console.log(_.toPath(['a','b','c[1]']))
+     * //['1']
+     * console.log(_.toPath(1))
+     *
+     * @param path 属性路径，可以是数字索引，字符串key，或者多级属性数组
+     * @returns path数组
+     * @since 0.16.0
+     */
+    function toPath(path) {
         let chain = path;
         if (isArray(chain)) {
             chain = chain.join('.');
@@ -564,7 +632,7 @@
      *
      * @param obj 需要获取属性值的对象，如果obj不是对象(isObject返回false)，则返回defaultValue
      * @param path 属性路径，可以是索引数字，字符串key，或者多级属性数组
-     * @param [defaultValue] 如果path未定义，返回默认值
+     * @param defaultValue 如果path未定义，返回默认值
      * @returns 属性值或默认值
      */
     function get(obj, path, defaultValue) {
@@ -575,7 +643,7 @@
             if (v !== undefined)
                 return v;
         }
-        const chain = toPath$1(path);
+        const chain = toPath(path);
         let target = obj;
         for (let i = 0; i < chain.length; i++) {
             const seg = chain[i];
@@ -752,23 +820,37 @@
     }
 
     /**
-     * 解析path并返回数组
-     * @example
-     * //['a', 'b', '2', 'c']
-     * console.log(_.toPath('a.b[2].c'))
-     * //['a', 'b', 'c', '1']
-     * console.log(_.toPath(['a','b','c[1]']))
-     * //['1']
-     * console.log(_.toPath(1))
+     * 创建一个函数，函数类型根据参数值类型而定。创建的函数常用于迭代回调，在Func.js内部被大量使用
      *
-     * @param path 属性路径，可以是数字索引，字符串key，或者多级属性数组
-     * @returns path数组
-     * @since 0.16.0
+     * @example
+     * const libs = [
+     *  {name:'func.js',platform:['web','nodejs'],tags:{utils:true},js:true},
+     *  {name:'juth2',platform:['web','java'],tags:{utils:false,middleware:true},js:false},
+     *  {name:'soya2d',platform:['web'],tags:{utils:true},js:false}
+     * ];
+     *
+     * //[{func.js...}] 如果参数是object，返回_.matcher
+     * console.log(_.filter(libs,_.iteratee({tags:{utils:true},js:true})))
+     * //[func.js,juth2,soya2d] 如果参数是字符串，返回_.prop
+     * console.log(_.map(libs,_.iteratee('name')))
+     * //[true,false,true] 如果参数是数组，内容会转为path，并返回_.prop
+     * console.log(_.map(libs,_.iteratee(['tags','utils'])))
+     * //[1,3,5] 如果参数是函数，返回这个函数
+     * console.log(_.filter([1,2,3,4,5],_.iteratee(n=>n%2)))
+     * //[1,2,4,'a','1'] 无参返回_.identity
+     * console.log(_.filter([0,1,false,2,4,undefined,'a','1','',null],_.iteratee()))
+     *
+     *
+     * @param value 迭代模式
+     * <br>当value是字符串类型时，返回_.prop
+     * <br>当value是对象类型时，返回_.matcher
+     * <br>当value是数组类型时，内容会转为path，并返回_.prop
+     * <br>当value是函数时，返回这个函数
+     * <br>当value未定义时，返回_.identity
+     * <br>其他类型返回f() = false
+     * @returns 不同类型的返回函数
+     * @since 0.17.0
      */
-    function toPath(path) {
-        return toPath$1(path);
-    }
-
     function iteratee(value) {
         if (isUndefined(value)) {
             return identity;
@@ -872,7 +954,7 @@
      * @param predicate (value[,index[,array]]);断言
      * <br>当断言是函数时回调参数见定义
      * <br>其他类型请参考 {@link utils!iteratee}
-     * @param [fromIndex=array.length - 1] 从集合长度-1开始的起始索引。设置该参数可以减少实际遍历次数
+     * @param fromIndex 从集合长度-1开始的起始索引。设置该参数可以减少实际遍历次数
      * @returns 最后一个匹配断言的元素索引或-1
      * @since 0.19.0
      */
@@ -907,14 +989,14 @@
      * console.log(_.flat(new Set([1,1,[2,[1,[3,4]]]]),Infinity))
      *
      * @param array 数组
-     * @param [depth=1] 嵌套深度
+     * @param depth 嵌套深度
      * @returns 扁平化后的新数组
      */
     function flat(array, depth = 1) {
         if (depth < 1)
-            return array.concat();
+            return toArray(array);
         const rs = toArray(array).reduce((acc, val) => {
-            return acc.concat(Array.isArray(val) && depth > 0 ? flat(val, depth - 1) : val);
+            return acc.concat((Array.isArray(val) || isSet(val)) && depth > 0 ? flat(val, depth - 1) : val);
         }, []);
         return rs;
     }
@@ -956,7 +1038,7 @@
     /**
      * 向数组中指定位置插入一个或多个元素并返回
      *
-     * > 该函数会修改原数组
+     * @effect 修改原数组
      *
      * @example
      * //[1, 2, Array(1), 'a', 3, 4]
@@ -1075,13 +1157,13 @@
      * console.log(_.join([1, 2, 3, 4]))
      *
      * @param array 数组，非数组返回空字符串
-     * @param [separator=','] 分隔符
+     * @param separator 分隔符
      * @returns 拼接字符串
      */
-    function join(array, separator) {
+    function join(array, separator = ',') {
         if (!Array.isArray(array))
             return '';
-        return array.join(separator || ',');
+        return array.join(separator ?? ',');
     }
 
     /**
@@ -1113,8 +1195,7 @@
     /**
      * 删除数组末尾或指定索引的一个元素并返回被删除的元素
      *
-     * > 该函数会修改原数组
-     *
+     * @effect 修改原数组
      * @example
      * //3, [1, 2]
      * let ary = [1,2,3];
@@ -1124,10 +1205,10 @@
      * console.log(_.pop(ary,0),ary)
      *
      * @param array 数组对象。如果非数组类型会直接返回null
-     * @param [index=-1] 要删除元素的索引。默认删除最后一个元素
+     * @param index 要删除元素的索引。默认删除最后一个元素
      * @returns 被删除的值或null
      */
-    function pop(array, index) {
+    function pop(array, index = -1) {
         index = index || -1;
         let rs = null;
         if (Array.isArray(array)) {
@@ -1158,11 +1239,11 @@
      *
      *
      * @param array 数组，非数组返回空数组
-     * @param [begin=0] 切片起始下标，包含下标位置元素
-     * @param [end] 切片结束下标，<b>不包含</b>下标位置元素
+     * @param begin 切片起始下标，包含下标位置元素，默认0
+     * @param end 切片结束下标，<b>不包含</b>下标位置元素
      * @returns 切片元素组成的新数组
      */
-    function slice(array, begin, end) {
+    function slice(array, begin = 0, end) {
         if (!Array.isArray(array))
             return [];
         return array.slice(begin || 0, end);
@@ -1191,10 +1272,10 @@
      *
      * @param collection 如果集合是map/object对象，则只对value进行比对
      * @param value
-     * @param [fromIndex=0] 从集合的fromIndex 索引处开始查找。如果集合是map/object对象，无效
+     * @param fromIndex 从集合的fromIndex 索引处开始查找。如果集合是map/object对象，无效
      * @returns 如果包含返回true否则返回false
      */
-    function includes(collection, value, fromIndex) {
+    function includes(collection, value, fromIndex = 0) {
         let rs = false;
         fromIndex = fromIndex || 0;
         if (isString(collection)) {
@@ -1214,10 +1295,7 @@
 
     /**
      * 删除数组中断言结果为true的元素并返回被删除的元素
-     * <div class="alert alert-secondary">
-          该函数会修改原数组
-        </div>
-     *
+     * @effect 修改原数组
      * @example
      * //[1, 3] [2, 4]
      * let ary = [1,2,3,4];
@@ -1258,10 +1336,7 @@
 
     /**
      * 与without相同，但会修改原数组
-     * <div class="alert alert-secondary">
-          该函数会修改原数组
-        </div>
-     *
+     * @effect 修改原数组
      * @example
      * //[1, 1] true
      * let ary = [1,2,3,4,3,2,1];
@@ -1278,14 +1353,38 @@
         return array;
     }
 
-    function range(start = 0, end, step) {
+    /**
+     * 生成一个由(包含)start到(不包含)end的数字元素组成的数组。
+     * 根据参数个数不同，分为三种签名
+     * <pre><code class="language-javascript">
+     * _.range(end);
+     * _.range(start,end);
+     * _.range(start,end,step);
+     * </code></pre>
+     *
+     * @example
+     * //[0, 1, 2, 3, 4]
+     * console.log(_.range(5))
+     * //[0, -1, -2, -3, -4]
+     * console.log(_.range(-5))
+     * //[0, -0.5, -1, -1.5, -2, -2.5, -3, -3.5, -4, -4.5]
+     * console.log(_.range(0,-5,0.5))
+     * //[-5, -4, -3, -2, -1, 0]
+     * console.log(_.range(-5,1))
+     *
+     * @param start 起始数
+     * @param end 结束数
+     * @param step 步长
+     * @returns 数字数组
+     */
+    function range(start = 0, end, step = 1) {
         let startNum = 0;
         let endNum = 0;
         let stepNum = 1;
-        if (isNumber(start) && isUndefined(end) && isUndefined(step)) {
+        if (isNumber(start) && isUndefined(end)) {
             endNum = start >> 0;
         }
-        else if (isNumber(start) && isNumber(end) && isUndefined(step)) {
+        else if (isNumber(start) && isNumber(end)) {
             startNum = start >> 0;
             endNum = end >> 0;
         }
@@ -1374,9 +1473,39 @@
         return sortedIndexBy(array, value);
     }
 
-    function map(collection, itee) {
+    /**
+     * 返回一个新数组，该数组中的每个元素是调用一次callback函数后的返回值
+     *
+     * @example
+     * const libs = [
+     *  {name:'func.js',platform:['web','nodejs'],tags:{utils:true},js:false},
+     *  {name:'juth2',platform:['web','java'],tags:{utils:false,middleware:true},js:true},
+     *  {name:'soya2d',platform:['web'],tags:{utils:true},js:true}
+     * ];
+     *
+     * //[2,4,6]
+     * console.log(_.map(new Set([1,2,3]),v => v*2))
+     * //[1,2,3]
+     * console.log(_.map({'1':'a','2':'b','3':'c'},(v,k)=>k))
+     * //[true,false,false]
+     * console.log(_.map([1,{a:1},[2,3]],v => _.isNumber(v)))
+     * //["H", "O", "L", "Y", "H", "I", "G", "H"]
+     * console.log(_.map('holyhigh',v => String.fromCharCode(v.charCodeAt(0)-32)))
+     * //[true,false,true]
+     * console.log(_.map(libs,'tags.utils'))
+     * //["func.js", "juth2", "soya2d"]
+     * console.log(_.map(libs,'name'))
+     * //[1,2,3]
+     * console.log(_.map({a:1,b:2,c:3}))
+     *
+     * @param collection 任何可遍历的集合类型，比如array / arraylike / set / map / object / ...
+     * @param iteratee (value[,index|key[,collection]]) 回调函数，返回值作为新数组元素。
+     * 如果是字符串，表示返回集中的对象类型的元素的key值
+     * @returns 映射值的新数组
+     */
+    function map(collection, iteratee$1 = identity) {
         const rs = [];
-        const cb = iteratee(itee);
+        const cb = iteratee(iteratee$1);
         each(collection, (v, k, c) => {
             const r = cb(v, k, c);
             rs.push(r);
@@ -1412,7 +1541,7 @@
             comparator = params[sl - 1];
             list = params.slice(0, sl - 1);
         }
-        list = list.filter((v) => isArrayLike(v) || isArray(v));
+        list = list.filter((v) => isArrayLike(v) || isArray(v) || isSet(v));
         if (list.length < 1)
             return list;
         let rs;
@@ -1503,6 +1632,37 @@
         return rs;
     }
 
+    /**
+     * 返回一个新数组，数组内容由集合内所有断言结果为真的元素组成
+     *
+     * @example
+     * const libs = [
+     *  {name:'func.js',platform:['web','nodejs'],tags:{utils:true},js:false},
+     *  {name:'juth2',platform:['web','java'],tags:{utils:false,middleware:true},js:true},
+     *  {name:'soya2d',platform:['web'],tags:{utils:true},js:true}
+     * ];
+     *
+     * //[]
+     * console.log(_.filter())
+     * //[1,3]
+     * console.log(_.filter([1,2,3,4],v=>v%2===1))
+     * //[1]
+     * console.log(_.filter(['a','b','c',1],_.isNumber))
+     * //[1,2]
+     * console.log(_.filter({a:1,b:2,c:'3'},_.isNumber))
+     * //[f、s]
+     * console.log(_.filter(libs,'tags.utils'))
+     * //[j、s]
+     * console.log(_.filter(libs,{js:true}))
+     * //[] key不支持路径解析
+     * console.log(_.filter(libs,{'platform[0]':'web'}))
+     *
+     * @param collection 任何可遍历的集合类型，比如array / arraylike / set / map / object / ...
+     * @param predicate (value[,index|key[,collection]]) 断言
+     * <br>当断言是函数时回调参数见定义
+     * <br>其他类型请参考 {@link utils!iteratee}
+     * @returns 由通过断言的元素组成的新数组
+     */
     function filter(collection, predicate) {
         const rs = [];
         const callback = iteratee(predicate);
@@ -1643,7 +1803,28 @@
       zipWith: zipWith
     });
 
-    function countBy(collection, itee) {
+    /**
+     * 创建一个统计对象，对象的key是iteratee返回的值，对应的值是相同key出现的次数
+     * @example
+     * //{true: 5, false: 4}
+     * console.log(_.countBy([1,'a',3,'b',5,'c',7,'d',9],_.isNumber))
+     * const users = [
+     *  {name:'zhangsan',sex:'m',age:33},
+     *  {name:'lisi',sex:'f',age:21},
+     *  {name:'wangwu',sex:'m',age:25},
+     *  {name:'zhaoliu',sex:'m',age:44},
+     * ]
+     * //{m: 3, f: 1} 性别分布统计
+     * console.log(_.countBy(users,u=>u.sex))
+     * //{20: 2, 30: 1, 40: 1} 年龄段分布统计
+     * console.log(_.countBy(users,u=>(u.age/10>>0)*10))
+     *
+     * @param collection 任何可遍历的集合类型，比如array / arraylike / set / map / object / ...
+     * @param iteratee (value) 回调函数，返回统计key
+     * @returns 统计对象
+     * @since 1.0.0
+     */
+    function countBy(collection, itee = identity) {
         const stat = {};
         const cb = iteratee(itee || identity);
         each(collection, (el) => {
@@ -1655,13 +1836,30 @@
         return stat;
     }
 
+    /**
+     * 对集合元素进行顺序遍历，与 forEach 不同在于遍历顺序是从右到左
+     * 注意，object类型无法保证遍历顺序
+     *
+     * @example
+     * //3、2、1
+     * _.eachRight(new Set([1,2,3]),console.log)
+     * //c、b、a
+     * _.eachRight({'1':'a','2':'b','3':'c'},console.log)
+     * //[2,3]、{"a":1}、1
+     * _.eachRight([1,{a:1},[2,3]],console.log)
+     * //hgihyloh
+     * _.eachRight('holyhigh',console.log)
+     *
+     * @param collection 任何可遍历的集合类型，比如array / arraylike / set / map / object / ...
+     * @param callback (value[,index|key[,collection]]);回调函数，如果返回false会立即中断遍历
+     */
     function eachRight(collection, callback) {
         let values;
         let keys;
         if (isString(collection) || isArrayLike(collection)) {
             let size = collection.length;
             while (size--) {
-                const r = callback(collection[size], size, collection);
+                const r = callback(collection[size], size, collection, size);
                 if (r === false)
                     return;
             }
@@ -1670,7 +1868,7 @@
             let size = collection.size;
             values = Array.from(collection);
             while (size--) {
-                const r = callback(values[size], size, collection);
+                const r = callback(values[size], size, collection, size);
                 if (r === false)
                     return;
             }
@@ -1682,7 +1880,7 @@
             keys = Array.from(keys);
             values = Array.from(values);
             while (size--) {
-                const r = callback(values[size], keys[size], collection);
+                const r = callback(values[size], keys[size], collection, size);
                 if (r === false)
                     return;
             }
@@ -1692,13 +1890,42 @@
             let size = keys.length;
             while (size--) {
                 const k = keys[size];
-                const r = callback(collection[k], k, collection);
+                const r = callback(collection[k], k, collection, size);
                 if (r === false)
                     return;
             }
         }
     }
 
+    /**
+     * 对集合内的所有元素进行断言，直到第一个返回false的元素结束。如果所有元素断言都为真返回true
+     *
+     * @example
+     * const libs = [
+     *  {name:'func.js',platform:['web','nodejs'],tags:{utils:true},js:true},
+     *  {name:'juth2',platform:['web','java'],tags:{utils:false,middleware:true},js:false},
+     *  {name:'soya2d',platform:['web'],tags:{utils:true},js:true}
+     * ];
+     *
+     * //true
+     * console.log(_.every([]))
+     * //true
+     * console.log(_.every([1,3,5],v=>v%2===1))
+     * //false
+     * console.log(_.every(['a','b','c',1],_.isNumber))
+     * //false
+     * console.log(_.every(libs,'tags.utils'))
+     * //false
+     * console.log(_.every(libs,{js:true}))
+     * //false key不支持路径解析
+     * console.log(_.every(libs,{'platform[0]':'web'}))
+     *
+     * @param collection 任何可遍历的集合类型，比如array / arraylike / set / map / object / ...
+     * @param predicate (value[,index|key[,collection]]) 断言
+     * <br>当断言是函数时回调参数见定义
+     * <br>其他类型请参考 {@link utils!iteratee}
+     * @returns 全部通过返回true，否则false。对于一个空集合，会返回true
+     */
     function every(collection, predicate) {
         let rs = true;
         const callback = iteratee(predicate);
@@ -1712,6 +1939,33 @@
         return rs;
     }
 
+    /**
+     * 对集合内的所有元素进行断言并返回第一个匹配的元素
+     *
+     * @example
+     * const libs = [
+     *  {name:'func.js',platform:['web','nodejs'],tags:{utils:true},js:false},
+     *  {name:'juth2',platform:['web','java'],tags:{utils:false,middleware:true},js:true},
+     *  {name:'soya2d',platform:['web'],tags:{utils:true},js:true}
+     * ];
+     *
+     * //1
+     * console.log(_.find(['a','b','c',1,3,6],_.isNumber))
+     * //holyhigh
+     * console.log(_.find({a:1,b:true,c:'holyhigh',d:'func.js'},_.isString))
+     * //{f}
+     * console.log(_.find(libs,'tags.utils'))
+     * //{j}
+     * console.log(_.find(libs,{js:true}))
+     * //undefined key不支持路径解析
+     * console.log(_.find(libs,{'tags.utils':false}))
+     *
+     * @param collection 任何可遍历的集合类型，比如array / arraylike / set / map / object / ...
+     * @param predicate (value[,index|key[,collection]]) 断言
+     * <br>当断言是函数时回调参数见定义
+     * <br>其他类型请参考 {@link utils!iteratee}
+     * @returns 第一个匹配断言的元素或undefined
+     */
     function find(collection, predicate) {
         const callback = iteratee(predicate);
         let rs;
@@ -1725,6 +1979,33 @@
         return rs;
     }
 
+    /**
+     * 对集合内的所有元素进行断言并返回最后一个匹配的元素
+     *
+     * @example
+     * const libs = [
+     *  {name:'func.js',platform:['web','nodejs'],tags:{utils:false},js:false},
+     *  {name:'juth2',platform:['web','java'],tags:{utils:false,middleware:true},js:true},
+     *  {name:'soya2d',platform:['web'],tags:{utils:true},js:true}
+     * ];
+     *
+     * //6
+     * console.log(_.findLast(['a','b','c',1,3,6],_.isNumber))
+     * //func.js
+     * console.log(_.findLast({a:1,b:true,c:'holyhigh',d:'func.js'},_.isString))
+     * //{s}
+     * console.log(_.findLast(libs,'tags.utils'))
+     * //{s}
+     * console.log(_.findLast(libs,{js:true}))
+     * //undefined key不支持路径解析
+     * console.log(_.findLast(libs,{'tags.utils':false}))
+     *
+     * @param collection 任何可遍历的集合类型，比如array / arraylike / set / map / object / ...
+     * @param predicate (value[,index|key[,collection]]) 断言
+     * <br>当断言是函数时回调参数见定义
+     * <br>其他类型请参考 {@link utils!iteratee}
+     * @returns 第一个匹配断言的元素或undefined
+     */
     function findLast(collection, predicate) {
         const callback = iteratee(predicate);
         let rs;
@@ -1738,21 +2019,82 @@
         return rs;
     }
 
+    /**
+     * 获取数组中的第一个元素
+     *
+     * @example
+     * //1
+     * console.log(_.first([1,2,3]))
+     * //"1"
+     * console.log(_.first(new Set(['1',1])))
+     *
+     * @param array 数组
+     * @returns 数组中第一个元素
+     */
     function first(array) {
         return toArray(array)[0];
     }
 
-    function flatMap(collection, itee, depth) {
+    /**
+     * 类似<code>map</code>，但会对返回值进行<code>flat</code>处理。
+     * 除此之外，与map函数最大的不同在于返回值与元素的映射关系并不一定是一一对应，此时更像<code>filter</code>
+     *
+     * @example
+     * //[1, 2, [3]]
+     * console.log(_.flatMap([[1,2],[[3]]]))
+     * //[3,5]
+     * console.log(_.flatMap([[1,2],3,4,5],n=>n%2?n:[]))
+     *
+     * @param collection 任何可遍历的集合类型，比如array / arraylike / set / map / object / ...
+     * @param iteratee (value[,index|key[,collection]]) 回调函数，返回值作为新数组元素。
+     * @param depth 嵌套深度
+     * @returns 映射值的新数组
+     * @since 1.0.0
+     */
+    function flatMap(collection, itee = identity, depth = 1) {
         return flat(map(collection, itee), depth || 1);
     }
 
-    function flatMapDeep(collection, itee) {
-        return flatMap(collection, itee, Infinity);
+    /**
+     * 同<code>flatMap</code>，但会递归元素进行扁平化处理
+     *
+     * @example
+     * //[1, 2, 3]
+     * console.log(_.flatMapDeep([[1,2],[[3]]]))
+     *
+     * @param collection 任何可遍历的集合类型，比如array / arraylike / set / map / object / ...
+     * @param iteratee (value[,index|key[,collection]]) 回调函数，返回值作为新数组元素。
+     * @returns 映射值的新数组
+     * @since 1.0.0
+     */
+    function flatMapDeep(collection, iteratee = identity) {
+        return flatMap(collection, iteratee, Infinity);
     }
 
-    function groupBy(collection, itee) {
+    /**
+     * 创建一个统计对象，对象的key是iteratee返回的值，对应的值是由所有key对应值组成的数组
+     * @example
+     * //{true: [1, 3, 5, 7, 9], false: ['a', 'b', 'c', 'd']}
+     * console.log(_.groupBy([1,'a',3,'b',5,'c',7,'d',9],_.isNumber))
+     * const users = [
+     *  {name:'zhangsan',sex:'m',age:33},
+     *  {name:'lisi',sex:'f',age:21},
+     *  {name:'wangwu',sex:'m',age:25},
+     *  {name:'zhaoliu',sex:'m',age:44},
+     * ]
+     * //{m: [{...},{...},{...}], f: [{...}]} 性别分布统计
+     * console.log(_.groupBy(users,u=>u.sex))
+     * //{20: [{...},{...}], 30: [{...}], 40: [{...}]} 年龄段分布统计
+     * console.log(_.groupBy(users,u=>(u.age/10>>0)*10))
+     *
+     * @param collection 任何可遍历的集合类型，比如array / arraylike / set / map / object / ...
+     * @param iteratee (value)回调函数，返回统计key
+     * @returns 统计对象
+     * @since 1.0.0
+     */
+    function groupBy(collection, iteratee$1 = identity) {
         const stat = {};
-        const cb = iteratee(itee || identity);
+        const cb = iteratee(iteratee$1 || identity);
         each(collection, (el) => {
             const key = cb(el);
             if (stat[key] === undefined)
@@ -1778,9 +2120,30 @@
         return ary.slice(0, ary.length - 1);
     }
 
-    function keyBy(collection, itee) {
+    /**
+     * 创建一个对象，对象的key是iteratee返回的值，对象的值是collection中最后一个key对应的值
+     * @example
+     * //{true: 9, false: 'd'}
+     * console.log(_.keyBy([1,'a',3,'b',5,'c',7,'d',9],_.isNumber))g
+     * const users = [
+     *  {name:'zhangsan',sex:'m',age:33},
+     *  {name:'lisi',sex:'f',age:21},
+     *  {name:'wangwu',sex:'m',age:25},
+     *  {name:'zhaoliu',sex:'m',age:44},
+     * ]
+     * //{m: {...}, f: {...}}
+     * console.log(_.keyBy(users,u=>u.sex))
+     * //{20: {...}, 30: {...}, 40: {...} }
+     * console.log(_.keyBy(users,u=>(u.age/10>>0)*10))
+     *
+     * @param collection 任何可遍历的集合类型，比如array / arraylike / set / map / object / ...
+     * @param iteratee (value)回调函数，返回统计key
+     * @returns 统计对象
+     * @since 1.0.0
+     */
+    function keyBy(collection, iteratee$1 = identity) {
         const stat = {};
-        const cb = iteratee(itee || identity);
+        const cb = iteratee(iteratee$1 || identity);
         each(collection, (el) => {
             const key = cb(el);
             stat[key] = el;
@@ -1788,11 +2151,48 @@
         return stat;
     }
 
+    /**
+     * 获取数组中的最后一个元素
+     *
+     * @example
+     * //3
+     * console.log(_.last([1,2,3]))
+     *
+     * @param array 数组
+     * @returns 数组中最后一个元素
+     */
     function last(array) {
         const ary = toArray(array);
         return ary[ary.length - 1];
     }
 
+    /**
+     * 类似<code>filter</code>函数，但返回固定长度为2的二维数组 - [[matched...],[mismatched...]]
+     *
+     * @example
+     * const libs = [
+     *  {name:'func.js',platform:['web','nodejs'],tags:{utils:true},js:false},
+     *  {name:'juth2',platform:['web','java'],tags:{utils:false,middleware:true},js:true},
+     *  {name:'soya2d',platform:['web'],tags:{utils:true},js:true}
+     * ];
+     *
+     * //[[func.js],[juth2,soya2d]]
+     * console.log(_.partition(libs,{name:'func.js'}))
+     *
+     * const seq = [1,2,3,4,5,6];
+     * //[[2, 4, 6],[1, 3, 5]]
+     * console.log(_.partition(seq,n=>n%2===0))
+     *
+     * //[[1,3],["2"]]
+     * console.log(_.partition({a:1,b:'2',c:3},_.isNumber))
+     *
+     * @param collection 任何可遍历的集合类型，比如array / arraylike / set / map / object / ...
+     * @param predicate (value[,index|key[,collection]]) 断言
+     * <br>当断言是函数时回调参数见定义
+     * <br>其他类型请参考 {@link utils!iteratee}
+     * @returns 由匹配列表，非匹配列表构成的二维数组
+     * @since 0.17.0
+     */
     function partition(collection, predicate) {
         const matched = [];
         const mismatched = [];
@@ -1809,21 +2209,60 @@
         return [matched, mismatched];
     }
 
+    /**
+     * 对集合中的每个元素执行一次reducer函数，并将其结果汇总为单个值返回。
+     * <p>
+     * 如果没有提供initialValue，reduce 会从集合索引1开始执行 callback 方法。如果提供initialValue则从索引0开始。
+     * </p>
+     * <p>
+     * 注意，对于Object类型的对象，如果未提供initialValue，则accumulator会是索引0元素的value，而不是key
+     * </p>
+     *
+     * @example
+     * //25
+     * console.log(_.reduce([1,3,5,7,9],(a,v)=>a+v))
+     * //35
+     * console.log(_.reduce([1,3,5,7,9],(a,v)=>a+v,10))
+     * //x-y-z
+     * console.log(_.reduce({x:1,y:2,z:3},(a,v,k)=>a+'-'+k,'').substr(1))
+     *
+     * @param collection
+     * @param callback (accumulator,value[,key|index[,collection]]);reducer函数
+     * @param initialValue 第一次调用 callback函数时的第一个参数的值
+     * @returns 汇总值
+     */
     function reduce(collection, callback, initialValue) {
-        let accumulator = initialValue;
-        let hasInitVal = initialValue !== undefined;
+        let rs;
+        if (isNil(initialValue)) {
+            rs = first(collection);
+        }
+        else {
+            rs = callback(initialValue, first(collection), first(keys(collection)), collection);
+        }
         each(collection, (v, k, c) => {
-            if (hasInitVal) {
-                accumulator = callback(accumulator, v, k, c);
-            }
-            else {
-                accumulator = v;
-                hasInitVal = true;
-            }
-        });
-        return accumulator;
+            rs = callback(rs, v, k, c);
+        }, 1);
+        return rs;
     }
 
+    /**
+     * <code>filter</code>的反函数，数组内容由集合内所有断言结果为假的元素组成
+     *
+     * @example
+     * //['a', 'b', 'c']
+     * console.log(_.reject(['a','b','c',1],_.isNumber))
+     * //['3']
+     * console.log(_.reject({a:1,b:2,c:'3'},_.isNumber))
+     * //[2，4]
+     * console.log(_.reject([1,2,3,4],v=>v%2===1))
+     *
+     * @param collection 任何可遍历的集合类型，比如array / arraylike / set / map / object / ...
+     * @param predicate (value[,index|key[,collection]]) 断言
+     * <br>当断言是函数时回调参数见定义
+     * <br>其他类型请参考 {@link utils!iteratee}
+     * @returns 由通过断言的元素组成的新数组
+     * @since 1.0.0
+     */
     function reject(collection, predicate) {
         const rs = [];
         const callback = iteratee(predicate);
@@ -1872,12 +2311,12 @@
      * console.log(_.sampleSize([{a:1},{b:2},{c:3},{d:4},{e:5}],2))
      *
      * @param collection 任何可遍历的集合类型，比如array / arraylike / set / map / object / ...
-     * @param [count=1] 采样数量
+     * @param count 采样数量
      * @returns 采样结果
      * @since 0.16.0
      */
-    function sampleSize(collection, count) {
-        count = count || 1;
+    function sampleSize(collection, count = 1) {
+        count = count ?? 1;
         const ary = toArray(collection);
         const seeds = range(0, ary.length);
         const ks = [];
@@ -1910,6 +2349,35 @@
         return sampleSize(collection, size(collection));
     }
 
+    /**
+     * 对集合内的所有元素进行断言，直到第一个返回true的元素结束。
+     *
+     * @example
+     * const libs = [
+     *  {name:'func.js',platform:['web','nodejs'],tags:{utils:true},js:true},
+     *  {name:'juth2',platform:['web','java'],tags:{utils:false,middleware:true},js:false},
+     *  {name:'soya2d',platform:['web'],tags:{utils:true},js:true}
+     * ];
+     *
+     * //false
+     * console.log(_.some([]))
+     * //true
+     * console.log(_.some([1,2,3,4],v=>v%2===1))
+     * //true
+     * console.log(_.some(['a','b','c',1],_.isNumber))
+     * //true
+     * console.log(_.some(libs,'tags.middleware'))
+     * //true
+     * console.log(_.some(libs,{js:true}))
+     * //false key不支持路径解析
+     * console.log(_.some(libs,{'tags.utils':false}))
+     *
+     * @param collection 任何可遍历的集合类型，比如arraylike / set / map / object / ...
+     * @param predicate (value[,index|key[,collection]]) 断言
+     * <br>当断言是函数时回调参数见定义
+     * <br>其他类型请参考 {@link utils!iteratee}
+     * @returns 只要有任意元素断言为真返回true，否则false。对于一个空集合，会返回false
+     */
     function some(collection, predicate) {
         let rs = false;
         const callback = iteratee(predicate || (() => true));
@@ -1959,7 +2427,7 @@
      * 对于字符串格式，可以时<a href="https://www.iso.org/iso-8601-date-and-time-format.html">UTC格式</a>，或者
      * <a href="https://tools.ietf.org/html/rfc2822#section-3.3">RFC2822</a>格式
      * @param date2 同date1
-     * @param [type='d'] 比较时间单位
+     * @param type 比较时间单位
      * <ul>
      * <li><code>y</code> 年</li>
      * <li><code>M</code> 月</li>
@@ -1970,7 +2438,7 @@
      * </ul>
      * @returns 根据比较时间单位返回的比较值。正数为date1日期晚于(大于)date2，负数相反，0表示相同。
      */
-    function compareDate(date1, date2, type) {
+    function compareDate(date1, date2, type = 'd') {
         const d1 = new Date(date1);
         const d2 = new Date(date2);
         type = type || 'd';
@@ -2042,13 +2510,36 @@
             return '';
         if (v === 0 && 1 / v < 0)
             return '-0';
-        return v.toString();
+        return v.toString ? v.toString() : Object.prototype.toString.call(v);
     }
 
-    function sortBy(collection, itee) {
+    /**
+     * 使用指定回调对集合结果进行升序排序。根据集合结果的第一个元素确定排序逻辑，内置排序逻辑包括
+     * <ul>
+     * <li>字符串</li>
+     * <li>数字</li>
+     * <li>日期</li>
+     * </ul>
+     *
+     * @example
+     * //不变
+     * console.log(_.sortBy([{a:2},{a:1},{a:3}]))
+     * //[{{a:1},{a:2},{a:3}] 通过iteratee把集合变为数字后排序
+     * console.log(_.sortBy([{a:2},{a:1},{a:3}],'a'))
+     * //['3/1/2019', '2020/1/1', '2020-3-1']
+     * console.log(_.sortBy(['2020-3-1','2020/1/1','3/1/2019'],_.toDate))
+     *
+     * @param collection 任何可遍历的集合类型，比如array / arraylike / set / map / object / ...
+     * @param iteratee (value,key|index) 筛选函数，返回排序值
+     * <br>当iteratee是函数时回调参数见定义
+     * <br>其他类型请参考 {@link utils!iteratee}
+     * @returns 排序后的数组
+     * @since 1.0.0
+     */
+    function sortBy(collection, iteratee$1 = identity) {
         if (size(collection) < 1)
             return [];
-        const cb = iteratee(itee || identity);
+        const cb = iteratee(iteratee$1 || identity);
         let i = 0;
         const list = map(collection, (v, k) => {
             return {
@@ -2122,7 +2613,7 @@
      * console.log(_.sort(users,(a,b)=>b.age-a.age))
      *
      * @param collection 任何可遍历的集合类型，比如array / arraylike / set / map / object / ...
-     * @param [comparator] (a,b) 排序函数，如果为空使用sortBy逻辑
+     * @param comparator (a,b) 排序函数，如果为空使用sortBy逻辑
      * @returns 排序后的数组
      */
     function sort(collection, comparator) {
@@ -2162,7 +2653,7 @@
      * console.log(_.take([1, 2, 3, 4, 5]))
      *
      * @param array 数组
-     * @param [length] 获取元素数量，默认数组长度
+     * @param length 获取元素数量，默认数组长度
      * @returns 新数组
      */
     function take(array, length) {
@@ -2243,7 +2734,7 @@
      *
      * @param date 原日期时间
      * @param amount 变化量，可以为负数
-     * @param [type='s'] 量变时间类型
+     * @param type 量变时间类型
      * <ul>
      * <li><code>y</code> 年</li>
      * <li><code>M</code> 月</li>
@@ -2254,7 +2745,7 @@
      * </ul>
      * @returns 日期对象
      */
-    function addTime(date, amount, type) {
+    function addTime(date, amount, type = 's') {
         type = type || 's';
         const d = new Date(date);
         switch (type) {
@@ -2311,14 +2802,14 @@
      *
      * @param str 原字符串
      * @param len 填充后的字符串长度，如果长度小于原字符串长度，返回原字符串
-     * @param [padString=' '] 填充字符串，如果填充后超出指定长度，会自动截取并保留左侧字符串
+     * @param padString 填充字符串，如果填充后超出指定长度，会自动截取并保留左侧字符串
      * @returns 在原字符串末尾填充至指定长度后的字符串
      */
-    function padEnd(str, len, padString) {
+    function padEnd(str, len, padString = ' ') {
         str = toString(str);
         if (str.padEnd)
             return str.padEnd(len, padString);
-        padString = padString || ' ';
+        padString = padString ?? ' ';
         const diff = len - str.length;
         if (diff < 1)
             return str;
@@ -2399,7 +2890,7 @@
     /**
      * 获取指定日期在当前年中的天数并返回
      * @param date 日期对象
-     * @returns {number} 当前年中的第几天
+     * @returns 当前年中的第几天
      */
     function getDayOfYear(date) {
         date = toDate(date);
@@ -2416,7 +2907,7 @@
     /**
      * 获取指定日期在当前月中的周数并返回
      * @param date 日期对象
-     * @returns {number} 当前月中的第几周
+     * @returns 当前月中的第几周
      */
     function getWeekOfMonth(date) {
         date = toDate(date);
@@ -2434,7 +2925,7 @@
     /**
      * 获取指定日期在当前年中的周数并返回
      * @param date 日期对象
-     * @returns {number} 当前年中的第几周
+     * @returns 当前年中的第几周
      */
     function getWeekOfYear(date) {
         date = toDate(date);
@@ -2519,10 +3010,10 @@
      * console.log(_.formatDate('2020-12-11 10:09:08','现在时间:(yy-MM-dd hh:mm:ss)'))
      *
      * @param val 需要格式化的值，可以是日期对象或时间字符串或日期毫秒数
-     * @param [pattern='yyyy-MM-dd HH:mm:ss'] 格式化模式
+     * @param pattern 格式化模式
      * @returns 格式化后的日期字符串，无效日期返回空字符串
      */
-    function formatDate(val, pattern) {
+    function formatDate(val, pattern = 'yyyy-MM-dd HH:mm:ss') {
         pattern = pattern || 'yyyy-MM-dd HH:mm:ss';
         let formatter = cache$1[pattern];
         if (!formatter) {
@@ -2739,10 +3230,10 @@
      * console.log(saveTip(),saveTip(),saveTip())
      *
      * @param fn 需要调用的函数
-     * @param [count=0] 计数
+     * @param count 计数
      * @returns 包装后的函数
      */
-    function after(fn, count) {
+    function after(fn, count = 0) {
         const proxy = fn;
         let i = count || 0;
         let rtn;
@@ -2862,7 +3353,7 @@
     function set(obj, path, value) {
         if (!isObject(obj))
             return obj;
-        const chain = toPath$1(path);
+        const chain = toPath(path);
         let target = obj;
         for (let i = 0; i < chain.length; i++) {
             const seg = chain[i];
@@ -2900,7 +3391,7 @@
      * top.onclick = obj.click2
      *
      * @param object 绑定对象
-     * @param  {...(string | Array<string>)} methodNames 属性名或path
+     * @param methodNames 属性名或path
      * @returns 绑定对象
      * @since 0.17.0
      */
@@ -2948,7 +3439,7 @@
      * let formatName = _.compose(_.lowerCase,_.capitalize);
      * console.log(formatName('HOLYHIGH'))
      *
-     * @param  {...function} fns
+     * @param fns 多个函数
      * @returns 组合后的入口函数
      */
     function compose(...fns) {
@@ -2981,15 +3472,16 @@
     function debounce(fn, wait, immediate = false) {
         let proxy = fn;
         let timer = null;
-        let counting = false;
+        let firstCalled = false;
         if (immediate) {
             return (function (...args) {
-                if (!counting)
+                if (!firstCalled) {
                     proxy.apply(this, args);
-                counting = true;
+                    firstCalled = true;
+                    return;
+                }
                 clearTimeout(timer);
                 timer = setTimeout(() => {
-                    counting = false;
                     proxy.apply(this, args);
                 }, wait);
             });
@@ -3013,11 +3505,11 @@
      * _.delay(console.log,1000,'some text','!');
      *
      * @param fn 需要调用的函数
-     * @param [wait=0] 倒计时。单位ms
-     * @param [args] 传入定时函数的参数
+     * @param wait 倒计时。单位ms
+     * @param args 传入定时函数的参数
      * @returns 计时器id
      */
-    function delay(fn, wait, ...args) {
+    function delay(fn, wait = 0, ...args) {
         return setTimeout(() => {
             fn(...args);
         }, wait || 0);
@@ -3111,7 +3603,6 @@
      * @returns 包装后的函数
      * @since 1.4.0
      */
-    const EventTargetMap = new WeakMap;
     function throttle(fn, wait, options) {
         let proxy = fn;
         let lastExec = 0;
@@ -3174,6 +3665,7 @@
             }
         });
     }
+    const EventTargetMap = new WeakMap;
 
     var functions$1 = /*#__PURE__*/Object.freeze({
       __proto__: null,
@@ -3191,6 +3683,42 @@
       tap: tap,
       throttle: throttle
     });
+
+    /**
+     * 判断参数是否全部为字母或数字字符串
+     *
+     * @example
+     * //true
+     * console.log(_.isAlnum('123'))
+     * //true
+     * console.log(_.isAlnum('123abc'))
+     * //false
+     * console.log(_.isAlnum(1))
+     *
+     * @param v
+     * @returns
+     * @since 1.15.0
+     */
+    function isAlnum(v) {
+        return typeof v === 'string' && v.length > 0 && /^[\p{L}0-9]+$/u.test(v);
+    }
+
+    /**
+     * 判断参数是否全部为字母，含国际字母表
+     *
+     * @example
+     * //true
+     * console.log(_.isAlpha('𰻞𰻞mian'))
+     * //false
+     * console.log(_.isAlpha(1))
+     *
+     * @param v
+     * @returns
+     * @since 1.15.0
+     */
+    function isAlpha(v) {
+        return typeof v === 'string' && v.length > 0 && /^\p{L}+$/u.test(v);
+    }
 
     /**
      * 对字符串进行trim后进行验证。如果非字符串，转为字符串后进行验证
@@ -3308,6 +3836,10 @@
         if (isArrayLike(v) && v.length < 1)
             return true;
         if (v instanceof Object && Object.keys(v).length < 1)
+            return true;
+        if (v instanceof Map && v.size < 1)
+            return true;
+        if (v instanceof Set && v.size < 1)
             return true;
         return false;
     }
@@ -3453,6 +3985,7 @@
      *
      * @param v
      * @returns
+     * @since 1.13.0
      */
     function isLowerCaseChar(v) {
         if (v === null || v === undefined || Number.isNaN(v))
@@ -3638,6 +4171,7 @@
      *
      * @param v
      * @returns
+     * @since 1.13.0
      */
     function isUpperCaseChar(v) {
         if (v === null || v === undefined || Number.isNaN(v))
@@ -3680,6 +4214,8 @@
 
     var is = /*#__PURE__*/Object.freeze({
       __proto__: null,
+      isAlnum: isAlnum,
+      isAlpha: isAlpha,
       isArray: isArray,
       isArrayLike: isArrayLike,
       isBlank: isBlank,
@@ -3828,7 +4364,7 @@
      * console.log(_.median([1,'2',-3]))
      *
      * @param values 数字/字符数组/Set
-     * @returns mean value
+     * @returns median value
      * @since 1.12.0
      */
     function median(values) {
@@ -4002,11 +4538,15 @@
       sum: sum
     });
 
+    const SUB_PATTERN_EXP = /^(?<pos>.+)((?<!\\=);)(?<neg>.+)$/;
+    const PATTERN_EXP = /(?<integer>[0,#]+)(?:\.(?<fraction>[0#]+))?(?<suffix>[%\u2030E])?/;
     /**
      * 通过表达式格式化数字
      *
      * ```
      * #,##0.00 => 1,234.00
+     *
+     * #,##0.00;(#,##0.00) => 1,234.00 / (1,234.00)
      * ```
      *
      * pattern解释：
@@ -4018,6 +4558,7 @@
      * - `%` 后缀符号，数字乘100，并追加%
      * - `\u2030` 后缀符号，数字乘1000，并追加‰
      * - `E` 后缀符号，转为科学计数法格式
+     * - `;` 正/负数子模式分隔符
      *
      * @example
      * //小数位截取时会自动四舍五入
@@ -4035,7 +4576,7 @@
      * console.log(_.formatNumber(123.456,'#.##'))//123.46
      *
      * @param v 需要格式化的值，可以是数字或字符串类型
-     * @param [pattern='#,##0.00'] 格式化模式
+     * @param pattern 格式化模式
      *
      * @returns 格式化后的字符串或原始值字符串(如果格式无效时)或特殊值(Infinity\u221E、NaN\uFFFD)
      */
@@ -4046,126 +4587,142 @@
             return '-\u221E';
         if (Number.isNaN(v))
             return '\uFFFD';
-        if (isNaN(parseFloat(v + '')))
+        let num = parseFloat(v + '');
+        if (isNaN(num))
             return v + '';
-        let formatter = cache[pattern];
+        let posPattern = pattern;
+        let negPattern = '';
+        let subPatterns = pattern.match(SUB_PATTERN_EXP);
+        if (subPatterns && subPatterns.groups) {
+            posPattern = subPatterns.groups.pos;
+            negPattern = subPatterns.groups.neg;
+        }
+        let formatter = num < 0 && negPattern ? cache[negPattern] : cache[posPattern];
         if (!formatter) {
-            const match = pattern.match(/(?<integer>[0,#]+)(?:\.(?<fraction>[0#]+))?(?<suffix>[%\u2030E])?/);
-            if (match == null) {
-                return v + '';
+            if (num < 0 && negPattern) {
+                formatter = makeFormatter(negPattern, v, true);
             }
-            let integerPtn = match.groups?.integer || '';
-            const fractionPtn = match.groups?.fraction || '';
-            let suffix = match.groups?.suffix || '';
-            if (!integerPtn ||
-                integerPtn.indexOf('0#') > -1 ||
-                fractionPtn.indexOf('#0') > -1)
-                return v + '';
-            const ptnPart = match[0];
-            const endsPart = pattern.split(ptnPart);
-            const rnd = true; // round
-            const isPercentage = suffix === '%';
-            const isPermillage = suffix === '\u2030';
-            const isScientific = suffix === 'E';
-            const groupMatch = integerPtn.match(/,[#0]+$/);
-            let groupLen = -1;
-            if (groupMatch) {
-                groupLen = groupMatch[0].substring(1).length;
-                integerPtn = integerPtn.replace(/^.*,(?=[^,])/, '');
+            else {
+                formatter = makeFormatter(posPattern);
             }
-            let zeroizeLen = integerPtn.indexOf('0');
-            if (zeroizeLen > -1) {
-                zeroizeLen = integerPtn.length - zeroizeLen;
-            }
-            let fixedLen = Math.max(fractionPtn.lastIndexOf('0'), fractionPtn.lastIndexOf('#'));
-            if (fixedLen > -1) {
-                fixedLen += 1;
-            }
-            formatter = (val) => {
-                const num = parseFloat(val + '');
-                let number = num;
-                let exponent = 0;
-                if (isPercentage) {
-                    number = number * 100;
-                }
-                else if (isPermillage) {
-                    number = number * 1000;
-                }
-                else if (isScientific) {
-                    const str = number + '';
-                    const pair = str.split('.');
-                    if (number >= 1) {
-                        exponent = pair[0].length - 1;
-                    }
-                    else if (number < 1) {
-                        const fraStr = pair[1];
-                        exponent = fraStr.replace(/^0+/, '').length - fraStr.length - 1;
-                    }
-                    number = number / 10 ** exponent;
-                }
-                const numStr = number + '';
-                let integer = parseInt(numStr);
-                const pair = numStr.split('.');
-                const fraction = pair[1] || '';
-                // 处理小数
-                let dStr = '';
-                if (fractionPtn) {
-                    if (fraction.length >= fixedLen) {
-                        dStr = parseFloat('0.' + fraction).toFixed(fixedLen);
-                        if (dStr[0] === '1') {
-                            integer += 1;
-                        }
-                        dStr = dStr.substring(1);
-                    }
-                    else {
-                        dStr =
-                            '.' +
-                                fractionPtn.replace(/[0#]/g, (tag, i) => {
-                                    const l = fraction[i];
-                                    return l == undefined ? (tag === '0' ? '0' : '') : l;
-                                });
-                    }
-                    if (dStr.length < 2) {
-                        dStr = '';
-                    }
-                }
-                else {
-                    let carry = 0;
-                    if (fraction && rnd) {
-                        carry = Math.round(parseFloat('0.' + fraction));
-                    }
-                    integer += carry;
-                }
-                // 处理整数
-                let iStr = integer + '';
-                let sym = num < 0 ? '-' : '';
-                if (iStr[0] === '-' || iStr[0] === '+') {
-                    sym = iStr[0];
-                    iStr = iStr.substring(1);
-                }
-                if (groupLen > -1 && iStr.length > groupLen) {
-                    const reg = new RegExp('\\B(?=(\\d{' + groupLen + '})+$)', 'g');
-                    iStr = iStr.replace(reg, ',');
-                }
-                else if (iStr.length < integerPtn.length) {
-                    const integerPtnLen = integerPtn.length;
-                    const iStrLen = iStr.length;
-                    iStr = integerPtn.replace(/[0#]/g, (tag, i) => {
-                        if (integerPtnLen - i > iStrLen)
-                            return tag === '0' ? '0' : '';
-                        const l = iStr[iStrLen - (integerPtnLen - i)];
-                        return l == undefined ? (tag === '0' ? '0' : '') : l;
-                    });
-                }
-                // 合并
-                if (isScientific) {
-                    suffix = 'e' + exponent;
-                }
-                let rs = sym + iStr + dStr + suffix;
-                return (endsPart[0] || '') + rs + (endsPart[1] || '');
-            };
         }
         return formatter(v);
+    }
+    function makeFormatter(pattern, v, isNeg = false) {
+        const match = pattern.match(PATTERN_EXP);
+        if (match == null) {
+            return (v) => v + '';
+        }
+        let integerPtn = match.groups?.integer || '';
+        const fractionPtn = match.groups?.fraction || '';
+        let suffix = match.groups?.suffix || '';
+        if (!integerPtn ||
+            integerPtn.indexOf('0#') > -1 ||
+            fractionPtn.indexOf('#0') > -1)
+            return (v) => v + '';
+        const ptnPart = match[0];
+        const endsPart = pattern.split(ptnPart);
+        const rnd = true; // round
+        const isPercentage = suffix === '%';
+        const isPermillage = suffix === '\u2030';
+        const isScientific = suffix === 'E';
+        const groupMatch = integerPtn.match(/,[#0]+$/);
+        let groupLen = -1;
+        if (groupMatch) {
+            groupLen = groupMatch[0].substring(1).length;
+            integerPtn = integerPtn.replace(/^.*,(?=[^,])/, '');
+        }
+        let zeroizeLen = integerPtn.indexOf('0');
+        if (zeroizeLen > -1) {
+            zeroizeLen = integerPtn.length - zeroizeLen;
+        }
+        let fixedLen = Math.max(fractionPtn.lastIndexOf('0'), fractionPtn.lastIndexOf('#'));
+        if (fixedLen > -1) {
+            fixedLen += 1;
+        }
+        return (val) => {
+            const num = parseFloat(val + '');
+            let number = num;
+            let exponent = 0;
+            if (isPercentage) {
+                number = number * 100;
+            }
+            else if (isPermillage) {
+                number = number * 1000;
+            }
+            else if (isScientific) {
+                const str = number + '';
+                const pair = str.split('.');
+                if (number >= 1) {
+                    exponent = pair[0].length - 1;
+                }
+                else if (number < 1) {
+                    const fraStr = pair[1];
+                    exponent = fraStr.replace(/^0+/, '').length - fraStr.length - 1;
+                }
+                number = number / 10 ** exponent;
+            }
+            const numStr = number + '';
+            let integer = parseInt(numStr);
+            const pair = numStr.split('.');
+            const fraction = pair[1] || '';
+            // 处理小数
+            let dStr = '';
+            if (fractionPtn) {
+                if (fraction.length >= fixedLen) {
+                    dStr = parseFloat('0.' + fraction).toFixed(fixedLen);
+                    if (dStr[0] === '1') {
+                        integer += 1;
+                    }
+                    dStr = dStr.substring(1);
+                }
+                else {
+                    dStr =
+                        '.' +
+                            fractionPtn.replace(/[0#]/g, (tag, i) => {
+                                const l = fraction[i];
+                                return l == undefined ? (tag === '0' ? '0' : '') : l;
+                            });
+                }
+                if (dStr.length < 2) {
+                    dStr = '';
+                }
+            }
+            else {
+                let carry = 0;
+                if (fraction && rnd) {
+                    carry = Math.round(parseFloat('0.' + fraction));
+                }
+                integer += carry;
+            }
+            // 处理整数
+            let iStr = integer + '';
+            let sym = num < 0 ? '-' : '';
+            if (iStr[0] === '-' || iStr[0] === '+') {
+                sym = iStr[0];
+                iStr = iStr.substring(1);
+            }
+            if (groupLen > -1 && iStr.length > groupLen) {
+                const reg = new RegExp('\\B(?=(\\d{' + groupLen + '})+$)', 'g');
+                iStr = iStr.replace(reg, ',');
+            }
+            else if (iStr.length < integerPtn.length) {
+                const integerPtnLen = integerPtn.length;
+                const iStrLen = iStr.length;
+                iStr = integerPtn.replace(/[0#]/g, (tag, i) => {
+                    if (integerPtnLen - i > iStrLen)
+                        return tag === '0' ? '0' : '';
+                    const l = iStr[iStrLen - (integerPtnLen - i)];
+                    return l == undefined ? (tag === '0' ? '0' : '') : l;
+                });
+            }
+            // 合并
+            if (isScientific) {
+                suffix = 'e' + exponent;
+            }
+            let rs = (isNeg ? '' : sym) + iStr + dStr + suffix;
+            return (endsPart[0] || '') + rs + (endsPart[1] || '');
+        };
     }
     const cache = {};
 
@@ -4225,7 +4782,7 @@
         return toNumber(a) < toNumber(b);
     }
 
-    function inRange(v, start, end) {
+    function inRange(v, start = 0, end) {
         start = start || 0;
         if (end === undefined) {
             end = start;
@@ -4367,7 +4924,7 @@
      * console.log(_.assign({x:1},{y:3}))
      *
      * @param target 目标对象
-     * @param  {...object} sources 源对象
+     * @param sources 源对象
      * @returns 返回target
      */
     function assign(target, ...sources) {
@@ -4400,6 +4957,25 @@
         return rs;
     }
 
+    /**
+     * 浅层复制对象，支持赋值处理器
+     * 如果obj是基本类型，返回原值
+     * 如果obj是函数类型，返回原值
+     * 如果obj是元素类型，返回原值
+     *
+     * 只复制对象的自身可枚举属性
+     *
+     * @example
+     * //{x: 1, y: 2, z: null}
+     * console.log(_.cloneWith({x:1,y:2,z:3},(v,k)=>k=='z'?null:v))
+     * //null
+     * console.log(_.cloneWith(null))
+     *
+     * @param obj
+     * @param handler (value,key) 自定义赋值处理器，返回赋予新对象[k]的值。默认 `identity`
+     * @param skip (value,key) (value,key) 返回true 跳过clone该属性
+     * @returns 被复制的新对象
+     */
     function cloneWith(obj, handler, skip = (value, key) => false) {
         if (!isObject(obj))
             return obj;
@@ -4427,10 +5003,40 @@
         return copy;
     }
 
+    /**
+     * 浅层复制对象
+     * 如果是基本类型，返回原值
+     * 如果是函数类型，返回原值
+     * 只复制对象的自身可枚举属性
+     *
+     * @example
+     * //null
+     * console.log(_.clone(null))
+     *
+     * @param obj
+     * @returns 被复制的新对象
+     */
     function clone(obj) {
         return cloneWith(obj, identity);
     }
 
+    /**
+     * 完整复制对象,可以保持被复制属性的原有类型。支持赋值处理器
+     *
+     * 如果obj是基本类型，返回原值
+     * 如果obj是函数类型，返回原值
+     * 如果obj是元素类型，返回原值
+     * 只复制对象的自身可枚举属性
+     *
+     * @example
+     * //true
+     * console.log(_.cloneDeepWith({d:new Date}).d instanceof Date)
+     *
+     * @param obj
+     * @param handler (value,key,obj) 自定义赋值处理器，返回赋予新对象[k]的值，当返回对象且返回值与被复制值相同引用则跳过深度复制。默认 `clone`
+     * @param skip (value,key) 返回true 跳过clone该属性
+     * @returns 被复制的新对象
+     */
     function cloneDeepWith(obj, handler, skip = (value, key) => false) {
         if (!isObject(obj))
             return obj;
@@ -4461,6 +5067,20 @@
         return copy;
     }
 
+    /**
+     * 完整复制对象,可以保持被复制属性的原有类型
+     *
+     * 如果obj是基本类型，返回原值
+     * 如果obj是函数类型，返回原值
+     * 只复制对象的自身可枚举属性
+     *
+     * @example
+     * //true
+     * console.log(_.cloneDeep({d:new Date}).d instanceof Date)
+     *
+     * @param obj
+     * @returns 被复制的新对象
+     */
     function cloneDeep(obj) {
         return cloneDeepWith(obj, clone);
     }
@@ -4651,6 +5271,19 @@
         return obj && obj.hasOwnProperty && obj.hasOwnProperty(key);
     }
 
+    /**
+     * 返回对象/Map的所有key数组
+     * 包括对象原型链中的属性key
+     *
+     * @example
+     * let f = new Function("this.a=1;this.b=2;");
+     * f.prototype.c = 3;
+     * //[a,b,c]
+     * console.log(_.keysIn(new f()))
+     *
+     * @param obj
+     * @returns key数组
+     */
     function keysIn(obj) {
         if (isMap(obj)) {
             return Array.from(obj.keys());
@@ -4664,6 +5297,17 @@
         return rs;
     }
 
+    /**
+     * 永远返回undefined
+     * @example
+     * //undefined
+     * console.log(_.noop('func'))
+     * //undefined
+     * console.log(_.noop())
+     *
+     * @returns undefined
+     * @since 0.16.0
+     */
     function noop() {
         return undefined;
     }
@@ -4752,7 +5396,7 @@
      * console.log(_.omitBy({a:1,b:2,c:'3'},_.isNumber))
      *
      * @param obj 选取对象
-     * @param [predicate=identity] (v,k)断言函数
+     * @param predicate (v,k)断言函数
      * @returns 对象子集
      * @since 0.23.0
      */
@@ -4802,9 +5446,9 @@
      * //{a:1,b:2,c:'3"'}
      * console.log(_.parseJSON(`[{"a":1,"b":2,"c":"3\\""}]`))
      * //true
-     * console.log(_.parseJSON('true')
+     * console.log(_.parseJSON('true'))
      * //12
-     * console.log(_.parseJSON('12')
+     * console.log(_.parseJSON('12'))
      *
      *
      * @param str JSON字符串
@@ -4815,7 +5459,7 @@
     function parseJSON(str, ignore = false) {
         if (!isString(str))
             return str;
-        let s = (str + '').replace(/:\s*(['`])(.*)\1(?=\s*[},])/mg, ':"$2"').replace(/([{,])\s*([a-zA-Z0-9_$]+)\s*:/mg, '$1"$2":');
+        let s = (str + '').replace(/:\s*(['`])(.*)\1(?=\s*[},])/mg, ':"$2"').replace(/([{,])\s*(['`])?([\p{L}0-9_$]+)\2?\s*:/umg, '$1"$3":').replace(/([\[,])(['`])(.*)\2(?=\s*[,\]])/mg, '$1"$3"');
         s = ignore ? s.replace(/[{,]\s*"[a-zA-Z0-9_$]+"\s*:\s*([-+]?NaN|[-+]?Infinity)\s*/mg, '') : s.replace(/:\s*([-+]?NaN|[-+]?Infinity)\s*([,}])/mg, ':"$1"$2');
         let rs;
         try {
@@ -4834,7 +5478,7 @@
      * console.log(_.pickBy({a:1,b:2,c:'3'},_.isNumber))
      *
      * @param obj 选取对象
-     * @param [predicate=identity] (v,k)断言函数
+     * @param predicate (v,k)断言函数
      * @returns 对象子集
      * @since 0.23.0
      */
@@ -4969,7 +5613,7 @@
     function unset(obj, path) {
         if (!isObject(obj))
             return obj;
-        const chain = toPath$1(path);
+        const chain = toPath(path);
         let target = obj;
         for (let i = 0; i < chain.length; i++) {
             const seg = chain[i];
@@ -5209,10 +5853,10 @@
      *
      * @param str
      * @param search 指定字符串
-     * @param [fromIndex=0] 起始索引
+     * @param fromIndex 起始索引
      * @returns 第一个匹配搜索字符串的位置索引或-1
      */
-    function indexOf(str, search, fromIndex) {
+    function indexOf(str, search, fromIndex = 0) {
         str = toString(str);
         return str.indexOf(search, fromIndex || 0);
     }
@@ -5274,12 +5918,12 @@
      *
      * @param str
      * @param search 指定字符串
-     * @param [fromIndex=Infinity] 起始索引，从起始索引位置向左查找指定字符串
+     * @param fromIndex 起始索引，从起始索引位置向左查找指定字符串
      * @returns 最后一个匹配搜索字符串的位置索引或-1
      */
-    function lastIndexOf(str, search, fromIndex) {
+    function lastIndexOf(str, search, fromIndex = Infinity) {
         str = toString(str);
-        return str.lastIndexOf(search, fromIndex || Infinity);
+        return str.lastIndexOf(search, fromIndex ?? Infinity);
     }
 
     /**
@@ -5307,14 +5951,14 @@
      *
      * @param str 原字符串。如果非字符串则会自动转换成字符串
      * @param len 填充后的字符串长度，如果长度小于原字符串长度，返回原字符串
-     * @param [padString=' '] 填充字符串，如果填充后超出指定长度，会自动截取并保留右侧字符串
+     * @param padString 填充字符串，如果填充后超出指定长度，会自动截取并保留右侧字符串
      * @returns 在原字符串起始填充至指定长度后的字符串
      */
-    function padStart(str, len, padString) {
+    function padStart(str, len, padString = ' ') {
         str = toString(str);
         if (str.padStart)
             return str.padStart(len, padString);
-        padString = padString || ' ';
+        padString = padString ?? ' ';
         const diff = len - str.length;
         if (diff < 1)
             return str;
@@ -5473,7 +6117,7 @@
      *
      * @param str 原字符串。如果非字符串则会自动转换成字符串
      * @param separator 分隔符
-     * @param [limit] 限制返回的结果数量，为空返回所有结果
+     * @param limit 限制返回的结果数量，为空返回所有结果
      * @returns 分割后的数组
      */
     function split(str, separator, limit) {
@@ -5493,10 +6137,10 @@
      *
      * @param str
      * @param searchStr 查询字符串
-     * @param [position=0] 索引
+     * @param position 索引
      * @returns 如果以查询子字符串开头返回true，否则返回false
      */
-    function startsWith(str, searchStr, position) {
+    function startsWith(str, searchStr, position = 0) {
         return toString(str).startsWith(searchStr, position);
     }
 
@@ -5512,11 +6156,11 @@
      * console.log(_.substring())
      *
      * @param str 需要截取的字符串，如果非字符串对象会进行字符化处理。基本类型会直接转为字符值，对象类型会调用toString()方法
-     * @param [indexStart=0] 起始索引，包含
-     * @param [indexEnd=str.length] 结束索引，不包含
+     * @param indexStart 起始索引，包含
+     * @param indexEnd 结束索引，不包含
      * @returns
      */
-    function substring(str, indexStart, indexEnd) {
+    function substring(str, indexStart = 0, indexEnd) {
         str = toString(str);
         indexStart = indexStart || 0;
         return str.substring(indexStart, indexEnd);
@@ -5535,16 +6179,16 @@
      *
      * @param str
      * @param pattern 指定正则。如果非正则类型会自动转换为正则再进行匹配
-     * @param [flags] 如果pattern参数不是正则类型，会使用该标记作为正则构造的第二个参数
+     * @param flags 如果pattern参数不是正则类型，会使用该标记作为正则构造的第二个参数
      * @returns 匹配返回true
      * @since 0.19.0
      */
     function test(str, pattern, flags) {
-        let regExp = pattern;
-        if (!isRegExp(regExp)) {
-            regExp = new RegExp(pattern, flags);
+        let regExp;
+        if (!isRegExp(pattern)) {
+            regExp = new RegExp(pattern.replace(/([+/\\()\[\].{}])/mg, '\\$1'), flags);
         }
-        return regExp.test(str);
+        return (regExp ?? pattern).test(str);
     }
 
     /**
@@ -5565,10 +6209,10 @@
      * console.log((2.465).toFixed(2))
      *
      * @param v 数字或数字字符串
-     * @param [scale=0] 小数位长度
+     * @param scale 小数位长度
      * @returns 截取后的字符串
      */
-    function toFixed(v, scale) {
+    function toFixed(v, scale = 0) {
         scale = scale || 0;
         const num = parseFloat(v + '');
         if (isNaN(num))
@@ -5604,8 +6248,8 @@
                 startZ = true;
             }
             let n = Math.round(parseFloat(keep + '.' + round));
-            let nStr = n + '';
-            const strN = n + '';
+            let nStr = keep || n > 0 ? n + '' : '';
+            const strN = keep || n > 0 ? n + '' : '';
             if (n > 0 && strN.length > keep.length) {
                 integ += 1 * isNeg;
                 nStr = strN.substring(1);
@@ -5687,9 +6331,9 @@
      *
      * @param str
      * @param len 最大长度。如果长度大于<code>str</code>长度，直接返回str
-     * @param {object} options 可选项
+     * @param options 可选项
      * @param options.omission 替代字符，默认 '...'
-     * @param [options.separator] 截断符。如果截取后的字符串中包含截断符，则最终只会返回截断符之前的内容
+     * @param options.separator 截断符。如果截取后的字符串中包含截断符，则最终只会返回截断符之前的内容
      * @returns 返回新字符串
      * @since 1.0.0
      */
@@ -5828,7 +6472,7 @@
      * console.log(render())
      *
      * @param string 模板字符串
-     * @param {object} options MTL参数
+     * @param options MTL参数
      * @param options.delimiters 分隔符，默认 ['[%' , '%]']
      * @param options.mixins 混入对象。\{名称:模板字符串\}
      * @param options.globals 全局变量对象，可以在任意位置引用。模板内置的全局对象有两个：`print(content)`函数、`_` 对象，Myfx的命名空间
@@ -6070,8 +6714,8 @@
      *
      * @param array 原始数据集。如果非Array类型，返回空数组
      * @param idKey id标识
-     * @param pidKey='pid' 父id标识
-     * @param {object} options 自定义选项
+     * @param pidKey 父id标识
+     * @param options 自定义选项
      * @param options.rootParentValue 根节点的parentValue，用于识别根节点。默认null
      * @param options.childrenKey 包含子节点容器的key。默认'children'
      * @param options.attrMap 转换tree节点时的属性映射，如\{text:'name'\}表示把array中一条记录的name属性映射为tree节点的text属性
@@ -6079,7 +6723,7 @@
      * @returns 返回转换好的顶级节点数组或空数组
      * @since 1.0.0
      */
-    function arrayToTree(array, idKey = 'id', pidKey, options = { childrenKey: 'children', rootParentValue: null, attrMap: undefined, sortKey: '' }) {
+    function arrayToTree(array, idKey = 'id', pidKey = 'pid', options = { childrenKey: 'children', rootParentValue: null, attrMap: undefined, sortKey: '' }) {
         if (!isArray(array))
             return [];
         const pk = pidKey || 'pid';
@@ -6143,12 +6787,24 @@
         return hasSortKey ? sortBy(roots, sortKey) : roots;
     }
 
-    function closest(node, predicate, parentKey) {
+    /**
+     * 根据指定的node及parentKey属性，查找最近的祖先节点
+     * @param node Element节点或普通对象节点
+     * @param predicate (node,times,cancel)断言函数，如果返回true表示节点匹配。或调用cancel中断查找
+     * @param parentKey 父节点引用属性名
+     * @param composed 是否跨越web组件边界查找，默认为false
+     * @returns 断言为true的最近一个祖先节点
+     * @since 1.0.0
+     */
+    function closest(node, predicate, parentKey, composed = false) {
         let p = node;
         let t = null;
         let k = true;
         let i = 0;
         while (k && p) {
+            if (composed && p instanceof ShadowRoot) {
+                p = p.host;
+            }
             if (predicate(p, i++, () => { k = false; })) {
                 t = p;
                 break;
@@ -6193,7 +6849,7 @@
      *
      * @param treeNodes 一组节点或一个节点
      * @param callback (node,parentNode,chain,level,index)回调函数，如果返回false则中断遍历，如果返回-1则停止分支遍历
-     * @param {object} options 自定义选项
+     * @param options 自定义选项
      * @param options.childrenKey 包含子节点容器的key。默认'children'
      * @since 1.0.0
      */
@@ -6266,7 +6922,7 @@
      * @param predicate (node,parentNode,chain,level) 断言
      * <br>当断言是函数时回调参数见定义
      * <br>其他类型请参考 {@link utils!iteratee}
-     * @param {object} options 自定义选项
+     * @param options 自定义选项
      * @param options.childrenKey 包含子节点容器的key。默认'children'
      * @returns 找到的符合条件的所有节点副本或空数组
      * @since 1.0.0
@@ -6354,7 +7010,7 @@
      *
      * @param treeNodes 一组节点或一个节点
      * @param comparator (a,b) 排序函数
-     * @param {object} options 自定义选项
+     * @param options 自定义选项
      * @param options.childrenKey 包含子节点容器的key。默认'children'
      *
      * @since 1.0.0
@@ -6392,11 +7048,11 @@
      * // Ii6cPyfw-Ql5YC8OIhVwH1lpGY9x
      * console.log(_.alphaId(28))
      *
-     * @param [len=16] id长度
+     * @param len id长度
      * @returns alphaId
      * @since 1.0.0
      */
-    function alphaId(len) {
+    function alphaId(len = 16) {
         const bytes = globalThis.crypto.getRandomValues(new Uint8Array(len || 16));
         let rs = '';
         bytes.forEach(b => rs += ALPHABET[b % ALPHABET.length]);
@@ -6423,7 +7079,7 @@
     }
 
     /**
-     * 为func.js扩展额外函数，扩展后的函数同样具有函数链访问能力
+     * 为 myfx 扩展额外函数，扩展后的函数同样具有函数链访问能力
      *
      * @example
      * //增加扩展
@@ -6435,7 +7091,7 @@
      * });
      *
      * const libs = [
-     *  {name:'func.js',platform:['web','nodejs'],tags:{utils:true},js:true},
+     *  {name:'myfx',platform:['web','nodejs'],tags:{utils:true},js:true},
      *  {name:'juth2',platform:['web','java'],tags:{utils:false,middleware:true},js:false},
      *  {name:'soya2d',platform:['web'],tags:{utils:true},js:true}
      * ];
@@ -6495,11 +7151,11 @@
      * console.log(_.snowflakeId(456,new Date(2022,1,1).getTime()))
      *
      * @param nodeId 节点id，10bit整数
-     * @param [epoch=1580486400000] 时间起点，用于计算相对时间戳
+     * @param epoch 时间起点，用于计算相对时间戳
      * @returns snowflakeId 由于js精度问题，直接返回字符串而不是number，如果nodeId为空返回 '0000000000000000000'
      * @since 1.0.0
      */
-    function snowflakeId(nodeId, epoch) {
+    function snowflakeId(nodeId, epoch = 1580486400000) {
         epoch = epoch || 1580486400000;
         if (isNil(nodeId))
             return '0000000000000000000';
@@ -6560,7 +7216,7 @@
      * //1
      * console.log(_.uniqueId())
      *
-     * @param [prefix] id前缀
+     * @param prefix id前缀
      * @returns 唯一id
      * @since 0.16.0
      */
@@ -6647,13 +7303,13 @@
         flatDeep() { return get(FuncChain.prototype, '_flatDeep').call(this, ...arguments); }
         insert(index, ...values) { return get(FuncChain.prototype, '_insert').call(this, ...arguments); }
         intersect() { return get(FuncChain.prototype, '_intersect').call(this, ...arguments); }
-        join(separator) { return get(FuncChain.prototype, '_join').call(this, ...arguments); }
-        pop(index) { return get(FuncChain.prototype, '_pop').call(this, ...arguments); }
+        join(separator = ',') { return get(FuncChain.prototype, '_join').call(this, ...arguments); }
+        pop(index = -1) { return get(FuncChain.prototype, '_pop').call(this, ...arguments); }
         pull(...values) { return get(FuncChain.prototype, '_pull').call(this, ...arguments); }
-        range(end, step) { return get(FuncChain.prototype, '_range').call(this, ...arguments); }
+        range(end, step = 1) { return get(FuncChain.prototype, '_range').call(this, ...arguments); }
         remove(predicate) { return get(FuncChain.prototype, '_remove').call(this, ...arguments); }
         reverse() { return get(FuncChain.prototype, '_reverse').call(this, ...arguments); }
-        slice(begin, end) { return get(FuncChain.prototype, '_slice').call(this, ...arguments); }
+        slice(begin = 0, end) { return get(FuncChain.prototype, '_slice').call(this, ...arguments); }
         sortedIndex(value) { return get(FuncChain.prototype, '_sortedIndex').call(this, ...arguments); }
         sortedIndexBy(value, itee) { return get(FuncChain.prototype, '_sortedIndexBy').call(this, ...arguments); }
         union() { return get(FuncChain.prototype, '_union').call(this, ...arguments); }
@@ -6664,37 +7320,37 @@
         zip() { return get(FuncChain.prototype, '_zip').call(this, ...arguments); }
         zipObject(values) { return get(FuncChain.prototype, '_zipObject').call(this, ...arguments); }
         zipWith() { return get(FuncChain.prototype, '_zipWith').call(this, ...arguments); }
-        countBy(itee) { return get(FuncChain.prototype, '_countBy').call(this, ...arguments); }
+        countBy(itee = identity) { return get(FuncChain.prototype, '_countBy').call(this, ...arguments); }
         every(predicate) { return get(FuncChain.prototype, '_every').call(this, ...arguments); }
         filter(predicate) { return get(FuncChain.prototype, '_filter').call(this, ...arguments); }
         find(predicate) { return get(FuncChain.prototype, '_find').call(this, ...arguments); }
         findLast(predicate) { return get(FuncChain.prototype, '_findLast').call(this, ...arguments); }
         first() { return get(FuncChain.prototype, '_first').call(this, ...arguments); }
-        flatMap(itee, depth) { return get(FuncChain.prototype, '_flatMap').call(this, ...arguments); }
-        flatMapDeep(itee) { return get(FuncChain.prototype, '_flatMapDeep').call(this, ...arguments); }
-        groupBy(itee) { return get(FuncChain.prototype, '_groupBy').call(this, ...arguments); }
-        includes(value, fromIndex) { return get(FuncChain.prototype, '_includes').call(this, ...arguments); }
+        flatMap(itee = identity, depth = 1) { return get(FuncChain.prototype, '_flatMap').call(this, ...arguments); }
+        flatMapDeep(iteratee = identity) { return get(FuncChain.prototype, '_flatMapDeep').call(this, ...arguments); }
+        groupBy(iteratee = identity) { return get(FuncChain.prototype, '_groupBy').call(this, ...arguments); }
+        includes(value, fromIndex = 0) { return get(FuncChain.prototype, '_includes').call(this, ...arguments); }
         initial() { return get(FuncChain.prototype, '_initial').call(this, ...arguments); }
-        keyBy(itee) { return get(FuncChain.prototype, '_keyBy').call(this, ...arguments); }
+        keyBy(iteratee = identity) { return get(FuncChain.prototype, '_keyBy').call(this, ...arguments); }
         last() { return get(FuncChain.prototype, '_last').call(this, ...arguments); }
-        map(itee) { return get(FuncChain.prototype, '_map').call(this, ...arguments); }
+        map(iteratee = identity) { return get(FuncChain.prototype, '_map').call(this, ...arguments); }
         partition(predicate) { return get(FuncChain.prototype, '_partition').call(this, ...arguments); }
         reduce(callback, initialValue) { return get(FuncChain.prototype, '_reduce').call(this, ...arguments); }
         reject(predicate) { return get(FuncChain.prototype, '_reject').call(this, ...arguments); }
         sample() { return get(FuncChain.prototype, '_sample').call(this, ...arguments); }
-        sampleSize(count) { return get(FuncChain.prototype, '_sampleSize').call(this, ...arguments); }
+        sampleSize(count = 1) { return get(FuncChain.prototype, '_sampleSize').call(this, ...arguments); }
         shuffle() { return get(FuncChain.prototype, '_shuffle').call(this, ...arguments); }
         size() { return get(FuncChain.prototype, '_size').call(this, ...arguments); }
         some(predicate) { return get(FuncChain.prototype, '_some').call(this, ...arguments); }
         sort(comparator) { return get(FuncChain.prototype, '_sort').call(this, ...arguments); }
-        sortBy(itee) { return get(FuncChain.prototype, '_sortBy').call(this, ...arguments); }
+        sortBy(iteratee = identity) { return get(FuncChain.prototype, '_sortBy').call(this, ...arguments); }
         tail() { return get(FuncChain.prototype, '_tail').call(this, ...arguments); }
         take(length) { return get(FuncChain.prototype, '_take').call(this, ...arguments); }
         takeRight(length) { return get(FuncChain.prototype, '_takeRight').call(this, ...arguments); }
         toArray() { return get(FuncChain.prototype, '_toArray').call(this, ...arguments); }
-        addTime(amount, type) { return get(FuncChain.prototype, '_addTime').call(this, ...arguments); }
-        compareDate(date2, type) { return get(FuncChain.prototype, '_compareDate').call(this, ...arguments); }
-        formatDate(pattern) { return get(FuncChain.prototype, '_formatDate').call(this, ...arguments); }
+        addTime(amount, type = 's') { return get(FuncChain.prototype, '_addTime').call(this, ...arguments); }
+        compareDate(date2, type = 'd') { return get(FuncChain.prototype, '_compareDate').call(this, ...arguments); }
+        formatDate(pattern = 'yyyy-MM-dd HH:mm:ss') { return get(FuncChain.prototype, '_formatDate').call(this, ...arguments); }
         getDayOfYear() { return get(FuncChain.prototype, '_getDayOfYear').call(this, ...arguments); }
         getWeekOfMonth() { return get(FuncChain.prototype, '_getWeekOfMonth').call(this, ...arguments); }
         getWeekOfYear() { return get(FuncChain.prototype, '_getWeekOfYear').call(this, ...arguments); }
@@ -6702,19 +7358,21 @@
         isSameDay(date2) { return get(FuncChain.prototype, '_isSameDay').call(this, ...arguments); }
         now() { return get(FuncChain.prototype, '_now').call(this, ...arguments); }
         toDate() { return get(FuncChain.prototype, '_toDate').call(this, ...arguments); }
-        after(count) { return get(FuncChain.prototype, '_after').call(this, ...arguments); }
+        after(count = 0) { return get(FuncChain.prototype, '_after').call(this, ...arguments); }
         alt(interceptor1, interceptor2) { return get(FuncChain.prototype, '_alt').call(this, ...arguments); }
         bind(thisArg, ...args) { return get(FuncChain.prototype, '_bind').call(this, ...arguments); }
         bindAll(...methodNames) { return get(FuncChain.prototype, '_bindAll').call(this, ...arguments); }
         call(...args) { return get(FuncChain.prototype, '_call').call(this, ...arguments); }
         compose() { return get(FuncChain.prototype, '_compose').call(this, ...arguments); }
         debounce(wait, immediate = false) { return get(FuncChain.prototype, '_debounce').call(this, ...arguments); }
-        delay(wait, ...args) { return get(FuncChain.prototype, '_delay').call(this, ...arguments); }
+        delay(wait = 0, ...args) { return get(FuncChain.prototype, '_delay').call(this, ...arguments); }
         fval(args, context) { return get(FuncChain.prototype, '_fval').call(this, ...arguments); }
         once() { return get(FuncChain.prototype, '_once').call(this, ...arguments); }
         partial(...args) { return get(FuncChain.prototype, '_partial').call(this, ...arguments); }
         tap(interceptor) { return get(FuncChain.prototype, '_tap').call(this, ...arguments); }
         throttle(wait, options) { return get(FuncChain.prototype, '_throttle').call(this, ...arguments); }
+        isAlnum() { return get(FuncChain.prototype, '_isAlnum').call(this, ...arguments); }
+        isAlpha() { return get(FuncChain.prototype, '_isAlpha').call(this, ...arguments); }
         isArray() { return get(FuncChain.prototype, '_isArray').call(this, ...arguments); }
         isArrayLike() { return get(FuncChain.prototype, '_isArrayLike').call(this, ...arguments); }
         isBlank() { return get(FuncChain.prototype, '_isBlank').call(this, ...arguments); }
@@ -6769,7 +7427,7 @@
         formatNumber(pattern = '#,##0.00') { return get(FuncChain.prototype, '_formatNumber').call(this, ...arguments); }
         gt(b) { return get(FuncChain.prototype, '_gt').call(this, ...arguments); }
         gte(b) { return get(FuncChain.prototype, '_gte').call(this, ...arguments); }
-        inRange(start, end) { return get(FuncChain.prototype, '_inRange').call(this, ...arguments); }
+        inRange(start = 0, end) { return get(FuncChain.prototype, '_inRange').call(this, ...arguments); }
         lt(b) { return get(FuncChain.prototype, '_lt').call(this, ...arguments); }
         lte(b) { return get(FuncChain.prototype, '_lte').call(this, ...arguments); }
         toInteger() { return get(FuncChain.prototype, '_toInteger').call(this, ...arguments); }
@@ -6808,13 +7466,13 @@
         capitalize() { return get(FuncChain.prototype, '_capitalize').call(this, ...arguments); }
         endsWith(searchStr, position) { return get(FuncChain.prototype, '_endsWith').call(this, ...arguments); }
         escapeRegExp() { return get(FuncChain.prototype, '_escapeRegExp').call(this, ...arguments); }
-        indexOf(search, fromIndex) { return get(FuncChain.prototype, '_indexOf').call(this, ...arguments); }
+        indexOf(search, fromIndex = 0) { return get(FuncChain.prototype, '_indexOf').call(this, ...arguments); }
         kebabCase() { return get(FuncChain.prototype, '_kebabCase').call(this, ...arguments); }
-        lastIndexOf(search, fromIndex) { return get(FuncChain.prototype, '_lastIndexOf').call(this, ...arguments); }
+        lastIndexOf(search, fromIndex = Infinity) { return get(FuncChain.prototype, '_lastIndexOf').call(this, ...arguments); }
         lowerCase() { return get(FuncChain.prototype, '_lowerCase').call(this, ...arguments); }
         lowerFirst() { return get(FuncChain.prototype, '_lowerFirst').call(this, ...arguments); }
-        padEnd(len, padString) { return get(FuncChain.prototype, '_padEnd').call(this, ...arguments); }
-        padStart(len, padString) { return get(FuncChain.prototype, '_padStart').call(this, ...arguments); }
+        padEnd(len, padString = ' ') { return get(FuncChain.prototype, '_padEnd').call(this, ...arguments); }
+        padStart(len, padString = ' ') { return get(FuncChain.prototype, '_padStart').call(this, ...arguments); }
         padZ(len) { return get(FuncChain.prototype, '_padZ').call(this, ...arguments); }
         pascalCase() { return get(FuncChain.prototype, '_pascalCase').call(this, ...arguments); }
         repeat(count) { return get(FuncChain.prototype, '_repeat').call(this, ...arguments); }
@@ -6822,10 +7480,10 @@
         replaceAll(searchValue, replaceValue) { return get(FuncChain.prototype, '_replaceAll').call(this, ...arguments); }
         snakeCase() { return get(FuncChain.prototype, '_snakeCase').call(this, ...arguments); }
         split(separator, limit) { return get(FuncChain.prototype, '_split').call(this, ...arguments); }
-        startsWith(searchStr, position) { return get(FuncChain.prototype, '_startsWith').call(this, ...arguments); }
-        substring(indexStart, indexEnd) { return get(FuncChain.prototype, '_substring').call(this, ...arguments); }
+        startsWith(searchStr, position = 0) { return get(FuncChain.prototype, '_startsWith').call(this, ...arguments); }
+        substring(indexStart = 0, indexEnd) { return get(FuncChain.prototype, '_substring').call(this, ...arguments); }
         test(pattern, flags) { return get(FuncChain.prototype, '_test').call(this, ...arguments); }
-        toFixed(scale) { return get(FuncChain.prototype, '_toFixed').call(this, ...arguments); }
+        toFixed(scale = 0) { return get(FuncChain.prototype, '_toFixed').call(this, ...arguments); }
         toString() { return get(FuncChain.prototype, '_toString').call(this, ...arguments); }
         trim() { return get(FuncChain.prototype, '_trim').call(this, ...arguments); }
         trimEnd() { return get(FuncChain.prototype, '_trimEnd').call(this, ...arguments); }
@@ -6833,8 +7491,8 @@
         truncate(len, options) { return get(FuncChain.prototype, '_truncate').call(this, ...arguments); }
         upperCase() { return get(FuncChain.prototype, '_upperCase').call(this, ...arguments); }
         upperFirst() { return get(FuncChain.prototype, '_upperFirst').call(this, ...arguments); }
-        arrayToTree(idKey = 'id', pidKey, options = { childrenKey: 'children', rootParentValue: null, attrMap: undefined, sortKey: '' }) { return get(FuncChain.prototype, '_arrayToTree').call(this, ...arguments); }
-        closest(predicate, parentKey) { return get(FuncChain.prototype, '_closest').call(this, ...arguments); }
+        arrayToTree(idKey = 'id', pidKey = 'pid', options = { childrenKey: 'children', rootParentValue: null, attrMap: undefined, sortKey: '' }) { return get(FuncChain.prototype, '_arrayToTree').call(this, ...arguments); }
+        closest(predicate, parentKey, composed = false) { return get(FuncChain.prototype, '_closest').call(this, ...arguments); }
         filterTree(predicate, options = { childrenKey: 'children' }) { return get(FuncChain.prototype, '_filterTree').call(this, ...arguments); }
         findTreeNode(predicate, options) { return get(FuncChain.prototype, '_findTreeNode').call(this, ...arguments); }
         findTreeNodes(predicate, options) { return get(FuncChain.prototype, '_findTreeNodes').call(this, ...arguments); }
@@ -6842,9 +7500,8 @@
         defaultTo(defaultValue) { return get(FuncChain.prototype, '_defaultTo').call(this, ...arguments); }
         matcher() { return get(FuncChain.prototype, '_matcher').call(this, ...arguments); }
         noConflict() { return get(FuncChain.prototype, '_noConflict').call(this, ...arguments); }
-        snowflakeId(epoch) { return get(FuncChain.prototype, '_snowflakeId').call(this, ...arguments); }
+        snowflakeId(epoch = 1580486400000) { return get(FuncChain.prototype, '_snowflakeId').call(this, ...arguments); }
         times(iteratee) { return get(FuncChain.prototype, '_times').call(this, ...arguments); }
-        toPath() { return get(FuncChain.prototype, '_toPath').call(this, ...arguments); }
         uniqueId() { return get(FuncChain.prototype, '_uniqueId').call(this, ...arguments); }
         uuid() { return get(FuncChain.prototype, '_uuid').call(this, ...arguments); }
     } //#cfx
@@ -7028,7 +7685,7 @@
     /* eslint-disable require-jsdoc */
     /* eslint-disable no-invalid-this */
     /* eslint-disable max-len */
-    const VERSION = "1.14.1"; //#ver
+    const VERSION = "1.15.10"; //#ver
     /**
     * 显式开启myfx的函数链，返回一个包裹了参数v的myfx链式对象。函数链可以链接Myfx提供的所有函数，如
      <p>
@@ -7162,10 +7819,15 @@
     const HasChangedPropOrStateMap = new WeakMap();
     const ComputedUpdateDepsMap = new WeakMap();
     const CssUpdateDepsMap = new WeakMap();
+    const DirectiveScopeMap = new Map;
     const ComponentDynamicCssUpdaterMap = new WeakMap();
+    const ComponentUninitializedSubComponentPropMap = new WeakMap();
+    const ComponentUninitializedSlotFunctionMap = new WeakMap();
+    const ComponentUninitializedWrapperComponentMap = new WeakMap();
     const PATH_SEPARATOR = '-';
     const PROP_NAME_SLOTS$1 = 'slots';
     const DATA_KEY = '__data_';
+    const PLACEHOLDER = "⟬Ċ⟭";
 
     function showError(msg) {
         console.error(`[CompElem]`, msg);
@@ -7250,6 +7912,18 @@
             return undefined;
         return documentFragment ? documentFragment.host : undefined;
     }
+    function isCompElemNode(node) {
+        return !!DefinitionComponentMap[node.tagName.toLowerCase()];
+    }
+    function addUninitializedSubComponentProp(wrapperComponent, node, props) {
+        let propMap = ComponentUninitializedSubComponentPropMap.get(wrapperComponent);
+        if (!propMap) {
+            propMap = new Map();
+            ComponentUninitializedSubComponentPropMap.set(wrapperComponent, propMap);
+        }
+        let p = propMap.get(node) ?? {};
+        propMap.set(node, assign(p, props));
+    }
 
     /**
      * 用于提供全局state状态管理
@@ -7267,8 +7941,19 @@
                 contextList = new Set();
                 EXTRA_CONTEXT_OF_VAR.set(v, contextList);
             }
+            let wVkMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(context);
+            if (!wVkMap) {
+                wVkMap = {};
+                OBJECT_VAR_ROOT_PATH_IN_CONTEXT.set(context, wVkMap);
+            }
+            let rs = PROXY_MAP.get(v);
+            if (OBJECT_VAR_ROOT_CONTEXT.get(rs) !== context) {
+                let srcPath = OBJECT_VAR_PATH.get(rs);
+                if (srcPath)
+                    wVkMap[srcPath[0]] = propertyKey;
+            }
             contextList.add(thisHost.__thisRef);
-            return PROXY_MAP.get(v);
+            return rs;
         }
         if (isObject(v) && !isFunction(v) && !(v instanceof Node) && !Object.isFrozen(v)) {
             let keySet = StateShallowKeySetMap.get(thisHost.constructor);
@@ -7403,22 +8088,16 @@
         if (PROXY_MAP.has(obj))
             return PROXY_MAP.get(obj);
         if (OBJECT_VAR_ROOT_CONTEXT.has(obj)) {
-            if (rootProp) {
-                let pathMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(context);
-                if (!pathMap) {
-                    pathMap = new WeakMap();
-                    OBJECT_VAR_ROOT_PATH_IN_CONTEXT.set(context, pathMap);
-                }
-                pathMap.set(obj, rootProp);
-                let contextList = EXTRA_CONTEXT_OF_VAR.get(obj);
-                if (!contextList) {
-                    contextList = new Set();
-                    EXTRA_CONTEXT_OF_VAR.set(obj, contextList);
-                }
-                if (!some(contextList.values(), (v) => v.deref() === context)) {
-                    contextList.add(new WeakRef(context));
-                }
-            }
+            // if (rootProp) {
+            //   let contextList = EXTRA_CONTEXT_OF_VAR.get(obj)
+            //   if (!contextList) {
+            //     contextList = new Set()
+            //     EXTRA_CONTEXT_OF_VAR.set(obj, contextList)
+            //   }
+            //   if (!some(contextList.values() as any, (v: WeakRef<any>) => v.deref() === context)) {
+            //     contextList.add(new WeakRef(context))
+            //   }
+            // }
             return obj;
         }
         const proxyObject = new Proxy(obj, {
@@ -7505,11 +8184,6 @@
         PROXY_MAP.set(obj, proxyObject);
         if (rootProp) {
             OBJECT_VAR_ROOT_CONTEXT.set(proxyObject, context);
-            if (!OBJECT_VAR_ROOT_PATH_IN_CONTEXT.has(context)) {
-                let pathMap = new WeakMap();
-                pathMap.set(proxyObject, rootProp);
-                OBJECT_VAR_ROOT_PATH_IN_CONTEXT.set(context, pathMap);
-            }
         }
         return proxyObject;
     }
@@ -7913,12 +8587,15 @@
         if (isOnce) {
             c = once(c);
         }
-        if (node instanceof CompElem) {
+        let ctor = DefinitionComponentMap[node.tagName.toLowerCase()];
+        if (ctor) {
             if (node === component && !parts.includes(MODI_EV_NATIVE)) {
                 parts.push(MODI_EV_NATIVE);
             }
-            if (!parts.includes(MODI_EV_NATIVE))
-                return node._addEvent(evName, cbk);
+            if (!parts.includes(MODI_EV_NATIVE)) {
+                addEmitEvent(node, component, evName, c);
+                return noop;
+            }
         }
         if (isExtEvent(evName)) {
             return addExtEvent(evName, node, c, parts);
@@ -7964,6 +8641,16 @@
                 node = null;
         };
     }
+    function addEmitEvent(node, component, evName, c) {
+        let eventSourceSn = get(node, '__c_emit_event_') ?? component._subComponentEventSn++;
+        set(node, '__c_emit_event_', eventSourceSn);
+        let evMap = component._subComponentEventMap.get(eventSourceSn);
+        if (!evMap) {
+            evMap = {};
+            component._subComponentEventMap.set(eventSourceSn, evMap);
+        }
+        evMap[evName] = c;
+    }
 
     const PropTypeMap = {
         boolean: Boolean,
@@ -8002,7 +8689,6 @@
                 }
                 return [];
             });
-            //todo...
             options.global;
             each(options, (v, k) => {
                 if (test(k[0], /[A-Z]/)) ;
@@ -8016,7 +8702,6 @@
         //保存所有渲染上下文 {CompElem/Directive}
         __updateTree;
         _eventBindList;
-        _listerners = {};
         __docoEventMap;
         __updateSubViewDeps;
         _cssUpdateInNextTick = false;
@@ -8025,6 +8710,8 @@
         _watchUpdateSetInNextTick;
         _watchUpdateArgsInNextTick;
         _computedUpdateSetInNextTick;
+        _subComponentEventSn = 0;
+        _subComponentEventMap = new Map();
         get [Symbol.toStringTag]() {
             return this.constructor.name;
         }
@@ -8047,7 +8734,16 @@
             return this.#parentComponent?.deref();
         }
         get wrapperComponent() {
-            return this.__wrapperComponent?.deref();
+            // if (!this.#wrapperComponent) {
+            //   let wrapperRoot = closest<ShadowRoot>(
+            //     this.parentNode!,
+            //     (node) =>
+            //       node instanceof ShadowRoot && !!node.host,
+            //     "parentNode"
+            //   );
+            //   this.#wrapperComponent = wrapperRoot ? new WeakRef(wrapperRoot.host as CompElem) : undefined
+            // }
+            return this.#wrapperComponent?.deref();
         }
         get slots() {
             return EMPTY_SLOTS;
@@ -8069,7 +8765,7 @@
         #renderRoot;
         #renderRoots;
         #parentComponent;
-        __wrapperComponent;
+        #wrapperComponent;
         #slotsEl = {};
         #slotHooks = {};
         #slotNodes = {};
@@ -8162,6 +8858,18 @@
                     ? new WeakRef(node)
                     : new WeakRef(node.host)
                 : undefined;
+            // let wrapperRoot = closest<ShadowRoot>(
+            //   this.parentNode!,
+            //   (node) =>
+            //     node instanceof ShadowRoot && !!node.host,
+            //   "parentNode"
+            // );
+            let wrapper = ComponentUninitializedWrapperComponentMap.get(this);
+            if (wrapper) {
+                this.#wrapperComponent = new WeakRef(wrapper);
+                ComponentUninitializedWrapperComponentMap.delete(this);
+            }
+            // this.#wrapperComponent = wrapperRoot ? new WeakRef(wrapperRoot.host as CompElem) : undefined
             if (!CompElem.__l_globalRule.parentNode) {
                 document.head.appendChild(CompElem.__l_globalRule);
             }
@@ -8179,9 +8887,9 @@
                     }
                     set(this.constructor, 'hostCssSheet', styleSheet);
                 }
-                let styleRoot = this.__wrapperComponent?.deref()?.shadowRoot ?? this.#parentComponent?.deref()?.shadowRoot ?? this.ownerDocument;
+                let styleRoot = this.#wrapperComponent?.deref()?.shadowRoot ?? this.#parentComponent?.deref()?.shadowRoot ?? this.ownerDocument;
                 //detached el
-                if (this.__wrapperComponent && !this.__wrapperComponent.deref()?.shadowRoot?.contains(this)) {
+                if (this.#wrapperComponent && !this.#wrapperComponent.deref()?.shadowRoot?.contains(this)) {
                     styleRoot = closest(this, n => n instanceof HTMLDocument || n instanceof ShadowRoot, 'parentNode');
                 }
                 if (styleRoot && styleSheet && !styleRoot.adoptedStyleSheets.includes(styleSheet)) {
@@ -8202,7 +8910,7 @@
                     return;
                 if (!node)
                     return;
-                let handler = cbk ? cbk.bind(this) : cbk;
+                let handler = cbk && (get(globalThis, cbk.name) !== cbk) ? cbk.bind(this) : cbk;
                 let unbinder = addEvent(evName, handler, node, this);
                 v[3] = unbinder;
             });
@@ -8216,7 +8924,7 @@
                         return;
                     let eventTarget = targetFn ? targetFn(this) : this;
                     let cbk = get(this, fnName);
-                    let handler = cbk ? cbk.bind(this) : cbk;
+                    let handler = cbk && (get(globalThis, cbk.name) !== cbk) ? cbk.bind(this) : cbk;
                     let unbinder = addEvent(name, handler, eventTarget, this);
                     this.__docoEventMap.set(name + "@" + fnName, unbinder);
                 });
@@ -8256,7 +8964,6 @@
             this.beforeDestroyed();
             //events
             this.__unbindEvents();
-            this._listerners = null;
             this.__docoEventMap?.clear();
             this.__docoEventMap = this._eventBindList = null;
             //styles
@@ -8312,7 +9019,7 @@
                                                         this.__updateTree =
                                                             this.#parentComponent =
                                                                 this._asyncDirectives =
-                                                                    this.__wrapperComponent = null;
+                                                                    this.#wrapperComponent = null;
             //unmount
             this.destroyed();
         }
@@ -8419,7 +9126,7 @@
             if (!this.constructor.prototype._viewDeps) {
                 this.constructor.prototype._viewDeps = viewDeps;
             }
-            let nodes;
+            let fragment;
             if (tmpl === null) {
                 this.#renderRoots = [];
                 this.#renderRoot = undefined;
@@ -8430,9 +9137,9 @@
                     mode: "open"
                 });
                 this.#shadow.adoptedStyleSheets = [...DefaultCss, ...(ComponentStaticStyleMap.get(this.constructor) ?? [])];
-                nodes = buildView(tmpl, this);
-                if (nodes) {
-                    this.#renderRoots = filter(nodes, (n) => n.nodeType === Node.ELEMENT_NODE).map(n => new WeakRef(n));
+                fragment = buildView(tmpl, this);
+                if (fragment && size(fragment.children) > 0) {
+                    this.#renderRoots = filter(fragment.children, (n) => n.nodeType === Node.ELEMENT_NODE).map(n => new WeakRef(n));
                     this.#renderRoot = this.#renderRoots[0];
                 }
             }
@@ -8440,6 +9147,11 @@
             /////////////////////////////////////////////////// slots
             this.#updateSlotsAry();
             //slot hook
+            let slotMap = ComponentUninitializedSlotFunctionMap.get(this);
+            if (slotMap) {
+                this.#slotHooks = slotMap;
+                ComponentUninitializedSlotFunctionMap.delete(this);
+            }
             each(this.#slotHooks, (v, k) => {
                 this.#updateSlot(k);
             });
@@ -8482,8 +9194,10 @@
                         this.style.cssText += cssStr;
                     }
                 }
-                if (nodes)
-                    this.#shadow.append(...nodes);
+                if (fragment && size(fragment.children) > 0) {
+                    this.#shadow.append(fragment);
+                    ComponentUninitializedSubComponentPropMap.delete(this);
+                }
                 ary && ary.forEach(dw => {
                     dw.mounted(this, (key, value) => {
                         that.__data_[key] = value;
@@ -8682,7 +9396,7 @@
             //2. update view
             if (this.#renderRoot?.deref()) {
                 if (toUpdateView) {
-                    updateView(this.render(), this, this.__updateTree, toUpdateUps, changed);
+                    updateView(buildVars(this.render()), this, this.__updateTree, toUpdateUps, changed);
                 }
                 if (size(toUpdateUps) > 0) {
                     toUpdateUps.forEach(up => {
@@ -8706,7 +9420,7 @@
             let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(_getSuper(this.constructor));
             let attrs = this.attributes;
             let tagName = this.tagName;
-            let parentProps = this.#props;
+            let parentProps = merge(this.#props ?? {}, ComponentUninitializedSubComponentPropMap.get(this.wrapperComponent)?.get(this) ?? {});
             let filterAttrs = {};
             each(attrs, ({ name, value }) => {
                 if (name[0] === ATTR_PREFIX_EVENT ||
@@ -8992,9 +9706,6 @@
                 slotMap.props = props;
             }
         }
-        _bindSlotHook(name, hook) {
-            this.#slotHooks[name] = hook;
-        }
         //slot变量变动时触发
         #updateSlots = new Set();
         _updateSlot(name, propName, value) {
@@ -9092,7 +9803,6 @@
             //组件通知渲染异步指令
             this.renderAsync(hook, get(slotMap, 'props'));
             const rc = this._asyncDirectives.get(hook);
-            //todo 如果要做成通用异步指令，元素必须插入到指令挂载的位置，并且slot的插入节点还要去掉注释
             let nodes = rc?.buildView(hook(get(slotMap, 'props')));
             let nnodes = reject(toArray(nodes), n => n.nodeType === Node.COMMENT_NODE);
             if (nnodes) {
@@ -9162,16 +9872,15 @@
                 }));
             }
             else {
-                if (this._listerners[evName]) {
-                    this._listerners[evName](arg);
-                }
+                let evSrc = get(this, '__c_emit_event_');
+                this.wrapperComponent?._callEmitEvent(evSrc, evName, arg);
             }
         }
-        _addEvent(evName, hook) {
-            if (!this._listerners) {
-                this._listerners = {};
-            }
-            this._listerners[evName] = hook;
+        _callEmitEvent(evSrc, evName, arg) {
+            let evMap = this._subComponentEventMap.get(evSrc);
+            let evFn = get(evMap, evName);
+            if (isFunction(evFn))
+                evFn.call(this, arg);
         }
         /**
          * 下一帧执行
@@ -9198,6 +9907,441 @@
                 };
             });
             this.#update();
+        }
+    }
+
+    /**
+     * 属性定义
+     */
+    var EnterPointType;
+    (function (EnterPointType) {
+        EnterPointType["ATTR"] = "attr";
+        EnterPointType["PROP"] = "prop";
+        EnterPointType["TEXT"] = "text";
+        EnterPointType["SLOT"] = "slot";
+        EnterPointType["TAG"] = "tag"; //在标签内但不是属性内
+    })(EnterPointType || (EnterPointType = {}));
+    var DirectiveUpdateTag;
+    (function (DirectiveUpdateTag) {
+        DirectiveUpdateTag["NONE"] = "NONE";
+        DirectiveUpdateTag["REFRESH"] = "REFRESH";
+        DirectiveUpdateTag["REMOVE"] = "REMOVE";
+        DirectiveUpdateTag["REPLACE"] = "REPLACE";
+        DirectiveUpdateTag["UPDATE"] = "UPDATE";
+        DirectiveUpdateTag["INIT"] = "INIT"; //首次渲染
+    })(DirectiveUpdateTag || (DirectiveUpdateTag = {}));
+
+    var MovePositionType;
+    (function (MovePositionType) {
+        MovePositionType["AFTER_BEGIN"] = "afterbegin";
+    })(MovePositionType || (MovePositionType = {}));
+    function groupAddNodes(adds) {
+        let addGroup = [];
+        let lastKey;
+        adds.forEach(add => {
+            let lastAdd = last(addGroup);
+            if (lastAdd) {
+                if (lastKey === add.refKey) {
+                    if (!lastAdd.group) {
+                        lastAdd.group = [lastAdd.fragment];
+                    }
+                    lastAdd.group.push(add.fragment);
+                }
+                else {
+                    addGroup.push(add);
+                }
+            }
+            else {
+                addGroup.push(add);
+            }
+            lastKey = add.newKey;
+        });
+        return addGroup;
+    }
+    function updateDirective(diFn, pointNode, newArgs, oldArgs, executor, renderComponent, slotComponent, varChain, up, updatedMap) {
+        let rs;
+        let pointType = get(DirectiveScopeMap.get(diFn), [0], '');
+        let isTextOrSlot = [EnterPointType.TEXT, EnterPointType.SLOT].includes(pointType);
+        if (isTextOrSlot) {
+            Collector.start();
+            rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain, updatedMap, pointType });
+            Collector.end(renderComponent, up);
+        }
+        else {
+            rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain, updatedMap, pointType });
+        }
+        if (!rs)
+            return;
+        let [tag, tmplM, newKeys, oldKeys, tmplFn, newAryOrObj] = rs;
+        if (tag === DirectiveUpdateTag.NONE)
+            return;
+        if (tag === DirectiveUpdateTag.REFRESH)
+            return;
+        let newValueAry = newAryOrObj;
+        let newValueConverted = false;
+        if (!isArray(newAryOrObj)) {
+            newValueAry = map(newAryOrObj, (v, k) => v);
+            newValueConverted = true;
+        }
+        let subViewId = get(pointNode, '__anchor__');
+        let parentViewsIdMap = {};
+        each(keys(pointNode), k => {
+            if (k === '__anchor__')
+                return;
+            if (!startsWith(k, '__c-'))
+                return;
+            parentViewsIdMap[k] = get(pointNode, [k]);
+        });
+        let subViewRootNodes = up.subViewRootNodes;
+        let updatePoints = up.children;
+        if (tag === DirectiveUpdateTag.REMOVE) {
+            let dels = [];
+            each(subViewRootNodes, (nodeAry, key) => {
+                if (isArray(nodeAry)) {
+                    each(nodeAry, (weakN) => {
+                        let n = weakN.deref();
+                        n.remove();
+                        if (n instanceof CompElem) {
+                            n.destroy();
+                        }
+                    });
+                }
+                else {
+                    let n = nodeAry.deref();
+                    n.remove();
+                    dels.push(nodeAry);
+                    if (n instanceof CompElem) {
+                        n.destroy();
+                    }
+                }
+            });
+            dels.forEach(d => {
+                remove(subViewRootNodes, wr => wr === d);
+            });
+            updatePoints?.forEach((up, i) => {
+                up.destroy(renderComponent);
+                updatePoints[i] = null;
+            });
+            up.children = compact(updatePoints);
+            if (isArray(subViewRootNodes)) {
+                up.subViewRootNodes = [];
+            }
+            else {
+                up.subViewRootNodes = {};
+            }
+        }
+        else if (tag === DirectiveUpdateTag.REPLACE) {
+            //删除旧dom
+            each(subViewRootNodes, (weakN) => {
+                let n = weakN.deref();
+                n.remove();
+                if (n instanceof CompElem) {
+                    n.destroy();
+                }
+            });
+            updatePoints?.forEach((up, i) => {
+                up.destroy(renderComponent);
+                updatePoints[i] = null;
+            });
+            up.children = compact(updatePoints);
+            //构造新DOM
+            let [, tmplFn, tmplM] = rs;
+            insertSubView(pointNode, up, tmplFn, tmplM, renderComponent);
+        }
+        else if (tag === DirectiveUpdateTag.UPDATE) {
+            if (isEmpty(subViewRootNodes)) {
+                insertSubView(pointNode, up, tmplFn, tmplM, renderComponent, newValueAry, (v, k, i) => newKeys[i]);
+                return;
+            }
+            let oldNodeKeyMap = {};
+            let oldUpKeyMap = {};
+            each(oldKeys, (key) => {
+                let ary = oldNodeKeyMap[key];
+                if (!ary) {
+                    ary = oldNodeKeyMap[key] = [];
+                }
+                filter(pointNode.parentElement.childNodes, (n) => get(n, ['__c-' + subViewId]) == key).forEach(n => {
+                    ary.push(n);
+                });
+            });
+            up.children?.forEach(up => {
+                if (!oldUpKeyMap[up.key]) {
+                    oldUpKeyMap[up.key] = [up];
+                }
+                else {
+                    oldUpKeyMap[up.key].push(up);
+                }
+            });
+            let oldSeq = oldKeys;
+            let newSeq = newKeys;
+            let sameKeys = intersect(oldKeys, newKeys);
+            let delKeys = except(oldKeys, sameKeys);
+            //compare
+            let adds = [];
+            let moveAfterAddGroups = [];
+            //move
+            let moved = false;
+            if (!isEmpty(newSeq)) {
+                let lastMoveIndex = -1;
+                let lastGroup = [];
+                let moveQueue = [];
+                let edgeOffset = 0;
+                let i = 0;
+                for (; i < newSeq.length; i++) {
+                    const newKey = newSeq[i];
+                    let oldI = oldSeq.findIndex(c => c === newKey);
+                    if (oldI < 0) {
+                        let prevKey = newSeq[i - 1];
+                        //add
+                        oldNodeKeyMap[newKey] = [];
+                        adds.push({ refKey: prevKey, newKey });
+                        edgeOffset++;
+                        continue;
+                    }
+                    if (oldI > -1 && oldI !== (i - edgeOffset)) {
+                        if (lastMoveIndex < 0 || Math.abs(lastMoveIndex - oldI) === 1) {
+                            let lastEl = last(lastGroup);
+                            let refKey = i === 0 ? MovePositionType.AFTER_BEGIN : (lastEl ? lastEl.newKey : newSeq[i - 1]);
+                            let refNew = false;
+                            if (i !== 0 && isEmpty(oldNodeKeyMap[refKey])) {
+                                refNew = true;
+                            }
+                            lastGroup.push({ newKey, refKey, refNew });
+                        }
+                        else {
+                            moveQueue.push({ moveGroup: lastGroup, moveIndex: i + lastGroup.length });
+                            let refKey = newSeq[i - 1];
+                            let refNew = false;
+                            if (isEmpty(oldNodeKeyMap[refKey])) {
+                                refNew = true;
+                            }
+                            lastGroup = [];
+                            lastGroup.push({ newKey, refKey, refNew });
+                        }
+                        lastMoveIndex = oldI;
+                    }
+                }
+                if (lastGroup.length > 0) {
+                    moveQueue.push({ moveGroup: lastGroup, moveIndex: i + lastGroup.length });
+                }
+                if (moveQueue.length > 0) {
+                    moved = true;
+                    let vals = moveQueue.sort((a, b) => a.moveGroup.length - b.moveGroup.length);
+                    if (vals.length < 2) {
+                        let { moveGroup } = vals[0];
+                        if (moveGroup.length > 1) {
+                            let lastTId = last(moveGroup).refKey;
+                            if (moveGroup[moveGroup.length - 2].newKey === lastTId) {
+                                moveGroup = initial(moveGroup);
+                            }
+                        }
+                        moveGroupNodes(moveGroup, oldNodeKeyMap, oldKeys);
+                    }
+                    else {
+                        let lastGroupIndex = last(vals).moveIndex;
+                        if (Math.abs(vals[vals.length - 2].moveIndex - lastGroupIndex) === 1) {
+                            vals = initial(vals);
+                        }
+                        vals.forEach(({ moveGroup }) => {
+                            if (moveGroup[0].refNew) {
+                                moveAfterAddGroups.push(moveGroup);
+                                return;
+                            }
+                            moveGroupNodes(moveGroup, oldNodeKeyMap, oldKeys);
+                        });
+                    }
+                } //endif
+            }
+            //add
+            let addGroup;
+            if (adds.length > 0) {
+                adds.forEach(add => {
+                    let i = findIndex(newKeys, k => k == add.newKey);
+                    let val = newValueAry[i];
+                    let v = val;
+                    if (newValueConverted) {
+                        v = val[0];
+                        newKeys[i];
+                    }
+                    let vars = buildVars(tmplFn.call(renderComponent, v, add.newKey, i));
+                    let [rs, upAry] = renderTemplate(renderComponent, tmplM.fragment, tmplM.updatePointMetas, vars);
+                    add.fragment = rs;
+                    each(upAry, nUp => {
+                        nUp.key = add.newKey;
+                        up.children?.push(nUp);
+                    });
+                    let addNodes = toArray(rs.childNodes);
+                    //for afterAdd move
+                    let ary = oldNodeKeyMap[add.newKey];
+                    each(addNodes, (n) => {
+                        ary.push(n);
+                        rs.childNodes.forEach(n => set(n, '__c-' + subViewId, add.newKey + ''));
+                        each(parentViewsIdMap, (v, pid) => set(n, pid, v));
+                    });
+                });
+                renderComponent.__bindEvents();
+                addGroup = groupAddNodes(adds);
+                addGroup.forEach((v, i) => {
+                    let treeNode = v.fragment;
+                    let nodes = oldNodeKeyMap[v.refKey ?? oldKeys[0]];
+                    let refFirstNode = first(nodes);
+                    let refLastNode = last(nodes);
+                    if (v.group) {
+                        let fragment = document.createDocumentFragment();
+                        fragment.append(...v.group);
+                        treeNode = fragment;
+                    }
+                    if (refFirstNode === pointNode) {
+                        refFirstNode.before(treeNode);
+                    }
+                    else if (!v.refKey) {
+                        refFirstNode.before(treeNode);
+                    }
+                    else if (typeof refFirstNode === 'string') ;
+                    else {
+                        refLastNode.after(treeNode);
+                    }
+                });
+            }
+            //afterAdd move
+            each(moveAfterAddGroups, moveGroup => {
+                moveGroupNodes(moveGroup, oldNodeKeyMap, oldKeys);
+            });
+            //del
+            delKeys.forEach(k => {
+                oldNodeKeyMap[k].forEach(n => {
+                    n.parentNode?.removeChild(n);
+                });
+                oldUpKeyMap[k].forEach(up => {
+                    up.destroy();
+                });
+            });
+            //移动顺序
+            if (moved || delKeys.length > 0 || addGroup) {
+                const upGroup = groupBy(updatePoints, up => up.key);
+                let movedUpAry = [];
+                let i = 0;
+                newSeq.forEach(nk => {
+                    upGroup[nk] && upGroup[nk].forEach((up) => {
+                        up.varIndex = i++;
+                        movedUpAry.push(up);
+                    });
+                });
+                let redundant = except(updatePoints, movedUpAry);
+                redundant.forEach(up => up.destroy(renderComponent));
+                up.children = movedUpAry;
+            }
+            //更新rootNodes
+            let rootNodes = {};
+            each(newValueAry, (val, i) => {
+                let newK = newKeys[i];
+                let nodes = oldNodeKeyMap[newK];
+                rootNodes[newK] = nodes.map((n) => new WeakRef(n));
+            });
+            up.subViewRootNodes = rootNodes;
+            //更新视图
+            if (sameKeys.length > 0) {
+                let varList = [];
+                each(newValueAry, (val, i) => {
+                    let k = i;
+                    let v = val;
+                    if (newValueConverted) {
+                        v = val[0];
+                        k = val[1];
+                    }
+                    let vars = buildVars(tmplFn.call(renderComponent, v, k, i));
+                    varList.push(...vars);
+                });
+                updateView(varList, renderComponent, up.children, undefined, updatedMap);
+            }
+        }
+        return true;
+    }
+    function moveGroupNodes(moveGroup, oldNodeKeyMap, oldKeys) {
+        moveGroup.forEach(({ refKey, newKey }) => {
+            let moveNodes = oldNodeKeyMap[newKey];
+            if (refKey === MovePositionType.AFTER_BEGIN) {
+                let nodes = oldNodeKeyMap[oldKeys[0]];
+                let refNode = first(nodes);
+                refNode.before(...moveNodes);
+            }
+            else if (oldNodeKeyMap[refKey]) {
+                let nodes = oldNodeKeyMap[refKey];
+                let refNode = last(nodes);
+                refNode?.after(...moveNodes);
+            }
+        });
+    }
+    /**
+     * 返回指令调用函数
+     * @param di
+     * @returns
+     */
+    function directive(fn, scopes) {
+        DirectiveScopeMap.set(fn, scopes);
+        return (...args) => {
+            let executor = fn(...args);
+            return [executor, args, fn, Collector.popDirectiveQ()];
+        };
+    }
+    function directiveScopeChecker(diFn, scopeType, tagName) {
+        let scopes = DirectiveScopeMap.get(diFn);
+        if (!isEmpty(scopes) && !test(scopes.join(','), scopeType)) {
+            showTagError(tagName, `Directive '${diFn.name}' is out of scopes, expect '${scopes.join(',')}' bug got '${scopeType}'`);
+            return;
+        }
+    }
+
+    const EXP_STR = new RegExp(`([a-z0-9"'${PLACEHOLDER}])\\s*>\\s*<`, 'img');
+    const EXP_ATTR_CHECK = new RegExp(`[.?-a-z]+\\s*=\\s*(['"])\\s*([^='"]*${PLACEHOLDER}){2,}.*?\\1`, 'ims');
+    /**
+     * 视图模板元信息
+     * @author holyhigh2
+     */
+    class TemplateMeta {
+        updatePointMetas;
+        fragment;
+        constructor(tmpl, component, vars) {
+            let [html, v] = this.parseTemplate(tmpl);
+            if (vars) {
+                assign(vars, v);
+            }
+            this.updatePointMetas = [];
+            this.fragment = createTemplate(this.updatePointMetas, html, v, component);
+        }
+        parseTemplate(tmpl) {
+            let html = "";
+            let vars = concat(tmpl.vars);
+            let l = tmpl.strings.length - 1;
+            let vl = tmpl.vars.length - 1;
+            let varIndex = 0;
+            for (let i = 0; i <= l; i++) {
+                const str = tmpl.strings[i];
+                let val = get(vars, varIndex, '');
+                if (val instanceof Template) {
+                    let [h, v] = this.parseTemplate(val);
+                    val = h;
+                    vars.splice(varIndex, 1, ...v);
+                    varIndex += v.length - 1;
+                }
+                else {
+                    val = i > vl ? "" : (PLACEHOLDER + varIndex);
+                }
+                varIndex++;
+                html = html + str + val;
+            }
+            {
+                //attr check
+                let rs = html.match(EXP_ATTR_CHECK);
+                if (rs) {
+                    let errorMsg = replaceAll(rs[0], PLACEHOLDER, '${...}');
+                    showError(`Template parse error: attribute value can be set only one interpolation —— \n ${errorMsg}`);
+                    return ['', vars];
+                }
+            }
+            html = html.replace(EXP_STR, '$1><').trim();
+            html = convertHTML(html);
+            return [html, vars];
         }
     }
 
@@ -9275,28 +10419,10 @@
             return this;
         }
         getHTML(comp) {
-            let [html, vars] = buildHTML(comp, this);
-            let nodes = buildTmplate([], html, vars, comp);
-            return reduce(nodes, (a, v) => a + (v.nodeType == Node.TEXT_NODE ? v.nodeValue : (v.outerHTML ?? '')), '');
-        }
-        /**
-         * 对var中的Template类型进行合并
-         */
-        flatVars(comp) {
-            let vars = concat(this.vars);
-            let l = this.strings.length - 1;
-            let varIndex = 0;
-            for (let i = 0; i <= l; i++) {
-                let val = get(vars, varIndex, '');
-                if (val instanceof Template && val.vars.length > 0) {
-                    let [h, v] = buildHTML(comp, val);
-                    val = h;
-                    vars.splice(varIndex, 1, ...v);
-                    varIndex += v.length - 1;
-                }
-                varIndex++;
-            }
-            return vars;
+            let vars = [];
+            let tmplM = new TemplateMeta(this, comp, vars);
+            let [rs, upAry] = renderTemplate(comp, tmplM.fragment, tmplM.updatePointMetas, vars);
+            return reduce(rs.childNodes, (a, v) => a + (v.nodeType == Node.TEXT_NODE ? v.nodeValue : (v.outerHTML ?? '')), '');
         }
         destroy() {
             this.strings = this.vars = null;
@@ -9304,33 +10430,10 @@
     }
 
     /**
-     * @author holyhigh2
-     */
-    /**
-     * 属性定义
-     */
-    var EnterPointType;
-    (function (EnterPointType) {
-        EnterPointType["ATTR"] = "attr";
-        EnterPointType["PROP"] = "prop";
-        EnterPointType["TEXT"] = "text";
-        EnterPointType["CLASS"] = "class";
-        EnterPointType["STYLE"] = "style";
-        EnterPointType["SLOT"] = "slot";
-        EnterPointType["TAG"] = "tag"; //在标签内但不是属性内
-    })(EnterPointType || (EnterPointType = {}));
-    var DirectiveUpdateTag;
-    (function (DirectiveUpdateTag) {
-        DirectiveUpdateTag["NONE"] = "NONE";
-        DirectiveUpdateTag["REMOVE"] = "REMOVE";
-        DirectiveUpdateTag["REPLACE"] = "REPLACE";
-        DirectiveUpdateTag["UPDATE"] = "UPDATE";
-        DirectiveUpdateTag["APPEND"] = "APPEND";
-    })(DirectiveUpdateTag || (DirectiveUpdateTag = {}));
-    /**
      * 视图更新点
      */
     class UpdatePoint {
+        metaInfo;
         //在子视图中的平级key
         key;
         //表达式对应的vars位置
@@ -9338,46 +10441,17 @@
         value;
         //表达式所在节点，可能是元素/文本
         node;
-        //如果在属性中，属性名
-        attrName;
-        //属性值模板
-        attrTmpl;
-        isText = false;
-        //是否模板
-        // isTmpl: boolean = false;
-        isDirective = false;
-        //是否组件
-        isComponent = false;
-        //是否组件属性
-        isProp = false;
-        //是否布尔属性
-        isToggleProp = false;
-        //是否被更新，对于 key，event，ref等属性不需要更新，仅用于占位
-        isPlaceholder;
+        //子视图根元素 map/array
+        subViewRootNodes;
         __destroyed = false;
-        directiveOldValue;
         children;
         parent;
-        constructor(varIndex, node, attrName, attrTmpl) {
+        constructor(varIndex) {
             this.varIndex = varIndex;
-            if (node)
-                this.node = node;
-            if (attrName)
-                this.attrName = attrName;
-            if (attrTmpl) {
-                this.attrTmpl = attrTmpl;
-            }
         }
-        static createFrom(up) {
-            let newUp = new UpdatePoint(up.varIndex, up.node, up.attrName, up.attrTmpl);
-            newUp.key = up.key;
-            newUp.value = up.value;
-            newUp.isText = up.isText;
-            newUp.isDirective = up.isDirective;
-            newUp.isComponent = up.isComponent;
-            newUp.isProp = up.isProp;
-            newUp.isToggleProp = up.isToggleProp;
-            newUp.isPlaceholder = up.isPlaceholder;
+        static createFrom(upm) {
+            let newUp = new UpdatePoint(upm.varIndex);
+            newUp.metaInfo = upm;
             return newUp;
         }
         destroy(contextComponent) {
@@ -9386,13 +10460,11 @@
             this.__destroyed = true;
             let node = this.node;
             let children = this.children;
-            let parent = this.parent;
+            this.parent;
             //clean up
-            this.node = this.value = this.directiveOldValue = this.children = this.parent = null;
+            this.node = this.value = this.children = this.parent = this.metaInfo = null;
             if (!node)
                 return;
-            //sup scope
-            parent?.children || contextComponent?.__updateTree;
             // contextComponent?._unregDeps(node.deref()!)
             //sub scopes
             let updatePoints = children;
@@ -9416,338 +10488,41 @@
         }
     }
 
-    const DI_COMMENT_START_NODE_MAP = new WeakMap();
-    const TextOrSlotDirectiveExecutorMap = new Map();
-    var MovePosition;
-    (function (MovePosition) {
-        MovePosition["AFTER_BEGIN"] = "afterbegin";
-    })(MovePosition || (MovePosition = {}));
-    let newNodeMap = {};
-    function addNodes(adds, newTmpls, component, pointNode, newNodeMap, up) {
-        const combStrings = [];
-        const combVars = [];
-        const ks = [];
-        let addGroup = [];
-        let lastKey;
-        adds.forEach(add => {
-            let lastAdd = last(addGroup);
-            if (lastAdd) {
-                if (lastKey === add.prevNode) {
-                    if (!lastAdd.group) {
-                        lastAdd.group = [lastKey];
-                    }
-                    lastAdd.group.push(add.newkey);
-                }
-                else {
-                    addGroup.push(add);
-                }
-            }
-            else {
-                addGroup.push(add);
-            }
-            lastKey = add.newkey;
-            let k = add.newkey;
-            ks.push(k);
-            combStrings.push('');
-            combVars.push(newTmpls[k]);
-        });
-        combStrings.push('');
-        let tmpl = new Template(combStrings, combVars);
-        let nodes = buildSubView(pointNode, tmpl, component, up, true);
-        let kMap = new Map();
-        nodes.forEach((n) => {
-            const k = n.getAttribute('key');
-            if (ks.includes(k)) {
-                kMap.set(k, true);
-                newNodeMap[k] = n;
-            }
-        });
-        return addGroup;
-    }
-    function updateDirective(pointNode, newArgs, oldArgs, executor, renderComponent, slotComponent, varChain, up, updatedMap) {
-        let rs;
-        let pointType = get(executor, '__scope', '');
-        let isTextOrSlot = [EnterPointType.TEXT, EnterPointType.SLOT].includes(pointType);
-        if (isTextOrSlot) {
-            Collector.start();
-            rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain, updatedMap, pointType });
-            Collector.end(renderComponent, up);
-        }
-        else {
-            rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain, updatedMap, pointType });
-        }
-        if (!rs)
-            return;
-        let [tag, tmpl] = rs;
-        if (tag === DirectiveUpdateTag.NONE)
-            return;
-        let startNode = DI_COMMENT_START_NODE_MAP.get(pointNode);
-        let nodes = DomUtil.getNodes(startNode, pointNode);
-        let updatePoints = up.children;
-        if (tag === DirectiveUpdateTag.REMOVE) {
-            for (let i = 0; i < nodes.length; i++) {
-                const n = nodes[i];
-                n.remove();
-                if (n instanceof CompElem) {
-                    n.destroy();
-                }
-            }
-            updatePoints?.forEach((up, i) => {
-                up.destroy(renderComponent);
-            });
-        }
-        else if (tag === DirectiveUpdateTag.REPLACE) {
-            let newNodes = [];
-            for (let i = 0; i < nodes.length; i++) {
-                const n = nodes[i];
-                n.parentNode?.removeChild(n);
-                if (n instanceof CompElem) {
-                    n.destroy();
-                }
-            }
-            updatePoints?.forEach((up, i) => {
-                up.destroy(renderComponent);
-            });
-            let nnodes = buildSubView(pointNode, tmpl, renderComponent, up, true);
-            newNodes = toArray(nnodes);
-            let fragment = document.createDocumentFragment();
-            fragment.append(...newNodes);
-            pointNode.parentNode.insertBefore(fragment, pointNode);
-        }
-        else if (tag === DirectiveUpdateTag.UPDATE) {
-            let newKeys = {};
-            let nodesToUpdate;
-            //原节点顺序
-            let oldSeq = [];
-            let newSeq = [];
-            if (!tmpl) {
-                tmpl = new Template([], []);
-            }
-            if (isEmpty(nodes)) {
-                let nodes = buildSubView(pointNode, tmpl, renderComponent, up, true);
-                startNode.after(...nodes);
-                return;
-            }
-            let newTmpls = {};
-            if (tmpl instanceof Template) {
-                tmpl.vars.forEach(v => {
-                    if (v instanceof Template) {
-                        const k = v.getKey();
-                        if (!k)
-                            return;
-                        newTmpls[k] = v;
-                        newKeys[k] = true;
-                        newSeq.push(k);
-                    }
-                });
-            }
-            //UPDATE仅处理元素节点
-            nodes = filter(compact(nodes), n => n.nodeType === Node.ELEMENT_NODE);
-            nodesToUpdate = filter(compact(toArray(nodesToUpdate)), n => n.nodeType === Node.ELEMENT_NODE);
-            let oldNodeMap = {};
-            let dupKey = '';
-            let keyQ = {};
-            for (let i = 0; i < nodes.length; i++) {
-                const node = nodes[i];
-                let treeNode = node;
-                let k = treeNode.getAttribute("key");
-                if (isNil(k))
-                    continue;
-                if (oldNodeMap[k]) {
-                    dupKey = k;
-                    break;
-                }
-                oldNodeMap[k] = treeNode;
-                oldSeq.push(k);
-                keyQ[k] = true;
-            }
-            if (dupKey) {
-                showError(`${camelCase(pointNode.nodeValue)} - duplicate key '${dupKey}'`);
-                return;
-            }
-            let updateQ = newKeys;
-            //compare
-            let adds = [];
-            let dels = [];
-            //计算del
-            each(keyQ, (v, k) => {
-                if (!updateQ[k]) {
-                    dels.push(k);
-                    delete keyQ[k];
-                    remove(oldSeq, x => x === k);
-                }
-            });
-            //move
-            let moved = false;
-            if (!isEmpty(newSeq)) {
-                let lastMoveIndex = -1;
-                let lastGroup = [];
-                let moveQueue = [];
-                let edgeOffset = 0;
-                let i = 0;
-                for (; i < newSeq.length; i++) {
-                    const nodeId = newSeq[i];
-                    let oldI = oldSeq.findIndex(c => c === nodeId);
-                    if (oldI < 0) {
-                        let prevKey = newSeq[i - 1];
-                        let prev = prevKey ? oldNodeMap[prevKey] || prevKey : startNode;
-                        //add
-                        adds.push({ prevNode: prev, newkey: nodeId });
-                        edgeOffset++;
-                        continue;
-                    }
-                    if (oldI > -1 && oldI !== (i - edgeOffset)) {
-                        if (lastMoveIndex < 0 || Math.abs(lastMoveIndex - oldI) === 1) {
-                            let lastEl = last(lastGroup);
-                            lastGroup.push({ nodeId, targetId: i === 0 ? MovePosition.AFTER_BEGIN : (lastEl ? lastEl.nodeId : newSeq[i - 1]) });
-                        }
-                        else {
-                            moveQueue.push({ moveGroup: lastGroup, moveIndex: i + lastGroup.length });
-                            lastGroup = [];
-                            lastGroup.push({ nodeId, targetId: newSeq[i - 1] });
-                        }
-                        lastMoveIndex = oldI;
-                    }
-                }
-                if (lastGroup.length > 0) {
-                    moveQueue.push({ moveGroup: lastGroup, moveIndex: i + lastGroup.length });
-                }
-                if (moveQueue.length > 0) {
-                    moved = true;
-                    let vals = moveQueue.sort((a, b) => a.moveGroup.length - b.moveGroup.length);
-                    if (vals.length < 2) {
-                        let { moveGroup } = vals[0];
-                        if (moveGroup.length > 1) {
-                            let lastTId = last(moveGroup).targetId;
-                            if (moveGroup[moveGroup.length - 2].nodeId === lastTId) {
-                                moveGroup = initial(moveGroup);
-                            }
-                        }
-                        moveGroup.forEach(({ targetId, nodeId }) => {
-                            let srcEl = oldNodeMap[nodeId];
-                            let target;
-                            if (targetId === MovePosition.AFTER_BEGIN) {
-                                target = startNode;
-                                target.after(srcEl);
-                            }
-                            else if (oldNodeMap[targetId]) {
-                                target = oldNodeMap[targetId];
-                                target.after(srcEl);
-                            }
-                        });
-                    }
-                    else {
-                        let lastGroupIndex = last(vals).moveIndex;
-                        if (Math.abs(vals[vals.length - 2].moveIndex - lastGroupIndex) === 1) {
-                            vals = initial(vals);
-                        }
-                        vals.forEach(({ moveGroup }) => {
-                            moveGroup.forEach(({ targetId, nodeId }) => {
-                                let srcEl = oldNodeMap[nodeId];
-                                let target;
-                                if (targetId === MovePosition.AFTER_BEGIN) {
-                                    target = startNode;
-                                    target.after(srcEl);
-                                }
-                                else {
-                                    target = oldNodeMap[targetId];
-                                    target.after(srcEl);
-                                }
-                            });
-                        });
-                    }
-                } //endif
-            }
-            //del
-            dels.forEach(k => {
-                let treeNode = oldNodeMap[k];
-                if (treeNode && treeNode.parentNode) {
-                    oldNodeMap[k] = null;
-                    treeNode.remove();
-                    let ups = remove(updatePoints, up => up.key == k);
-                    ups.forEach(up => up.destroy(renderComponent));
-                }
-            });
-            //add
-            let addGroup;
-            if (adds.length > 0) {
-                addGroup = addNodes(adds, newTmpls, renderComponent, pointNode, newNodeMap, up);
-                addGroup.forEach((v, i) => {
-                    let k = v.newkey;
-                    let treeNode = newNodeMap[k];
-                    let prevNode = v.prevNode;
-                    if (v.group) {
-                        let fragment = document.createDocumentFragment();
-                        fragment.append(...map(v.group, (nk) => newNodeMap[nk]));
-                        treeNode = fragment;
-                    }
-                    if (prevNode === pointNode) {
-                        prevNode.before(treeNode);
-                    }
-                    else if (prevNode === startNode) {
-                        prevNode.after(treeNode);
-                    }
-                    else if (typeof prevNode === 'string') {
-                        newNodeMap[prevNode].after(treeNode);
-                    }
-                    else {
-                        prevNode.after(treeNode);
-                    }
-                });
-                //release
-                newNodeMap = null;
-                newNodeMap = {};
-            }
-            //合并
-            if (tmpl.vars[0] instanceof Template) {
-                let tStrAry = [];
-                let tVarAry = [];
-                each(tmpl.vars, v => {
-                    tVarAry.push(...v.vars);
-                    tStrAry.push(...map(v.vars, v => '1'));
-                });
-                tStrAry.push('1');
-                tmpl = new Template(tStrAry, tVarAry);
-            }
-            //移动顺序
-            if (moved || dels.length > 0 || addGroup) {
-                const upGroup = groupBy(updatePoints, up => up.key);
-                let movedUpAry = [];
-                let i = 0;
-                newSeq.forEach(nk => {
-                    upGroup[nk] && upGroup[nk].forEach((up) => {
-                        up.varIndex = i++;
-                        movedUpAry.push(up);
-                    });
-                });
-                let redundant = except(updatePoints, movedUpAry);
-                redundant.forEach(up => up.destroy(renderComponent));
-                up.children = movedUpAry;
-            }
-            updateSubScopeView(up, renderComponent, tmpl);
-        }
-    }
-    let DiSn = 0;
     /**
-     * 返回指令调用函数
-     * @param di
-     * @returns
+     * 视图更新点元数据
      */
-    function directive(fn, scopes) {
-        let name = fn.name || ('Di-' + DiSn++);
-        let sym = Symbol.for(name);
-        return (...args) => {
-            let executor = fn(...args);
-            if (includes(scopes, EnterPointType.TEXT) || includes(scopes, EnterPointType.SLOT))
-                TextOrSlotDirectiveExecutorMap.set(name, executor);
-            set(executor, '__scope', scopes[0]);
-            return [sym, args, executor, (scopeType, tagName) => {
-                    if (!isEmpty(scopes) && !test(scopes.join(','), scopeType)) {
-                        showTagError(tagName, `Directive '${Symbol.keyFor(sym)}' is out of scopes, expect '${scopes.join(',')}' bug got '${scopeType}'`);
-                        return;
-                    }
-                }, Collector.popDirectiveQ()];
-        };
+    class UpdatePointMeta {
+        //表达式对应的vars位置
+        varIndex;
+        //如果在属性中，属性名
+        attrName;
+        //属性值模板
+        attrTmpl;
+        isText = false;
+        isDirective = false;
+        directiveType;
+        directiveVarChain;
+        //是否组件属性
+        isProp = false;
+        //仅用于外部框架
+        isPropPerfix = false;
+        //是否布尔属性
+        isToggleProp = false;
+        //是否被更新，对于 key，event，ref等属性不需要更新，仅用于占位
+        isPlaceholder = false;
+        isEvent = false;
+        isRef = false;
+        isKey = false;
+        isRefAttr = false;
+        //非跟踪属性
+        isComponent = false;
+        isSlot = false;
+        //模板DOM中的节点路径
+        nodeSn = -1;
+        slotNodeSn = -1;
+        constructor(varIndex) {
+            this.varIndex = varIndex;
+        }
     }
 
     const ATTR_PREFIX_EVENT = "@";
@@ -9756,56 +10531,16 @@
     const ATTR_PREFIX_REF = "*";
     const ATTR_PROP_DELIMITER = ":";
     const ATTR_REF = "ref";
-    const ATTR_KEY = "key";
+    const EXP_TAG = new RegExp(`${PLACEHOLDER}\\d+`);
     const EXP_TAG_CONVERT = /(<\/?)\s*([A-Z][A-Za-z0-9]*)([\s>])/gm;
     const EXP_ATTR_CONVERT = /\s+([\.?@*])?((?:[a-zA-Z]*[A-Z][^\s<>="']+))(?=[\s=>])/gm;
-    const EXP_ATTR_CHECK = /[.?-a-z]+\s*=\s*(['"])\s*([^='"]*<\!--c_ui-pl_df-->){2,}.*?\1/ims;
-    const EXP_PLACEHOLDER = /<\s*[a-z0-9-]+([^>]*<\!--c_ui-pl_df-->)*[^>]*?(?<!-)>/imgs;
     const SLOT_KEY_PROPS = 'slot-props';
-    const HTML_TMPL_CACHE = new Map();
+    const TMPL_META_CACHE = new Map();
+    let SubViewSn = 0;
     /**
      * 提供渲染函数相关操作
      * @author holyhigh2
      */
-    function buildHTML(component, tmpl) {
-        let html = "";
-        let vars = concat(tmpl.vars);
-        let l = tmpl.strings.length - 1;
-        let vl = tmpl.vars.length - 1;
-        let varIndex = 0;
-        for (let i = 0; i <= l; i++) {
-            const str = tmpl.strings[i];
-            let val = get(vars, varIndex, '');
-            if (val instanceof Template) {
-                let [h, v] = buildHTML(component, val);
-                val = h;
-                vars.splice(varIndex, 1, ...v);
-                varIndex += v.length - 1;
-            }
-            else {
-                val = i > vl ? "" : PLACEHOLDER;
-            }
-            varIndex++;
-            html = html + str + val;
-        }
-        {
-            //attr check
-            let rs = html.match(EXP_ATTR_CHECK);
-            if (rs) {
-                let errorMsg = replaceAll(rs[0], PLACEHOLDER, '${...}');
-                showError(`Parse error: attribute value can be set only one interpolation —— \n ${errorMsg}`);
-                return ['', vars];
-            }
-        }
-        let i = 0;
-        html = html.replace(EXP_PLACEHOLDER, (a, b) => {
-            let rs = replaceAll(a, PLACEHOLDER, () => PLACEHOLDER.replace('-->', '') + (i++));
-            return rs;
-        });
-        html = html.replace(EXP_STR, '$1><').trim();
-        html = convertHTML(html);
-        return [html, vars];
-    }
     function convertHTML(html) {
         if (!isString(html))
             return html + '';
@@ -9820,47 +10555,42 @@
         });
         return html;
     }
-    function buildVars(component, tmpl) {
+    function buildVars(tmpl) {
         let vars = concat(tmpl.vars);
         let l = tmpl.strings.length - 1;
         for (let i = 0; i <= l; i++) {
             let val = get(tmpl.vars, i, '');
             if (val instanceof Template) {
-                // let [h, v] = buildHTML(component, val)
-                let vs = buildVars(component, val);
+                let vs = buildVars(val);
                 vars.splice(i, 1, ...vs);
             }
         }
         return vars;
     }
-    const PLACEHOLDER = "<!--c_ui-pl_df-->";
-    const PLACEHOLDER_PREFFIX = "<!--c_ui-pl_df";
-    const PLACEHOLDER_EXP = /<!--c_ui-pl_df\d*(-->)?/;
     /**
-     * 构建模板为DOM结构
+     * 构建模板DOM
      * @param html
      */
-    function buildTmplate(updatePoints, html, vars, renderComponent) {
-        const container = document.createElement("div");
+    function createTemplate(updatePoints, html, vars, renderComponent) {
+        const container = document.createElement("template");
         container.innerHTML = html;
-        let evList = renderComponent._eventBindList;
-        if (!evList) {
-            evList = renderComponent._eventBindList = [];
-        }
         //遍历dom
-        const nodeIterator = document.createNodeIterator(container, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT);
+        const nodeIterator = document.createNodeIterator(container.content, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
         let currentNode;
         let varIndex = 0;
         let slotComponent;
-        let keyNode = null;
-        let keyVal = '';
+        let nodeSn = -1;
+        let slotNodeSn = -1;
         while ((currentNode = nodeIterator.nextNode())) {
+            nodeSn++;
             if (slotComponent && !slotComponent.contains(currentNode)) {
                 slotComponent = undefined;
+                slotNodeSn = -1;
             }
             if (currentNode instanceof HTMLElement || currentNode instanceof SVGElement) {
-                if (currentNode instanceof CompElem) {
+                if (isCompElemNode(currentNode)) {
                     slotComponent = currentNode;
+                    slotNodeSn = nodeSn;
                 }
                 let props = {};
                 let attrs = map(currentNode.attributes, item => ({ name: item.name, value: item.value }));
@@ -9872,22 +10602,22 @@
                         // varCacheQueue && varCacheQueue.push({ type: VarType.AttrSlot, name: slotName, attrName: name })
                         continue;
                     } //endif
-                    if (startsWith(name, PLACEHOLDER_PREFFIX)) {
+                    if (EXP_TAG.test(name)) {
                         let val = vars[varIndex];
                         //support directive only for now
-                        if (isArray(val) && isSymbol(val[0])) {
-                            let [, args, executor, checker, varChain] = val;
-                            checker(EnterPointType.TAG, renderComponent.tagName);
-                            let po = new UpdatePoint(varIndex, new WeakRef(currentNode));
+                        if (isArray(val) && isFunction(val[0])) {
+                            let [, , diFn, varChain] = val;
+                            directiveScopeChecker(diFn, EnterPointType.TAG, renderComponent.tagName);
+                            let po = new UpdatePointMeta(varIndex);
                             po.isDirective = true;
-                            po.value = val;
-                            po.isComponent = !!slotComponent;
-                            updatePoints.push(po);
-                            if (keyNode && keyNode?.contains(currentNode)) {
-                                po.key = keyVal;
+                            po.directiveType = EnterPointType.TAG;
+                            po.nodeSn = nodeSn;
+                            po.directiveVarChain = varChain;
+                            if (slotComponent) {
+                                po.slotNodeSn = slotNodeSn;
                             }
+                            updatePoints.push(po);
                             varIndex++;
-                            executor(currentNode, args, undefined, { renderComponent, slotComponent, varChain, pointType: EnterPointType.TAG });
                         }
                         currentNode.removeAttribute(name);
                         continue;
@@ -9895,12 +10625,11 @@
                     //@event.stop.prevent.debounce
                     if (name[0] === ATTR_PREFIX_EVENT) {
                         let val;
-                        if (PLACEHOLDER_EXP.test(value)) {
-                            let po = new UpdatePoint(varIndex);
-                            po.isPlaceholder = true;
-                            if (keyNode && keyNode?.contains(currentNode)) {
-                                po.key = keyVal;
-                            }
+                        if (EXP_TAG.test(value)) {
+                            let po = new UpdatePointMeta(varIndex);
+                            po.isEvent = true;
+                            po.attrName = name.substring(1);
+                            po.nodeSn = nodeSn;
                             updatePoints.push(po);
                             val = vars[varIndex];
                             if (!isFunction(val)) {
@@ -9909,51 +10638,27 @@
                             }
                             varIndex++;
                         }
-                        let evName = name.substring(1);
-                        evList.push([evName, val, currentNode]);
                         currentNode.removeAttribute(name);
                         continue;
                     } //endif
                     if (name === ATTR_REF) {
-                        if (PLACEHOLDER_EXP.test(value)) {
+                        if (EXP_TAG.test(value)) {
                             let val = vars[varIndex];
                             if (!(val instanceof RefObject)) {
                                 showTagError(currentNode.tagName, `Ref must be a RefObject`);
                                 continue;
                             }
-                            let po = new UpdatePoint(varIndex);
-                            po.isPlaceholder = true;
-                            if (keyNode && keyNode?.contains(currentNode)) {
-                                po.key = keyVal;
-                            }
+                            let po = new UpdatePointMeta(varIndex);
+                            po.isRef = true;
+                            po.nodeSn = nodeSn;
                             updatePoints.push(po);
                             varIndex++;
-                            val.__setRef(new WeakRef(currentNode));
                         }
                         currentNode.removeAttribute(name);
                         continue;
                     } //endif
-                    if (name === ATTR_KEY) {
-                        let val = vars[varIndex];
-                        currentNode.setAttribute(name, val);
-                        let po = new UpdatePoint(varIndex);
-                        po.isPlaceholder = true;
-                        if (keyNode && keyNode?.contains(currentNode)) {
-                            po.key = keyVal;
-                        }
-                        updatePoints.push(po);
-                        varIndex++;
-                        keyNode = currentNode;
-                        keyVal = val;
-                        if (updatePoints.length > 0) {
-                            updatePoints.forEach(up => {
-                                up.key = up.key ?? val;
-                            });
-                        }
-                        continue;
-                    } //endif
                     //校验变量必须是表达式
-                    if (name[0] === ATTR_PREFIX_PROP && !PLACEHOLDER_EXP.test(value)) {
+                    if (name[0] === ATTR_PREFIX_PROP && !EXP_TAG.test(value)) {
                         showTagError(currentNode.tagName, `Prop '${name}' must be an interpolation`);
                         continue;
                     }
@@ -9961,39 +10666,28 @@
                     if (last(name) === ATTR_PREFIX_PROP) {
                         props[name.substring(0, name.length - 1)] = value;
                         currentNode.removeAttribute(name);
+                        let po = new UpdatePointMeta(varIndex);
+                        po.attrName = name.substring(0, name.length - 1);
+                        po.nodeSn = nodeSn;
+                        po.isPropPerfix = true;
                         continue;
                     }
-                    if (PLACEHOLDER_EXP.test(value)) {
-                        let val = vars[varIndex];
-                        let po = new UpdatePoint(varIndex, new WeakRef(currentNode), name.replace(/\.|\?|@/, ''), value);
-                        po.isComponent = !!slotComponent;
-                        if (keyNode && keyNode?.contains(currentNode)) {
-                            po.key = keyVal;
+                    if (value.includes(PLACEHOLDER)) {
+                        let po = new UpdatePointMeta(varIndex);
+                        po.attrName = name.replace(/\.|\?|@/, '');
+                        po.nodeSn = nodeSn;
+                        if (slotComponent) {
+                            po.slotNodeSn = slotNodeSn;
                         }
                         if (name[0] === ATTR_PREFIX_PROP ||
                             name[0] === ATTR_PREFIX_BOOLEAN ||
                             name[0] === ATTR_PREFIX_REF) {
-                            if (isArray(val) && isSymbol(val[0])) {
-                                let [, args, executor, checker, varChain] = val;
-                                let type = EnterPointType.PROP;
-                                let attrName = name.substring(1);
-                                if (attrName === EnterPointType.STYLE || attrName === EnterPointType.CLASS) {
-                                    type = attrName;
-                                }
-                                checker(type, renderComponent.tagName);
-                                executor(currentNode, args, undefined, { renderComponent, slotComponent, varChain, attrName, pointType: type });
-                                po.value = val;
-                                po.isDirective = true;
-                            }
-                            else if (name[0] === ATTR_PREFIX_BOOLEAN) {
+                            if (name[0] === ATTR_PREFIX_BOOLEAN) {
                                 po.isToggleProp = true;
-                                po.value = !!val;
-                                let attrName = name.substring(1);
-                                if (po.value)
-                                    currentNode.setAttribute(attrName, val);
+                                po.attrName = name.substring(1);
                             }
                             else if (name[0] === ATTR_PREFIX_REF) {
-                                po.value = val;
+                                po.isRefAttr = true;
                                 let refNames = name.substring(1);
                                 const [refNamec, prop] = refNames.split(ATTR_PROP_DELIMITER);
                                 let refName = refNamec;
@@ -10009,171 +10703,256 @@
                                         break;
                                 }
                                 po.attrName = refName;
-                                currentNode.setAttribute(refName, val);
                             }
                             else {
-                                if (!(currentNode instanceof CompElem) && currentNode.tagName !== 'SLOT') {
+                                let ctor = DefinitionComponentMap[currentNode.tagName.toLowerCase()];
+                                let props = DefinitionPropMap.get(ctor) ?? {};
+                                if (!ctor && currentNode.tagName !== 'SLOT' && !ctor) {
                                     showTagError(currentNode.tagName, `Prop '${name}' can only be set on a CompElem or a slot`);
                                 }
                                 else {
                                     let propName = camelCase(name.substring(1));
-                                    if (!(propName in currentNode) && currentNode.tagName !== 'SLOT') {
+                                    if (!(propName in props) && currentNode.tagName !== 'SLOT') {
                                         showTagError(currentNode.tagName, `Prop '${name}' is not defined in ${currentNode.tagName}`);
                                     }
-                                    po.value = val;
                                     po.isProp = true;
-                                    props[propName] = val;
+                                    po.attrName = propName;
                                 }
                             }
                             currentNode.removeAttribute(name);
-                            val = '';
                         }
                         else {
-                            po.value = val;
-                            let executor;
-                            let args;
-                            let type = '';
-                            if (isArray(val) && isSymbol(val[0])) {
-                                type = EnterPointType.ATTR;
-                                if (name === EnterPointType.CLASS) {
-                                    type = EnterPointType.CLASS;
-                                }
-                                else if (name === EnterPointType.STYLE) {
-                                    type = EnterPointType.STYLE;
-                                }
-                                let [, ags, exec, checker] = val;
-                                {
-                                    checker(type, renderComponent.tagName);
-                                }
-                                po.isDirective = true;
-                                po.attrName = name;
-                                args = ags;
-                                executor = exec;
-                                val = '';
-                            }
-                            value = replace(value, PLACEHOLDER_EXP, val);
-                            //回填
-                            currentNode.getAttributeNode(name).value = value;
-                            if (isDefined(value)) {
-                                currentNode.setAttribute(name, value);
-                            }
-                            executor && executor(currentNode, args, undefined, { renderComponent, slotComponent, pointType: type });
+                            po.attrTmpl = value;
                         }
                         updatePoints.push(po);
                         varIndex++;
                     } //endif
                 } //endfor
-                if (currentNode instanceof CompElem) {
-                    setWrapper(currentNode, renderComponent);
-                    if (size(props) > 0)
-                        currentNode._initProps(props);
-                }
-                else if (currentNode instanceof HTMLSlotElement) {
-                    renderComponent._bindSlot(currentNode, currentNode.name || 'default', props);
-                }
             }
             else {
-                let comment = currentNode;
-                let ph = `<!--${comment.nodeValue}-->`;
-                if (ph !== PLACEHOLDER) {
+                let textParts = trim(currentNode.nodeValue).split(EXP_TAG);
+                if (textParts.length < 2) {
                     continue;
                 }
-                let po = new UpdatePoint(varIndex, new WeakRef(currentNode));
-                if (keyNode && keyNode?.contains(currentNode)) {
-                    po.key = keyVal;
-                }
-                updatePoints.push(po);
-                po.isComponent = !!slotComponent;
-                po.isText = true;
-                let val = vars[varIndex];
-                if (isArray(val) && isSymbol(val[0])) {
-                    const diName = Symbol.keyFor(val[0]);
-                    //插入start占位符
-                    let startComment;
-                    startComment = document.createComment(`compelem-${renderComponent.tagName}-${diName}-start`);
-                    comment.parentNode.insertBefore(startComment, comment);
-                    comment.nodeValue = `compelem-${renderComponent.tagName}-${diName}-end`;
-                    comment._diName = diName;
-                    DI_COMMENT_START_NODE_MAP.set(comment, startComment);
-                    po.isDirective = true;
-                    po.value = val;
-                    let pType = slotComponent ? EnterPointType.SLOT : EnterPointType.TEXT;
-                    let [, args, executor, checker, varChain] = val;
-                    checker(pType, renderComponent.tagName);
-                    po.directiveOldValue = [args, varChain];
-                    Collector.start();
-                    let tmpl = executor(comment, args, undefined, { renderComponent, slotComponent, varChain, pointType: pType });
-                    Collector.end(renderComponent, po);
-                    //render
-                    if (tmpl) {
-                        let nodes = buildSubView(comment, tmpl[1], renderComponent, po);
-                        let len = nodes.length;
-                        if (nodes && len > 0) {
-                            DomUtil.insertBefore(comment, Array.from(nodes));
-                        }
+                each(range(textParts.length - 1), i => {
+                    let tp = trim(textParts[i]);
+                    if (!isBlank(tp)) {
+                        let tpDom = document.createTextNode(tp);
+                        currentNode.parentNode.insertBefore(tpDom, currentNode);
+                        nodeSn++;
                     }
-                    val = undefined;
+                    //插入占位符
+                    let diPlaceholder = document.createTextNode('');
+                    currentNode.parentNode.insertBefore(diPlaceholder, currentNode);
+                    let po = new UpdatePointMeta(varIndex);
+                    po.isText = true;
+                    po.nodeSn = nodeSn;
+                    updatePoints.push(po);
+                    let val = vars[varIndex];
+                    if (isArray(val) && isFunction(val[0])) {
+                        let pType = slotComponent ? EnterPointType.SLOT : EnterPointType.TEXT;
+                        po.isDirective = true;
+                        po.directiveType = pType;
+                        if (slotComponent) {
+                            po.slotNodeSn = slotNodeSn;
+                        }
+                        let [, , diFn] = val;
+                        directiveScopeChecker(diFn, pType, renderComponent.tagName);
+                        val = undefined;
+                    }
+                    varIndex++;
+                    nodeSn++;
+                });
+                nodeSn--;
+                let lastTextPart = trim(last(textParts));
+                if (!isBlank(lastTextPart)) {
+                    currentNode.nodeValue = lastTextPart;
+                    nodeSn++;
                 }
                 else {
-                    po.value = val;
-                    po.node = null;
+                    let prevNode = currentNode.previousSibling;
+                    currentNode.parentNode.removeChild(currentNode);
+                    currentNode = prevNode;
                 }
-                varIndex++;
-                if (!po.isDirective) {
-                    let text = toString(val ?? '');
-                    let textDom = document.createTextNode(text);
-                    comment.parentNode.insertBefore(textDom, comment);
-                    comment.remove();
-                    currentNode = textDom;
-                    po.node = new WeakRef(textDom);
-                }
-            }
-            if (keyNode && !keyNode.contains(currentNode) && keyNode !== currentNode) {
-                keyNode = null;
-                keyVal = '';
             }
         }
-        return container.childNodes;
+        return container.content;
+    }
+    function renderTemplate(component, fragment, updatePointMetas, vars) {
+        let rs = fragment.cloneNode(true);
+        let upAry = [];
+        let currentNode;
+        let textDirectives = [];
+        let direcitves = [];
+        let evList = component._eventBindList;
+        if (!evList) {
+            evList = component._eventBindList = [];
+        }
+        //遍历dom
+        const nodeIterator = document.createNodeIterator(rs, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+        let upmMap = {};
+        let slotNodeMap = {};
+        updatePointMetas.forEach((upm, i) => {
+            if (!upmMap[upm.nodeSn])
+                upmMap[upm.nodeSn] = [];
+            upmMap[upm.nodeSn].push(upm);
+            if (upm.slotNodeSn > -1) {
+                slotNodeMap[upm.slotNodeSn] = null;
+            }
+        });
+        let nodeSn = -1;
+        let varIndex = 0;
+        while ((currentNode = nodeIterator.nextNode())) {
+            nodeSn++;
+            if (slotNodeMap[nodeSn] === null) {
+                slotNodeMap[nodeSn] = currentNode;
+            }
+            let props = {};
+            const upms = upmMap[nodeSn];
+            upms && upms.forEach(upm => {
+                let val = vars[varIndex++];
+                let newUp = UpdatePoint.createFrom(upm);
+                newUp.node = new WeakRef(currentNode);
+                newUp.value = val;
+                if (upm.isProp || upm.isPropPerfix) {
+                    props[upm.attrName] = val;
+                }
+                else if (upm.isRef) {
+                    val.__setRef(new WeakRef(currentNode));
+                }
+                else if (upm.isEvent) {
+                    evList.push([upm.attrName, val, currentNode]);
+                }
+                else if (upm.isToggleProp) {
+                    newUp.value = !!val;
+                    currentNode.toggleAttribute(upm.attrName, newUp.value);
+                }
+                else if (upm.isRefAttr) {
+                    currentNode.setAttribute(upm.attrName, val);
+                }
+                else if (upm.isText) {
+                    if (upm.isDirective) {
+                        let attrName = upm.attrName;
+                        let slotComponent = slotNodeMap[upm.slotNodeSn];
+                        let [executor, args, , varChain] = val;
+                        textDirectives.push([currentNode, attrName, slotComponent, executor, args, varChain, newUp]);
+                    }
+                    else {
+                        currentNode.textContent = val;
+                    }
+                }
+                else if (upm.isDirective) {
+                    let slotComponent = slotNodeMap[upm.slotNodeSn];
+                    let [executor, args, , varChain] = val;
+                    let attrName = upm.attrName;
+                    if (isEmpty(varChain) && size(upm.directiveVarChain) > 0) {
+                        varChain = upm.directiveVarChain;
+                    }
+                    direcitves.push([currentNode, attrName, slotComponent, executor, args, varChain, upm.directiveType]);
+                }
+                else { //attr
+                    currentNode.setAttribute(upm.attrName, upm.attrTmpl.replace(EXP_TAG, val));
+                }
+                upAry.push(newUp);
+            });
+            if (currentNode instanceof HTMLSlotElement) {
+                component._bindSlot(currentNode, currentNode.name || 'default', props);
+            }
+            else if (currentNode instanceof HTMLElement) {
+                if (isCompElemNode(currentNode)) {
+                    ComponentUninitializedWrapperComponentMap.set(currentNode, component);
+                    addUninitializedSubComponentProp(component, currentNode, props);
+                }
+            }
+        }
+        textDirectives.forEach(([currentNode, attrName, slotComponent, executor, args, varChain, newUp]) => {
+            set(currentNode, '__anchor__', SubViewSn++);
+            Collector.start();
+            let tmpl = executor(currentNode, args, undefined, { renderComponent: component, slotComponent, varChain, attrName, pointType: newUp.directiveType });
+            Collector.end(component, newUp);
+            if (tmpl && tmpl.length > 1) {
+                let [, tmplFn, tmplM, newAry, keyFn] = tmpl;
+                insertSubView(currentNode, newUp, tmplFn, tmplM, component, newAry, keyFn);
+            }
+        });
+        direcitves.forEach(([currentNode, attrName, slotComponent, executor, args, varChain, pointType]) => {
+            executor(currentNode, args, undefined, { renderComponent: component, slotComponent, varChain, attrName, pointType });
+        });
+        return [rs, upAry];
     }
     function buildView(tmpl, component) {
-        let updatePoints = [];
-        let nodes;
-        if (HTML_TMPL_CACHE.has(component.constructor)) {
-            let htmlTmpl = HTML_TMPL_CACHE.get(component.constructor);
-            let vars = buildVars(component, tmpl);
-            nodes = buildTmplate(updatePoints, htmlTmpl, vars, component);
+        let tmplM;
+        let vars = [];
+        if (TMPL_META_CACHE.has(component.constructor)) {
+            tmplM = TMPL_META_CACHE.get(component.constructor);
+            vars = buildVars(tmpl);
         }
         else {
-            let [html, vars] = buildHTML(component, tmpl);
-            HTML_TMPL_CACHE.set(component.constructor, html);
-            nodes = buildTmplate(updatePoints, html, vars, component);
+            tmplM = new TemplateMeta(tmpl, component, vars);
+            TMPL_META_CACHE.set(component.constructor, tmplM);
         }
-        component.__updateTree = updatePoints;
-        return nodes;
+        let [rs, upAry] = renderTemplate(component, tmplM.fragment, tmplM.updatePointMetas, vars);
+        component.__updateTree = upAry;
+        return rs;
     }
-    function buildSubView(pointNode, tmpl, component, po, bindEvent = false) {
-        let [html, vars] = buildHTML(component, tmpl);
-        let updatePoints = [];
-        let nodes = buildTmplate(updatePoints, html, vars, component);
-        if (bindEvent)
-            component.__bindEvents();
-        updatePoints.forEach(up => {
-            po.insert(up);
+    function insertSubView(node, point, tmplFn, tmplM, component, valueAry, keyFn) {
+        let upList = [];
+        let rootNodes = keyFn ? {} : undefined;
+        valueAry = valueAry ?? [0];
+        let fragment = document.createDocumentFragment();
+        let subViewId = get(node, '__anchor__');
+        each(valueAry, (v, k, c, i) => {
+            Collector.start();
+            let vars = buildVars(tmplFn.call(component, v, k, i));
+            Collector.end(component);
+            let [rs, upAry] = renderTemplate(component, tmplM.fragment, tmplM.updatePointMetas, vars);
+            let roots = toArray(rs.childNodes).map((n) => new WeakRef(n));
+            if (keyFn) {
+                let key = keyFn.call(component, v, k, i) + '';
+                roots.forEach(n => {
+                    let dom = n.deref();
+                    set(dom, '__c-' + subViewId, key);
+                });
+                rootNodes[key] = roots;
+                upAry.forEach(up => {
+                    up.key = key;
+                });
+                upList.push(...upAry);
+                fragment.append(rs);
+            }
+            else {
+                fragment = rs;
+                point.subViewRootNodes = roots;
+                upAry.forEach((up) => {
+                    point.insert(up);
+                });
+            }
         });
-        return nodes;
+        if (rootNodes) {
+            point.subViewRootNodes = rootNodes;
+            upList.forEach((up, i) => {
+                up.varIndex = i;
+                point.insert(up);
+            });
+        }
+        let len = fragment.childNodes.length;
+        if (len > 0) {
+            component.__bindEvents();
+            node.parentNode.insertBefore(fragment, node);
+        }
     }
-    function updateView(tmpl, renderComponent, updatePoints, renderedUps, changed) {
-        if (isBlank(join(tmpl.strings)))
+    function updateView(vars, renderComponent, updatePoints, renderedUps, changed) {
+        if (isBlank(vars))
             return;
         if (!updatePoints)
             return;
-        let vars = tmpl.flatVars(renderComponent);
         for (let i = 0; i < updatePoints.length; i++) {
             const up = updatePoints[i];
             let varIndex = up.varIndex;
             if (varIndex < 0)
                 continue;
-            if (up.isPlaceholder)
+            let upm = up.metaInfo;
+            if (upm.isPlaceholder || upm.isPropPerfix || upm.isRef || upm.isEvent || upm.isRefAttr || upm.isKey)
                 continue;
             if (up.__destroyed)
                 continue;
@@ -10194,54 +10973,60 @@
             if (!isObject(oldValue) && oldValue === newValue)
                 continue;
             let elNode = node;
-            if (up.isDirective) {
-                renderedUps?.delete(up);
+            if (upm.isDirective) {
+                // renderedUps?.delete(up)
                 //指令
-                let [, oldArgs, executor, , varChain] = up.value;
+                let [executor, oldArgs, diFn, varChain] = up.value;
                 if (!isArray(newValue))
                     continue;
                 let slotComponent = getSlotComponent(node, renderComponent);
                 let [, newArgs] = newValue;
-                updateDirective(node, newArgs, oldArgs, executor, renderComponent, slotComponent, varChain, up, changed);
+                let updated = updateDirective(diFn, node, newArgs, oldArgs, executor, renderComponent, slotComponent, varChain, up, changed);
+                if (updated) {
+                    renderedUps?.delete(up);
+                }
             }
-            else if (up.isToggleProp) {
+            else if (upm.isToggleProp) {
                 //布尔特性
                 if ((!!newValue) === oldValue)
                     continue;
-                elNode.toggleAttribute(up.attrName, !!newValue);
+                elNode.toggleAttribute(upm.attrName, !!newValue);
                 if (elNode instanceof CompElem) {
-                    elNode.updateProps({ [up.attrName]: !!newValue });
+                    elNode.updateProps({ [upm.attrName]: !!newValue });
                 }
             }
-            else if (up.isProp) {
+            else if (upm.isProp) {
                 //子组件属性
                 if (!isObject(newValue) && newValue === oldValue)
                     continue;
                 //如果node是slot则触发组件的slot更新
                 if (node instanceof CompElem) {
-                    node.updateProps({ [up.attrName]: newValue });
+                    node.updateProps({ [upm.attrName]: newValue });
                 }
                 else if (node instanceof HTMLSlotElement) {
-                    renderComponent._updateSlot(node.getAttribute('name') || 'default', up.attrName, newValue);
+                    renderComponent._updateSlot(node.getAttribute('name') || 'default', upm.attrName, newValue);
                 }
             }
-            else if (up.attrName) {
+            else if (upm.attrName) {
                 //特性
                 if (!isEqual(oldValue, newValue)) {
-                    switch (up.attrName) {
+                    switch (upm.attrName) {
                         case 'value':
                             if (node instanceof HTMLInputElement) {
                                 node.value = newValue;
                                 break;
                             }
                         default:
-                            node.setAttribute(up.attrName, replace(up.attrTmpl, PLACEHOLDER_EXP, newValue + ''));
+                            node.setAttribute(upm.attrName, replace(upm.attrTmpl, EXP_TAG, newValue + ''));
                     }
                 }
             }
-            else if (up.isText) {
+            else if (upm.isText) {
                 let textNode = up.node;
-                textNode.deref().textContent = toString(newValue ?? '');
+                let newTxt = toString(newValue ?? '');
+                let oldTxt = textNode.deref().textContent;
+                if (newTxt !== oldTxt)
+                    textNode.deref().textContent = newTxt;
             }
             up.value = newValue;
         } //endfor
@@ -10251,29 +11036,25 @@
         if (!subScopeUpdatePoint || subScopeUpdatePoint.__destroyed)
             return;
         let node = subScopeUpdatePoint.node.deref();
-        const executor = TextOrSlotDirectiveExecutorMap.get(node._diName);
+        const [executor, oldArgs, diFn, varChain] = subScopeUpdatePoint.value;
         let slotComponent = getSlotComponent(node, renderComponent);
-        const [oldArgs, varChain] = subScopeUpdatePoint.directiveOldValue;
+        let newArgs;
         if (!tmpl) {
-            let rs = executor(node, subScopeUpdatePoint.value[1], oldArgs, { renderComponent, slotComponent, varChain, updatedMap, pointType: get(executor, '__scope', EnterPointType.TEXT) });
+            let rs = executor(node, subScopeUpdatePoint.value[1], oldArgs, { renderComponent, slotComponent, varChain, updatedMap, pointType: get(DirectiveScopeMap.get(diFn), [0], EnterPointType.TEXT) });
             if (!rs)
                 return;
-            tmpl = rs[1];
+            if (rs[0] !== DirectiveUpdateTag.REFRESH)
+                return;
+            if (isFunction(rs[1])) {
+                newArgs = buildVars(rs[1].call(renderComponent, subScopeUpdatePoint.value[1][0]));
+            }
+            else {
+                newArgs = rs[1];
+            }
         }
-        if (!tmpl)
+        if (!newArgs)
             return;
-        //合并
-        if (tmpl.vars[0] instanceof Template) {
-            let tStrAry = [];
-            let tVarAry = [];
-            each(tmpl.vars, v => {
-                tVarAry.push(...v.vars);
-                tStrAry.push(...map(v.vars, v => '1'));
-            });
-            tStrAry.push('1');
-            tmpl = new Template(tStrAry, tVarAry);
-        }
-        updateView(tmpl, renderComponent, subScopeUpdatePoint.children, undefined, updatedMap);
+        updateView(newArgs, renderComponent, subScopeUpdatePoint.children, undefined, updatedMap);
     }
     //////////////////////////////////////////////////// interfaces
     /**
@@ -10284,7 +11065,6 @@
     function h(strings, ...vars) {
         return new Template(isString(strings) ? [strings] : strings, vars);
     }
-    const EXP_STR = /([a-z0-9"'])\s*>\s*</img;
     class RefObject {
         __ref;
         get current() {
@@ -10293,9 +11073,6 @@
         __setRef(ref) {
             this.__ref = ref;
         }
-    }
-    function setWrapper(target, wrapperComponent) {
-        target.__wrapperComponent = new WeakRef(wrapperComponent);
     }
 
     //装饰器类型
@@ -10638,7 +11415,7 @@
      * @param styles 对象/数组/字符串
      */
     directive(function Bind(obj) {
-        return (pointNode, [obj], oldArgs) => {
+        return (pointNode, [obj], oldArgs, { renderComponent }) => {
             let el = pointNode;
             if (oldArgs) {
                 each(obj, (v, k) => {
@@ -10646,10 +11423,10 @@
                 });
                 return;
             }
-            if (el instanceof CompElem) {
+            if (isCompElemNode(el)) {
                 //判断是否prop
                 let props = {};
-                let attrs = {};
+                // let attrs: Record<string, string> = {}
                 let propDefs = DefinitionPropMap.get(el.constructor);
                 each(obj, (v, k) => {
                     if (Ignores.includes(k))
@@ -10660,10 +11437,12 @@
                         props[k] = v;
                     }
                     else {
-                        attrs[k] = v + '';
+                        el.setAttribute(k, v + '');
+                        // attrs[k] = v + '';
                     }
                 });
-                el._initProps(props, attrs);
+                addUninitializedSubComponentProp(renderComponent, el, props);
+                // el._initProps(props, attrs)
             }
             else {
                 each(obj, (v, k) => {
@@ -10675,7 +11454,7 @@
 
     const ClassLastMap = new WeakMap();
     /**
-     * 根据变量内容自动插入class，仅能用于class属性
+     * 根据变量内容自动插入class，与静态class自动合并
      * @param styles 对象/数组/字符串
      */
     directive(function Classes(clazz) {
@@ -10705,88 +11484,64 @@
             lastCls = concat(rs);
             ClassLastMap.set(el, lastCls);
         };
-    }, [EnterPointType.CLASS]);
+    }, [EnterPointType.TAG]);
 
-    const LastTmplMap$1 = new WeakMap();
+    const LastKeysMap = new WeakMap();
+    const EachTmplMap = new WeakMap();
     /**
-     * 循环列表并自动优化列表更新
-     * foreach循环的只能是节点，且必须有key属性。非节点元素会被过滤掉
-     * 使用序号作为key时可能会导致异常问题
+     * 循环节点指令
+     * 1. 支持多根输出
+     * 2.
      */
-    directive(function ForEach(value, cbk) {
-        return (pointNode, newArgs, oldArgs, { varChain, updatedMap }) => {
-            let el = pointNode;
-            let lastRenderTmpl = comboTmpl(newArgs[0], newArgs[1], el);
-            if (oldArgs && oldArgs[0] && size(newArgs[0]) === size(oldArgs[0])) {
-                //更新
-                let updatedKey = keys(updatedMap).find(k => endsWith(k, last(varChain)));
-                if (updatedKey && get(updatedMap, [updatedKey, 'end'], true)) {
-                    const lastRenderTmpl = LastTmplMap$1.get(el);
-                    return [DirectiveUpdateTag.NONE, lastRenderTmpl];
-                }
-            }
-            if (oldArgs) {
-                return [DirectiveUpdateTag.UPDATE, lastRenderTmpl];
-            }
-            return [DirectiveUpdateTag.APPEND, lastRenderTmpl];
-        };
-    }, [EnterPointType.TEXT, EnterPointType.SLOT]);
-    function comboTmpl(value, cbk, el) {
-        //1. 产生模板
-        let tmpls = map(value, (v, k) => {
-            return cbk(v, k);
-        });
-        if (tmpls.length < 1) {
-            let lastRenderTmpl = new Template([], []);
-            LastTmplMap$1.set(el, lastRenderTmpl);
-            return lastRenderTmpl;
-        }
-        //2. 检查 & 合并模板
-        let keyAry = [];
-        let strs = [];
-        const combStrings = [];
-        const combVars = [];
-        for (let l = 0; l < tmpls.length; l++) {
-            const tmpl = tmpls[l];
-            let lastStr = last(strs);
-            let vars = tmpl.vars;
-            let hasNoKey = true;
-            let tmplStrs = tmpl.strings;
-            for (let i = 0; i < tmplStrs.length; i++) {
-                const str = tmplStrs[i];
-                if (EXP_KEY.test(str)) {
-                    let key = vars[i] + '';
-                    if (keyAry.includes(key)) {
-                        showError(`forEach - duplicate key '${key}'`);
-                        return;
-                    }
-                    keyAry.push(key);
-                    hasNoKey = false;
-                }
-                if (i == 0 && lastStr) {
-                    strs[strs.length - 1] = lastStr + str;
-                    continue;
-                }
-                strs.push(str);
-            }
-            if (hasNoKey) {
-                showError("forEach - missing 'key' prop");
+    directive(function ForEach(value, keyFn, tmpl) {
+        return (pointNode, newArgs, oldArgs, { renderComponent, varChain, updatedMap }) => {
+            let newAryOrObj = newArgs[0];
+            get(oldArgs, 0);
+            if (isEmpty(newAryOrObj) && isUndefined(oldArgs))
+                return [DirectiveUpdateTag.INIT];
+            let i = 0;
+            let newKeys = compact(map(newAryOrObj, (v, k) => keyFn.call(renderComponent, v, k, i++) + ''));
+            //check keys
+            if (newKeys.length != new Set(newKeys).size) {
+                showError(`forEach - duplicate key in '${newKeys}'`);
                 return;
             }
-            let lastVar = last(combStrings);
-            if (lastVar && tmplStrs.length > 0) {
-                combStrings[combStrings.length - 1] = trim(lastVar) + tmplStrs.shift();
+            let oldKeys = LastKeysMap.get(pointNode);
+            LastKeysMap.set(pointNode, newKeys);
+            if (oldArgs) {
+                if (isEmpty(newKeys))
+                    return [DirectiveUpdateTag.REMOVE];
+                if (size(newKeys) === size(oldKeys) && isEqual(newKeys, oldKeys))
+                    return [DirectiveUpdateTag.REFRESH, getVars(newAryOrObj, tmpl, renderComponent)];
             }
-            combStrings.push('');
-            combVars.push(tmpl);
-        }
-        combStrings.push('');
-        let lastRenderTmpl = new Template(combStrings, combVars);
-        LastTmplMap$1.set(el, lastRenderTmpl);
-        return lastRenderTmpl;
+            let tmplM;
+            let tmplFn = newArgs[2];
+            if (!EachTmplMap.has(pointNode)) {
+                let k = keys(newAryOrObj)[0];
+                let v = newAryOrObj[k];
+                let tmpl = tmplFn.call(renderComponent, v, k, 0);
+                tmplM = new TemplateMeta(tmpl, renderComponent);
+                EachTmplMap.set(pointNode, tmplM);
+            }
+            else {
+                tmplM = EachTmplMap.get(pointNode);
+            }
+            if (oldArgs) {
+                return [DirectiveUpdateTag.UPDATE, tmplM, newKeys, oldKeys, tmplFn, newAryOrObj];
+            }
+            return [DirectiveUpdateTag.INIT, tmpl, tmplM, newAryOrObj, keyFn];
+        };
+    }, [EnterPointType.TEXT, EnterPointType.SLOT]);
+    function getVars(newAryOrObj, tmplFn, renderComponent) {
+        let varList = [];
+        each(newAryOrObj, (val, i) => {
+            let vars = buildVars(tmplFn.call(renderComponent, val, i));
+            varList.push(...vars);
+        });
+        return varList;
     }
 
-    let compiler = document.createElement('div');
+    let compiler = document.createElement('template');
     let startNodeMap = new WeakMap();
     /**
      * 向元素/文本中插入指定HTML内容
@@ -10794,7 +11549,7 @@
      * @param htmlStr html内容
      */
     directive(function Html(htmlStr) {
-        return (pointNode, newArgs, oldArgs, { renderComponent, slotComponent }) => {
+        return (pointNode, newArgs, oldArgs, { renderComponent }) => {
             if (oldArgs && newArgs[0] == oldArgs[0])
                 return;
             if (isNil(newArgs[0]))
@@ -10805,19 +11560,22 @@
             else {
                 let startNode = startNodeMap.get(pointNode);
                 if (!startNode) {
-                    startNode = pointNode.previousSibling;
+                    startNode = document.createTextNode('');
+                    pointNode.parentNode?.insertBefore(startNode, pointNode);
                     startNodeMap.set(pointNode, startNode);
                 }
                 compiler.innerHTML = convertHTML(newArgs[0]);
                 if (!isBlank(oldArgs)) {
                     DomUtil.remove(startNode, pointNode);
                 }
-                pointNode.before(...compiler.childNodes);
+                pointNode.before(compiler.content.cloneNode(true));
             }
         };
     }, [EnterPointType.TAG, EnterPointType.TEXT, EnterPointType.SLOT]);
 
-    const LastTmplMap = new WeakMap();
+    const LastTplFnMap = new WeakMap();
+    const IfTmplMap = new WeakMap();
+    const ElseTmplMap = new WeakMap();
     /**
      * 条件为真时返回参数1，否则返回参数2，仅能用于文本节点
      * @param condition 条件
@@ -10825,44 +11583,80 @@
      */
     directive(function IfElse(condition, ifTmpl, elseTmpl) {
         return (pointNode, [condi, ifTmpl, elseTmpl], oldArgs, { renderComponent }) => {
-            let el = pointNode;
+            let tmplM;
             if (oldArgs) {
                 //更新
                 if (!!condi === !!oldArgs[0]) {
-                    let tmpl = LastTmplMap.get(el);
-                    return [DirectiveUpdateTag.UPDATE, new Template(['', ''], [tmpl.call(renderComponent, condi)])];
+                    let tplFn = LastTplFnMap.get(pointNode);
+                    return [DirectiveUpdateTag.REFRESH, tplFn];
                 }
                 let tmpl = condi ? ifTmpl : elseTmpl;
-                LastTmplMap.set(el, tmpl);
-                return [DirectiveUpdateTag.REPLACE, tmpl.call(renderComponent, condi)];
+                if (condi) {
+                    tmplM = IfTmplMap.get(pointNode);
+                    if (!tmplM) {
+                        tmplM = new TemplateMeta(tmpl.call(renderComponent, condi), renderComponent);
+                        IfTmplMap.set(pointNode, tmplM);
+                    }
+                }
+                else {
+                    tmplM = ElseTmplMap.get(pointNode);
+                    if (!tmplM) {
+                        tmplM = new TemplateMeta(tmpl.call(renderComponent, condi), renderComponent);
+                        ElseTmplMap.set(pointNode, tmplM);
+                    }
+                }
+                return [DirectiveUpdateTag.REPLACE, tmpl, tmplM];
+            }
+            let tmpl = condi ? ifTmpl : elseTmpl;
+            if (condi) {
+                tmplM = IfTmplMap.get(pointNode);
+                if (!tmplM) {
+                    tmplM = new TemplateMeta(tmpl.call(renderComponent, condi), renderComponent);
+                    IfTmplMap.set(pointNode, tmplM);
+                }
             }
             else {
-                let tmpl = condi ? ifTmpl : elseTmpl;
-                LastTmplMap.set(el, tmpl);
-                return [DirectiveUpdateTag.APPEND, tmpl.call(renderComponent, condi)];
+                tmplM = ElseTmplMap.get(pointNode);
+                if (!tmplM) {
+                    tmplM = new TemplateMeta(tmpl.call(renderComponent, condi), renderComponent);
+                    ElseTmplMap.set(pointNode, tmplM);
+                }
             }
+            LastTplFnMap.set(pointNode, tmpl);
+            return [DirectiveUpdateTag.INIT, tmpl, tmplM];
         };
     }, [EnterPointType.TEXT, EnterPointType.SLOT]);
 
+    const TmplMap = new WeakMap();
     /**
      * 条件为真时返回内容，仅能用于文本节点
      * @param condition 条件
      * @param tmpl 模板
      */
     directive(function IfTrue(condition, tplFn) {
-        return (pointNode, [condi, render], oldArgs) => {
+        return (pointNode, [condi, render], oldArgs, { renderComponent }) => {
+            let tmplM = TmplMap.get(pointNode);
+            if (condi && !TmplMap.has(pointNode)) {
+                tmplM = new TemplateMeta(render.call(renderComponent), renderComponent);
+                TmplMap.set(pointNode, tmplM);
+            }
             if (oldArgs) {
-                //更新
-                if (condi === oldArgs[0])
-                    return [DirectiveUpdateTag.UPDATE, new Template(['', ''], [condi ? render() : h ``])];
-                if (condi) {
-                    return [DirectiveUpdateTag.REPLACE, condi ? render() : h ``];
+                if (oldArgs[0]) {
+                    if (!condi) {
+                        return [DirectiveUpdateTag.REMOVE];
+                    }
+                    else {
+                        return [DirectiveUpdateTag.REFRESH, render];
+                    }
                 }
-                return [DirectiveUpdateTag.REMOVE];
+                else {
+                    if (condi) {
+                        return [DirectiveUpdateTag.REPLACE, render, tmplM];
+                    }
+                }
+                return [DirectiveUpdateTag.NONE];
             }
-            else {
-                return [DirectiveUpdateTag.APPEND, condi ? render() : h ``];
-            }
+            return [DirectiveUpdateTag.INIT, ...(condi ? [render, tmplM] : [])];
         };
     }, [EnterPointType.TEXT, EnterPointType.SLOT]);
 
@@ -10941,25 +11735,32 @@
                 path = last(varChain);
             }
             const rootPath = split(path, '.')[0];
-            if (!(rootPath in renderComponent) && !renderComponent._wrapperProp[rootPath]) {
+            let contextVarPathMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(renderComponent);
+            let rootPathInContext = '';
+            if (contextVarPathMap) {
+                rootPathInContext = contextVarPathMap[rootPath];
+            }
+            if (!(rootPath in renderComponent) && (rootPathInContext && !(rootPathInContext in renderComponent))) {
                 showError(`model - property '${rootPath}' is not defined on the instance of ` + renderComponent.tagName);
             }
             let evList = renderComponent._eventBindList;
             if (!isObject(modelValue) && !trim(modelValue))
                 modelValue = '';
-            if (node instanceof CompElem) {
-                node._initProps({ [updateProp]: modelValue });
+            let ctor = DefinitionComponentMap[node.tagName.toLowerCase()];
+            if (ctor) {
+                addUninitializedSubComponentProp(renderComponent, node, { [updateProp]: modelValue });
                 let evName = 'update:' + updateProp;
-                evList.push([evName, function (obj) {
-                        console.debug('Model =>', path);
-                        let ctx = this;
-                        let pathFromWrapperComponent = ctx._wrapperProp[rootPath];
-                        let hasPath = rootPath in ctx;
-                        if (!hasPath && pathFromWrapperComponent && get(ctx.wrapperComponent, rootPath) === get(ctx, pathFromWrapperComponent)) {
-                            ctx = ctx.wrapperComponent || ctx;
-                        }
-                        set(ctx, path, obj.value);
-                    }, node]);
+                addEmitEvent(node, renderComponent, evName, function (obj) {
+                    console.debug('Model =>', path);
+                    let ctx = this;
+                    //todo 这里需要测试
+                    let pathFromWrapperComponent = ctx._wrapperProp[rootPath];
+                    let hasPath = rootPath in ctx;
+                    if (!hasPath && pathFromWrapperComponent && get(ctx.wrapperComponent, rootPath) === get(ctx, pathFromWrapperComponent)) {
+                        ctx = ctx.wrapperComponent || ctx;
+                    }
+                    set(ctx, path, obj.value);
+                });
             }
             else if (node instanceof HTMLTextAreaElement) {
                 node.setAttribute(updateProp, modelValue + '');
@@ -11051,7 +11852,12 @@
             if (oldArgs)
                 return;
             cbk = cbk.bind(renderComponent);
-            slotComponent._bindSlotHook(slotName || 'default', cbk);
+            let slotMap = ComponentUninitializedSlotFunctionMap.get(slotComponent);
+            if (!slotMap) {
+                slotMap = {};
+                ComponentUninitializedSlotFunctionMap.set(slotComponent, slotMap);
+            }
+            slotMap[slotName || 'default'] = cbk;
         };
     }, [EnterPointType.SLOT]);
 
@@ -11088,7 +11894,7 @@
     }
 
     /**
-     * 根据变量内容设置元素样式，仅能用于style属性
+     * 根据变量内容设置元素样式，与静态样式自动合并
      * @param styles 对象/字符串
      */
     directive(function Styles(...styles) {
@@ -11100,31 +11906,32 @@
             let ePairs = reject(eKeys, (str => sKeys.some(key => str.trim().startsWith(key))));
             el.style.cssText = cssText + ePairs.join(';');
         };
-    }, [EnterPointType.STYLE]);
+    }, [EnterPointType.TAG]);
 
     const LastConditionMap = new WeakMap();
+    const BranchTmplMMap = new WeakMap();
     /**
      * 分支指令，具有switch / else if 两种模式
      * @example
      *  switch 模式
      * ${when(var, {
-        closed: () => html``, //case 1
-        connecting: () => html``, //case 2
-        default: () => html``// default是switch模式下的关键字key
+        closed: () => h``, //case 1
+        connecting: () => h``, //case 2
+        default: () => h``// default是switch模式下的关键字key
        })}
 
        else if 模式
      * ${when(this.editingTitle, [
-        [(v: any) => v.substring(2) > 0, () => html`<div style="${PageHome.tunnelLight}"></div>`],
-        [(v: any) => v == 'closed', () => html`<div style="${PageHome.tunnelLight}"></div>`],
-        [() => true, () => html`默认`]
+        [(v: any) => v.substring(2) > 0, () => h`<div style="${PageHome.tunnelLight}"></div>`],
+        [(v: any) => v == 'closed', () => h`<div style="${PageHome.tunnelLight}"></div>`],
+        [() => true, () => h`默认`]
         ])}
      *
      * @param condition 条件
      * @param tmpl 模板
      */
     directive(function When(value, cases) {
-        return (pointNode, [value, cases], oldArgs) => {
+        return (pointNode, [value, cases], oldArgs, { renderComponent }) => {
             let defaultFn = () => h ``;
             let conditionList = [];
             let tmplList = [];
@@ -11153,13 +11960,22 @@
             });
             let lastCase = LastConditionMap.get(pointNode);
             LastConditionMap.set(pointNode, i);
+            let tplAry = BranchTmplMMap.get(pointNode);
+            if (!tplAry) {
+                tplAry = [];
+                BranchTmplMMap.set(pointNode, tplAry);
+            }
+            if (!tplAry[i]) {
+                let tmplM = new TemplateMeta((tmplList[i] ?? defaultFn).call(renderComponent), renderComponent);
+                tplAry[i] = tmplM;
+            }
             if (oldArgs) {
                 if (lastCase == i) {
-                    return [DirectiveUpdateTag.UPDATE, call(tmplList[i] ?? defaultFn)];
+                    return [DirectiveUpdateTag.REFRESH, tmplList[i] ?? defaultFn];
                 }
-                return [DirectiveUpdateTag.REPLACE, call(tmplList[i] ?? defaultFn)];
+                return [DirectiveUpdateTag.REPLACE, tmplList[i] ?? defaultFn, tplAry[i]];
             }
-            return [DirectiveUpdateTag.APPEND, call(tmplList[i] ?? defaultFn)];
+            return [DirectiveUpdateTag.INIT, tmplList[i] ?? defaultFn, tplAry[i]];
         };
     }, [EnterPointType.TEXT, EnterPointType.SLOT]);
 

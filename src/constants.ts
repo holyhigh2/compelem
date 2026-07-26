@@ -1,6 +1,6 @@
 import { CompElem } from "./CompElem";
 import { DecoratorWrapper } from "./decorator";
-import { Getter, PropOption, StateOption } from "./types";
+import { Getter, PropOption, StateOption, TplFn } from "./types";
 
 export const SLOT_NAME_DEFAULT = 'default'
 /**
@@ -40,10 +40,15 @@ export const HasChangedPropOrStateMap = new WeakMap<Function, Map<string, Functi
 export const ComputedUpdateDepsMap = new WeakMap<Function, Map<string, Set<Function>>>()
 export const CssUpdateDepsMap = new WeakMap<Function, Set<string>>()
 
-export const ComponentDynamicCssUpdaterMap = new WeakMap<CompElem<any>, Map<Function, CSSStyleSheet>>()
+export const DirectiveScopeMap = new Map<Function, string[]>
 
+export const ComponentDynamicCssUpdaterMap = new WeakMap<CompElem<any>, Map<Function, CSSStyleSheet>>()
+export const ComponentUninitializedSubComponentPropMap = new WeakMap<CompElem<any>, Map<Node, Record<string, any>>>()
+export const ComponentUninitializedSlotFunctionMap = new WeakMap<Node, Record<string, TplFn>>()
+export const ComponentUninitializedWrapperComponentMap = new WeakMap<Node, CompElem<any>>()
 
 export const PATH_SEPARATOR = '-'
 
 export const PROP_NAME_SLOTS = 'slots'
 export const DATA_KEY = '__data_'
+export const PLACEHOLDER = "⟬Ċ⟭";
