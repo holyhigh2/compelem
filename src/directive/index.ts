@@ -132,7 +132,7 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
 
   } else if (tag === DirectiveUpdateTag.UPDATE) {
     if (isEmpty(subViewRootNodes)) {
-      insertSubView(pointNode, up, tmplFn, tmplM, renderComponent, newValueAry, (v, k, i) => newKeys[i])
+      insertSubView(pointNode, up, tmplFn, tmplM, renderComponent, newAryOrObj, (v, k, i) => newKeys[i])
       return
     }
 

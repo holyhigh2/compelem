@@ -104,8 +104,8 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
         if (process.env.DEV)
           console.debug('Model =>', path)
         let ctx = this
-        //todo 这里需要测试
-        let pathFromWrapperComponent = ctx._wrapperProp[rootPath]
+        let rootPathInCtxMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(ctx) ?? {}
+        let pathFromWrapperComponent = rootPathInCtxMap[rootPath]
         let hasPath = rootPath in ctx
         if (!hasPath && pathFromWrapperComponent && get(ctx.wrapperComponent, rootPath) === get(ctx, pathFromWrapperComponent)) {
           ctx = ctx.wrapperComponent || ctx
@@ -162,7 +162,8 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
           console.debug('Model =>', path)
         let t = e.target as any
         let ctx = this;
-        let pathFromWrapperComponent = ctx._wrapperProp[rootPath];
+        let rootPathInCtxMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(ctx) ?? {}
+        let pathFromWrapperComponent = rootPathInCtxMap[rootPath]
         let hasPath = rootPath in ctx;
         if (!hasPath && pathFromWrapperComponent && get(ctx.wrapperComponent, rootPath) === get(ctx, pathFromWrapperComponent)) {
           ctx = ctx.wrapperComponent || ctx;

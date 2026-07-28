@@ -37,7 +37,7 @@ import {
   trim,
   walkTree
 } from "myfx";
-import { ComponentDynamicCssUpdaterMap, ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, ComputedUpdateDepsMap, CssUpdateDepsMap, DATA_KEY, DefinitionCompEventMap, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, HasChangedPropOrStateMap, PATH_SEPARATOR, PropShallowKeySetMap, SLOT_NAME_DEFAULT, WatchImmediateListMap, WatchKeysListMap, WatchKeysOnceMap } from "./constants";
+import { ComponentDynamicCssUpdaterMap, ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, ComputedUpdateDepsMap, CssUpdateDepsMap, DATA_KEY, DefinitionCompEventMap, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, HasChangedPropOrStateMap, PropShallowKeySetMap, SLOT_NAME_DEFAULT, WatchImmediateListMap, WatchKeysListMap, WatchKeysOnceMap } from "./constants";
 import { DecoratorWrapper } from "./decorator";
 import { _getObservedAttrs } from "./decorators/prop";
 import { addEvent, EvHadler } from "./events/event";
@@ -143,15 +143,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     return this.#parentComponent?.deref();
   }
   get wrapperComponent(): CompElem | undefined {
-    // if (!this.#wrapperComponent) {
-    //   let wrapperRoot = closest<ShadowRoot>(
-    //     this.parentNode!,
-    //     (node) =>
-    //       node instanceof ShadowRoot && !!node.host,
-    //     "parentNode"
-    //   );
-    //   this.#wrapperComponent = wrapperRoot ? new WeakRef(wrapperRoot.host as CompElem) : undefined
-    // }
     return this.#wrapperComponent?.deref();
   }
   get slots(): Record<string, Array<Node>> {
@@ -323,7 +314,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       }
     }
 
-    this.__init();
+    this.setup();
     this.__bindEvents()
   }
 
@@ -441,8 +432,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     this.remove()
 
     //data
-    this._wrapperProp =
-      this.#propsReady =
+    this.#propsReady =
       this.#renderRoot = this.#renderRoots = this.#shadow =
       this.#updateSources =
       this.#attrs =
@@ -463,8 +453,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
   //////////////////////////////////// lifecycles
   //********************************** 首次渲染
-  //构造时上级传递的参数
-  __init() {
+  setup() {
     if (this.__inited) return;
     //防止在钩子中出现重新挂载的情况
     if (this.#initiating) return;
@@ -1151,7 +1140,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     if (this.#props)
       this.#propsReady(this.#props);
   }
-  _wrapperProp: Record<string, string> = {}
   _initProps(props: Record<string, any>, attrs?: Record<string, any>) {
     this.#props = merge(this.#props || {}, props);
     this.#attrs = merge(this.#attrs || {}, attrs);
@@ -1160,8 +1148,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       if (isObject(v)) {
         let fromPath = OBJECT_VAR_PATH.get(v)
         if (fromPath) {
-          let propPath = fromPath.join(PATH_SEPARATOR)
-          this._wrapperProp[propPath] = k
           let parentStateDefs = this.wrapperComponent ? DefinitionStateMap.get(this.wrapperComponent?.constructor) : null
           let parentStateKey = fromPath[0]
           if (parentStateDefs && parentStateDefs[parentStateKey]) {

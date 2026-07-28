@@ -370,6 +370,12 @@ export function renderTemplate(component: CompElem<any>, fragment: DocumentFragm
   })
   let nodeSn = -1
   let varIndex = 0
+  if (process.env.DEV && size(vars) != size(updatePointMetas)) {
+    showTagError(component.tagName,
+      `Dynamic root elements are not supported in component view, please checker the 'render()' function`
+    );
+    return [rs, upAry]
+  }
   while ((currentNode = nodeIterator.nextNode())) {
     nodeSn++
     if (slotNodeMap[nodeSn] === null) {

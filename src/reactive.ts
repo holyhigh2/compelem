@@ -3,7 +3,7 @@
  * @author holyhigh2
  */
 
-import { concat, get, isArray, isFunction, isObject, isSymbol, startsWith, toArray } from "myfx";
+import { concat, get, isArray, isFunction, isObject, isSymbol, some, startsWith, toArray } from "myfx";
 import { CompElem } from "./CompElem";
 import { ComputedUpdateDepsMap, CssUpdateDepsMap, DATA_KEY, HasChangedPropOrStateMap, PROP_NAME_SLOTS, PropShallowKeySetMap, StateShallowKeySetMap, WatchDeepUpdateMap, WatchKeysDeepListMap, WatchKeysListMap, WatchKeysOnceMap, WatchUpdateMap } from "./constants";
 import { UpdatePoint } from "./render/UpdatePoint";
@@ -18,7 +18,7 @@ export function getterValue(propertyKey: string, context: CompElem) {
   if (Collector.__collecting) {
     Collector.__varPathList.push(propertyKey)
   }
-  if (PROXY_MAP.has(v)) {
+  if (PROXY_MAP.has(v) || OBJECT_VAR_ROOT_CONTEXT.get(v)) {
     let contextList = EXTRA_CONTEXT_OF_VAR.get(v)
     if (!contextList) {
       contextList = new Set()
@@ -29,7 +29,7 @@ export function getterValue(propertyKey: string, context: CompElem) {
       wVkMap = {}
       OBJECT_VAR_ROOT_PATH_IN_CONTEXT.set(context, wVkMap)
     }
-    let rs = PROXY_MAP.get(v)
+    let rs = PROXY_MAP.get(v) ?? v
     if (OBJECT_VAR_ROOT_CONTEXT.get(rs) !== context) {
       let srcPath = OBJECT_VAR_PATH.get(rs)
       if (srcPath)
@@ -59,6 +59,7 @@ export function setterValue(propertyKey: string, v: any, context: CompElem) {
   let oldValue = thisHost[DATA_KEY][propertyKey]
   let stateMap = HasChangedPropOrStateMap.get(thisHost.constructor)
   let hasChanged = stateMap?.get(propertyKey)
+  let oldValueProxy = PROXY_MAP.get(oldValue)
   if (hasChanged) {
     if (!hasChanged.call(thisHost, v, oldValue, [propertyKey], v, oldValue)) return true;
   } else {
@@ -66,23 +67,14 @@ export function setterValue(propertyKey: string, v: any, context: CompElem) {
     if (Object.is(oldValue, v)) {
       return true;
     }
-    if (isObject(v) && PROXY_MAP.get(oldValue) === v) {
+    if (isObject(v) && oldValueProxy === v) {
       return true
     }
   }
 
-  //check watch
-  requestWatchUpdate(thisHost, v, oldValue, propertyKey)
-
-  //check computed
-  requestComputedUpdate(thisHost, propertyKey)
-
-  //check css
-  requestCssUpdate(thisHost, propertyKey)
-
   Reflect.set(thisHost[DATA_KEY], propertyKey, v);
 
-  thisHost._notify(v, oldValue, [propertyKey])
+  requestUpdate(context, v, oldValue, [propertyKey])
 }
 export function emitModelEvent(propertyKey: string, v: any, context: CompElem) {
   context.emit('update:' + propertyKey, { value: v })
@@ -179,16 +171,16 @@ export const EXTRA_CONTEXT_OF_VAR = new WeakMap<any, Set<WeakRef<CompElem<any>>>
 export function reactive(obj: Record<string, any>, context: CompElem<any>, rootProp?: string): ProxyConstructor {
   if (PROXY_MAP.has(obj)) return PROXY_MAP.get(obj)!
   if (OBJECT_VAR_ROOT_CONTEXT.has(obj)) {
-    // if (rootProp) {
-    //   let contextList = EXTRA_CONTEXT_OF_VAR.get(obj)
-    //   if (!contextList) {
-    //     contextList = new Set()
-    //     EXTRA_CONTEXT_OF_VAR.set(obj, contextList)
-    //   }
-    //   if (!some(contextList.values() as any, (v: WeakRef<any>) => v.deref() === context)) {
-    //     contextList.add(new WeakRef(context))
-    //   }
-    // }
+    if (rootProp) {
+      let contextList = EXTRA_CONTEXT_OF_VAR.get(obj)
+      if (!contextList) {
+        contextList = new Set()
+        EXTRA_CONTEXT_OF_VAR.set(obj, contextList)
+      }
+      if (!some(contextList.values() as any, (v: WeakRef<any>) => v.deref() === context)) {
+        contextList.add(new WeakRef(context))
+      }
+    }
 
     return obj as ProxyConstructor
   }
@@ -251,25 +243,19 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
 
       let rs = Reflect.set(target, prop, nv);
 
-      let extraContext = EXTRA_CONTEXT_OF_VAR.get(receiver)
-
       requestUpdate(context, nv, ov, subChain)
 
+      let extraContext = EXTRA_CONTEXT_OF_VAR.get(receiver)
       extraContext?.forEach(ctxRef => {
         let ctx = ctxRef.deref()
         if (!ctx) return
 
-        let ctxRootPath = ctx._wrapperProp[subChain[0]]
+        let rootPathInCtxMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(ctx) ?? {}
+        let ctxRootPath = rootPathInCtxMap[subChain[0]]
         let ck = subChain.join('.')
         ck = ck.replace(subChain[0], ctxRootPath)
-        //check watch
-        requestWatchUpdate(ctx, nv, ov, ck)
-        //check computed
-        requestComputedUpdate(ctx, ck)
-        //check css
-        requestCssUpdate(ctx, ck)
 
-        notifyUpdate(ctx, rootObjNew, rootObjOld, ck.split('.'), nv, ov)
+        requestUpdate(ctx, nv, ov, ck.split('.'), rootObjNew, rootObjOld)
       })
 
       return rs;
@@ -292,9 +278,9 @@ export function notifyUpdate(context: CompElem, newValue: any, oldValue: any, pa
   context._notify(newValue, oldValue, path)
 }
 
-export function requestUpdate(context: CompElem<any>, nv: any, ov: any, subChain: string[],) {
-  let rootObjNew = nv
-  let rootObjOld = ov
+export function requestUpdate(context: CompElem<any>, nv: any, ov: any, subChain: string[], rootObjNew?: any, rootObjOld?: any) {
+  rootObjNew = rootObjNew ?? nv
+  rootObjOld = rootObjOld ?? ov
   if (subChain.length > 1) {
     rootObjOld = rootObjNew = context._getPrivateData()[subChain[0]]
   }
