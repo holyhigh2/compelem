@@ -13,6 +13,7 @@ import {
   kebabCase,
   last,
   map,
+  noop,
   range,
   replace,
   set,
@@ -92,7 +93,8 @@ export function createTemplate(
   updatePoints: Array<UpdatePointMeta>,
   html: string,
   vars: any[],
-  renderComponent: CompElem
+  renderComponent: CompElem,
+  emptyEvent‌s: Record<number, string[]>
 ): DocumentFragment {
   const container = document.createElement("template");
   container.innerHTML = html
@@ -165,10 +167,11 @@ export function createTemplate(
         //@event.stop.prevent.debounce
         if (name[0] === ATTR_PREFIX_EVENT) {
           let val;
+          let evName = name.substring(1)
           if (EXP_TAG.test(value)) {
             let po = new UpdatePointMeta(varIndex)
             po.isEvent = true
-            po.attrName = name.substring(1)
+            po.attrName = evName
             po.nodeSn = nodeSn
 
             updatePoints.push(po)
@@ -182,6 +185,12 @@ export function createTemplate(
             }
 
             varIndex++;
+          } else if (isBlank(value)) {
+            let evList = emptyEvent‌s[nodeSn]
+            if (!evList) {
+              evList = emptyEvent‌s[nodeSn] = []
+            }
+            evList.push(evName)
           }
 
           currentNode.removeAttribute(name)
@@ -343,7 +352,8 @@ export function createTemplate(
   }
   return container.content;
 }
-export function renderTemplate(component: CompElem<any>, fragment: DocumentFragment, updatePointMetas: UpdatePointMeta[], vars: any[]): [DocumentFragment, UpdatePoint[]] {
+export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, vars: any[]): [DocumentFragment, UpdatePoint[]] {
+  const { fragment, updatePointMetas, emptyEvent‌s } = tmplM
   let rs = fragment.cloneNode(true) as DocumentFragment
   let upAry: UpdatePoint[] = []
 
@@ -380,6 +390,12 @@ export function renderTemplate(component: CompElem<any>, fragment: DocumentFragm
     nodeSn++
     if (slotNodeMap[nodeSn] === null) {
       slotNodeMap[nodeSn] = currentNode
+    }
+    let emptyEvs = emptyEvent‌s[nodeSn]
+    if (emptyEvs) {
+      emptyEvs.forEach(evName => {
+        evList.push([evName, noop, currentNode])
+      })
     }
     let props: Record<string, any> | undefined = {};
     const upms = upmMap[nodeSn]
@@ -464,7 +480,7 @@ export function buildView(
     tmplM = new TemplateMeta(tmpl, component, vars)
     TMPL_META_CACHE.set(component.constructor, tmplM)
   }
-  let [rs, upAry] = renderTemplate(component, tmplM.fragment, tmplM.updatePointMetas, vars)
+  let [rs, upAry] = renderTemplate(component, tmplM, vars)
 
   component.__updateTree = upAry
 
@@ -480,7 +496,7 @@ export function insertSubView(node: Node, point: UpdatePoint, tmplFn: TplFn, tmp
     Collector.start()
     let vars = buildVars(tmplFn.call(component, v, k, i))
     Collector.end(component)
-    let [rs, upAry] = renderTemplate(component, tmplM.fragment, tmplM.updatePointMetas, vars)
+    let [rs, upAry] = renderTemplate(component, tmplM, vars)
     let roots = toArray(rs.childNodes).map((n: any) => new WeakRef(n))
     if (keyFn) {
       let key = keyFn.call(component, v, k, i) + ''

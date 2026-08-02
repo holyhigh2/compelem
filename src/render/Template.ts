@@ -82,7 +82,7 @@ export class Template {
     getHTML(comp: CompElem) {
         let vars: any[] = []
         let tmplM = new TemplateMeta(this, comp, vars)
-        let [rs, upAry] = renderTemplate(comp, tmplM.fragment, tmplM.updatePointMetas, vars)
+        let [rs, upAry] = renderTemplate(comp, tmplM, vars)
         return reduce(rs.childNodes, (a, v: HTMLElement) => a + (v.nodeType == Node.TEXT_NODE ? v.nodeValue : (v.outerHTML ?? '')), '')
     }
     destroy() {

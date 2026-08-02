@@ -30,7 +30,7 @@ export function getterValue(propertyKey: string, context: CompElem) {
       OBJECT_VAR_ROOT_PATH_IN_CONTEXT.set(context, wVkMap)
     }
     let rs = PROXY_MAP.get(v) ?? v
-    if (OBJECT_VAR_ROOT_CONTEXT.get(rs) !== context) {
+    if (OBJECT_VAR_ROOT_CONTEXT.get(rs)?.deref() !== context) {
       let srcPath = OBJECT_VAR_PATH.get(rs)
       if (srcPath)
         wVkMap[srcPath[0]] = propertyKey
@@ -164,7 +164,7 @@ export const OBJECT_VAR_PATH = new WeakMap<any, Array<string>>()
 //缓存已经创建的proxy对象
 export const PROXY_MAP = new WeakMap<Record<string, any>, ProxyConstructor>()
 //对象值的创建上下文
-const OBJECT_VAR_ROOT_CONTEXT = new WeakMap<any, CompElem<any>>()
+const OBJECT_VAR_ROOT_CONTEXT = new WeakMap<any, WeakRef<CompElem<any>>>()
 //上级对象所在的扩展context
 export const EXTRA_CONTEXT_OF_VAR = new WeakMap<any, Set<WeakRef<CompElem<any>>>>()
 
@@ -246,9 +246,14 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
       requestUpdate(context, nv, ov, subChain)
 
       let extraContext = EXTRA_CONTEXT_OF_VAR.get(receiver)
+      let invalidCtxRefs: WeakRef<CompElem<any>>[] = []
       extraContext?.forEach(ctxRef => {
         let ctx = ctxRef.deref()
         if (!ctx) return
+        if (ctx.isDestroyed) {
+          invalidCtxRefs.push(ctxRef)
+          return
+        }
 
         let rootPathInCtxMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(ctx) ?? {}
         let ctxRootPath = rootPathInCtxMap[subChain[0]]
@@ -256,6 +261,11 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
         ck = ck.replace(subChain[0], ctxRootPath)
 
         requestUpdate(ctx, nv, ov, ck.split('.'), rootObjNew, rootObjOld)
+      })
+      invalidCtxRefs.forEach(ctxRef => {
+        let ctx = ctxRef.deref()
+        OBJECT_VAR_ROOT_PATH_IN_CONTEXT.delete(ctx!)
+        extraContext!.delete(ctxRef)
       })
 
       return rs;
@@ -268,7 +278,7 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
 
   PROXY_MAP.set(obj, proxyObject)
   if (rootProp) {
-    OBJECT_VAR_ROOT_CONTEXT.set(proxyObject, context)
+    OBJECT_VAR_ROOT_CONTEXT.set(proxyObject, new WeakRef(context))
   }
 
   return proxyObject

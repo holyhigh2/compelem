@@ -101,7 +101,7 @@ export function getSlotComponent(node: Node, renderComponent: CompElem) {
 }
 
 export function isCompElemNode(node: Element) {
-  return !!DefinitionComponentMap[node.tagName.toLowerCase()]
+  return !!DefinitionComponentMap[node.tagName?.toLowerCase()]
 }
 
 export function addUninitializedSubComponentProp(wrapperComponent: CompElem, node: Element, props: Record<string, any>) {

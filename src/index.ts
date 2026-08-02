@@ -31,7 +31,7 @@ export * from "./directives/Styles";
 export * from "./directives/When";
 
 export { createRef, h, Template };
-export function regComponents() {
+export function defineComponents() {
     each(DefinitionComponentMap, (clz, name) => {
         customElements.define(name, clz as any)
     })

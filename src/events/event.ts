@@ -56,7 +56,7 @@ export function addEvent(fullName: string, cbk: EvHadler, node: Element, compone
     c = once(c)
   }
 
-  let ctor = DefinitionComponentMap[node.tagName.toLowerCase()]
+  let ctor = DefinitionComponentMap[node.tagName?.toLowerCase()]
   if (ctor) {
     if (node === component && !parts.includes(MODI_EV_NATIVE)) {
       parts.push(MODI_EV_NATIVE)

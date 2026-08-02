@@ -16,6 +16,7 @@ const EXP_ATTR_CHECK = new RegExp(`[.?-a-z]+\\s*=\\s*(['"])\\s*([^='"]*${PLACEHO
 export class TemplateMeta {
     updatePointMetas!: Array<UpdatePointMeta>
     fragment!: DocumentFragment
+    emptyEvent‌s: Record<number, string[]>
 
     constructor(tmpl: Template, component: CompElem<any>, vars?: any[]) {
         let [html, v] = this.parseTemplate(tmpl);
@@ -23,7 +24,8 @@ export class TemplateMeta {
             assign(vars, v)
         }
         this.updatePointMetas = []
-        this.fragment = createTemplate(this.updatePointMetas, html, v, component);
+        this.emptyEvent‌s = {}
+        this.fragment = createTemplate(this.updatePointMetas, html, v, component, this.emptyEvent‌s);
     }
 
     parseTemplate(

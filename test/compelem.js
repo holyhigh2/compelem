@@ -1,4 +1,4 @@
-/* compelem 0.25.0 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
+/* compelem 0.25.1 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
 (function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35730/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
@@ -7913,7 +7913,7 @@
         return documentFragment ? documentFragment.host : undefined;
     }
     function isCompElemNode(node) {
-        return !!DefinitionComponentMap[node.tagName.toLowerCase()];
+        return !!DefinitionComponentMap[node.tagName?.toLowerCase()];
     }
     function addUninitializedSubComponentProp(wrapperComponent, node, props) {
         let propMap = ComponentUninitializedSubComponentPropMap.get(wrapperComponent);
@@ -7935,7 +7935,7 @@
         if (Collector.__collecting) {
             Collector.__varPathList.push(propertyKey);
         }
-        if (PROXY_MAP.has(v)) {
+        if (PROXY_MAP.has(v) || OBJECT_VAR_ROOT_CONTEXT.get(v)) {
             let contextList = EXTRA_CONTEXT_OF_VAR.get(v);
             if (!contextList) {
                 contextList = new Set();
@@ -7946,8 +7946,8 @@
                 wVkMap = {};
                 OBJECT_VAR_ROOT_PATH_IN_CONTEXT.set(context, wVkMap);
             }
-            let rs = PROXY_MAP.get(v);
-            if (OBJECT_VAR_ROOT_CONTEXT.get(rs) !== context) {
+            let rs = PROXY_MAP.get(v) ?? v;
+            if (OBJECT_VAR_ROOT_CONTEXT.get(rs)?.deref() !== context) {
                 let srcPath = OBJECT_VAR_PATH.get(rs);
                 if (srcPath)
                     wVkMap[srcPath[0]] = propertyKey;
@@ -7975,6 +7975,7 @@
         let oldValue = thisHost[DATA_KEY][propertyKey];
         let stateMap = HasChangedPropOrStateMap.get(thisHost.constructor);
         let hasChanged = stateMap?.get(propertyKey);
+        let oldValueProxy = PROXY_MAP.get(oldValue);
         if (hasChanged) {
             if (!hasChanged.call(thisHost, v, oldValue, [propertyKey], v, oldValue))
                 return true;
@@ -7984,18 +7985,12 @@
             if (Object.is(oldValue, v)) {
                 return true;
             }
-            if (isObject(v) && PROXY_MAP.get(oldValue) === v) {
+            if (isObject(v) && oldValueProxy === v) {
                 return true;
             }
         }
-        //check watch
-        requestWatchUpdate(thisHost, v, oldValue, propertyKey);
-        //check computed
-        requestComputedUpdate(thisHost, propertyKey);
-        //check css
-        requestCssUpdate(thisHost, propertyKey);
         Reflect.set(thisHost[DATA_KEY], propertyKey, v);
-        thisHost._notify(v, oldValue, [propertyKey]);
+        requestUpdate(context, v, oldValue, [propertyKey]);
     }
     function emitModelEvent(propertyKey, v, context) {
         context.emit('update:' + propertyKey, { value: v });
@@ -8088,16 +8083,16 @@
         if (PROXY_MAP.has(obj))
             return PROXY_MAP.get(obj);
         if (OBJECT_VAR_ROOT_CONTEXT.has(obj)) {
-            // if (rootProp) {
-            //   let contextList = EXTRA_CONTEXT_OF_VAR.get(obj)
-            //   if (!contextList) {
-            //     contextList = new Set()
-            //     EXTRA_CONTEXT_OF_VAR.set(obj, contextList)
-            //   }
-            //   if (!some(contextList.values() as any, (v: WeakRef<any>) => v.deref() === context)) {
-            //     contextList.add(new WeakRef(context))
-            //   }
-            // }
+            if (rootProp) {
+                let contextList = EXTRA_CONTEXT_OF_VAR.get(obj);
+                if (!contextList) {
+                    contextList = new Set();
+                    EXTRA_CONTEXT_OF_VAR.set(obj, contextList);
+                }
+                if (!some(contextList.values(), (v) => v.deref() === context)) {
+                    contextList.add(new WeakRef(context));
+                }
+            }
             return obj;
         }
         const proxyObject = new Proxy(obj, {
@@ -8158,22 +8153,27 @@
                 }
                 let nv = newValue;
                 let rs = Reflect.set(target, prop, nv);
-                let extraContext = EXTRA_CONTEXT_OF_VAR.get(receiver);
                 requestUpdate(context, nv, ov, subChain);
+                let extraContext = EXTRA_CONTEXT_OF_VAR.get(receiver);
+                let invalidCtxRefs = [];
                 extraContext?.forEach(ctxRef => {
                     let ctx = ctxRef.deref();
                     if (!ctx)
                         return;
-                    let ctxRootPath = ctx._wrapperProp[subChain[0]];
+                    if (ctx.isDestroyed) {
+                        invalidCtxRefs.push(ctxRef);
+                        return;
+                    }
+                    let rootPathInCtxMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(ctx) ?? {};
+                    let ctxRootPath = rootPathInCtxMap[subChain[0]];
                     let ck = subChain.join('.');
                     ck = ck.replace(subChain[0], ctxRootPath);
-                    //check watch
-                    requestWatchUpdate(ctx, nv, ov, ck);
-                    //check computed
-                    requestComputedUpdate(ctx, ck);
-                    //check css
-                    requestCssUpdate(ctx, ck);
-                    notifyUpdate(ctx, rootObjNew, rootObjOld, ck.split('.'));
+                    requestUpdate(ctx, nv, ov, ck.split('.'), rootObjNew, rootObjOld);
+                });
+                invalidCtxRefs.forEach(ctxRef => {
+                    let ctx = ctxRef.deref();
+                    OBJECT_VAR_ROOT_PATH_IN_CONTEXT.delete(ctx);
+                    extraContext.delete(ctxRef);
                 });
                 return rs;
             }
@@ -8183,16 +8183,16 @@
         }
         PROXY_MAP.set(obj, proxyObject);
         if (rootProp) {
-            OBJECT_VAR_ROOT_CONTEXT.set(proxyObject, context);
+            OBJECT_VAR_ROOT_CONTEXT.set(proxyObject, new WeakRef(context));
         }
         return proxyObject;
     }
     function notifyUpdate(context, newValue, oldValue, path, subNewValue, subOldValue) {
         context._notify(newValue, oldValue, path);
     }
-    function requestUpdate(context, nv, ov, subChain) {
-        let rootObjNew = nv;
-        let rootObjOld = ov;
+    function requestUpdate(context, nv, ov, subChain, rootObjNew, rootObjOld) {
+        rootObjNew = rootObjNew ?? nv;
+        rootObjOld = rootObjOld ?? ov;
         if (subChain.length > 1) {
             rootObjOld = rootObjNew = context._getPrivateData()[subChain[0]];
         }
@@ -8587,7 +8587,7 @@
         if (isOnce) {
             c = once(c);
         }
-        let ctor = DefinitionComponentMap[node.tagName.toLowerCase()];
+        let ctor = DefinitionComponentMap[node.tagName?.toLowerCase()];
         if (ctor) {
             if (node === component && !parts.includes(MODI_EV_NATIVE)) {
                 parts.push(MODI_EV_NATIVE);
@@ -8734,15 +8734,6 @@
             return this.#parentComponent?.deref();
         }
         get wrapperComponent() {
-            // if (!this.#wrapperComponent) {
-            //   let wrapperRoot = closest<ShadowRoot>(
-            //     this.parentNode!,
-            //     (node) =>
-            //       node instanceof ShadowRoot && !!node.host,
-            //     "parentNode"
-            //   );
-            //   this.#wrapperComponent = wrapperRoot ? new WeakRef(wrapperRoot.host as CompElem) : undefined
-            // }
             return this.#wrapperComponent?.deref();
         }
         get slots() {
@@ -8896,7 +8887,7 @@
                     styleRoot.adoptedStyleSheets = [...styleRoot.adoptedStyleSheets, styleSheet];
                 }
             }
-            this.__init();
+            this.setup();
             this.__bindEvents();
         }
         disconnectedCallback() {
@@ -9002,31 +8993,30 @@
                 each(nodes, (node) => node.remove());
             });
             this.#updateSlots.clear();
-            this.#slotNodes = this.#slotsEl = this.#updateSlots = this.#slotPropsMap = this.__data_.slots = null;
+            this.#onSlotChangeHookBindThis = this.__thisRef =
+                this.#slotNodes = this.#slotsEl = this.#updateSlots = this.#slotPropsMap = this.__data_.slots = null;
             this.remove();
             //data
-            this._wrapperProp =
-                this.#propsReady =
-                    this.#renderRoot = this.#renderRoots = this.#shadow =
-                        this.#updateSources =
-                            this.#attrs =
-                                this.#props =
-                                    this.#renderRoot =
-                                        this.#renderRoots =
-                                            this.#slotHooks =
-                                                this.#updatedD =
-                                                    this.__data_ =
-                                                        this.__updateTree =
-                                                            this.#parentComponent =
-                                                                this._asyncDirectives =
-                                                                    this.#wrapperComponent = null;
+            this.#propsReady =
+                this.#renderRoot = this.#renderRoots = this.#shadow =
+                    this.#updateSources =
+                        this.#attrs =
+                            this.#props =
+                                this.#renderRoot =
+                                    this.#renderRoots =
+                                        this.#slotHooks =
+                                            this.#updatedD =
+                                                this.__data_ =
+                                                    this.__updateTree =
+                                                        this.#parentComponent =
+                                                            this._asyncDirectives =
+                                                                this.#wrapperComponent = null;
             //unmount
             this.destroyed();
         }
         //////////////////////////////////// lifecycles
         //********************************** 首次渲染
-        //构造时上级传递的参数
-        __init() {
+        setup() {
             if (this.__inited)
                 return;
             //防止在钩子中出现重新挂载的情况
@@ -9612,7 +9602,7 @@
          * @param attrs
          */
         #propsReady = debounce(this.propsReady, 100);
-        updateProps(props) {
+        updateProps(props, force = false) {
             let propDefs = DefinitionPropMap.get(this.constructor);
             if (!propDefs)
                 return;
@@ -9629,26 +9619,28 @@
                     return;
                 v = this.#propTypeCheck(propDefs, ck, v);
                 let oldValue = this.__data_[ck];
-                let stateMap = HasChangedPropOrStateMap.get(this.constructor);
-                let hasChanged = stateMap?.get(ck);
-                if (hasChanged) {
-                    if (!hasChanged.call(this, v, oldValue, [ck], v, oldValue))
-                        return true;
-                }
-                else {
-                    if (isObject(v)) {
-                        let shallowMap = PropShallowKeySetMap.get(this.constructor);
-                        if (shallowMap?.has(ck)) {
+                if (!force) {
+                    let stateMap = HasChangedPropOrStateMap.get(this.constructor);
+                    let hasChanged = stateMap?.get(ck);
+                    if (hasChanged) {
+                        if (!hasChanged.call(this, v, oldValue, [ck], v, oldValue))
+                            return true;
+                    }
+                    else {
+                        if (isObject(v)) {
+                            let shallowMap = PropShallowKeySetMap.get(this.constructor);
+                            if (shallowMap?.has(ck)) {
+                                //默认对比算法
+                                if (Object.is(oldValue, v)) {
+                                    return true;
+                                }
+                            }
+                        }
+                        else {
                             //默认对比算法
                             if (Object.is(oldValue, v)) {
                                 return true;
                             }
-                        }
-                    }
-                    else {
-                        //默认对比算法
-                        if (Object.is(oldValue, v)) {
-                            return true;
                         }
                     }
                 }
@@ -9665,7 +9657,6 @@
             if (this.#props)
                 this.#propsReady(this.#props);
         }
-        _wrapperProp = {};
         _initProps(props, attrs) {
             this.#props = merge(this.#props || {}, props);
             this.#attrs = merge(this.#attrs || {}, attrs);
@@ -9673,8 +9664,6 @@
                 if (isObject(v)) {
                     let fromPath = OBJECT_VAR_PATH.get(v);
                     if (fromPath) {
-                        let propPath = fromPath.join(PATH_SEPARATOR);
-                        this._wrapperProp[propPath] = k;
                         let parentStateDefs = this.wrapperComponent ? DefinitionStateMap.get(this.wrapperComponent?.constructor) : null;
                         let parentStateKey = fromPath[0];
                         if (parentStateDefs && parentStateDefs[parentStateKey]) {
@@ -9978,10 +9967,8 @@
         if (tag === DirectiveUpdateTag.REFRESH)
             return;
         let newValueAry = newAryOrObj;
-        let newValueConverted = false;
         if (!isArray(newAryOrObj)) {
             newValueAry = map(newAryOrObj, (v, k) => v);
-            newValueConverted = true;
         }
         let subViewId = get(pointNode, '__anchor__');
         let parentViewsIdMap = {};
@@ -10050,7 +10037,7 @@
         }
         else if (tag === DirectiveUpdateTag.UPDATE) {
             if (isEmpty(subViewRootNodes)) {
-                insertSubView(pointNode, up, tmplFn, tmplM, renderComponent, newValueAry, (v, k, i) => newKeys[i]);
+                insertSubView(pointNode, up, tmplFn, tmplM, renderComponent, newAryOrObj, (v, k, i) => newKeys[i]);
                 return;
             }
             let oldNodeKeyMap = {};
@@ -10158,13 +10145,8 @@
                 adds.forEach(add => {
                     let i = findIndex(newKeys, k => k == add.newKey);
                     let val = newValueAry[i];
-                    let v = val;
-                    if (newValueConverted) {
-                        v = val[0];
-                        newKeys[i];
-                    }
-                    let vars = buildVars(tmplFn.call(renderComponent, v, add.newKey, i));
-                    let [rs, upAry] = renderTemplate(renderComponent, tmplM.fragment, tmplM.updatePointMetas, vars);
+                    let vars = buildVars(tmplFn.call(renderComponent, val, add.newKey, i));
+                    let [rs, upAry] = renderTemplate(renderComponent, tmplM, vars);
                     add.fragment = rs;
                     each(upAry, nUp => {
                         nUp.key = add.newKey;
@@ -10242,13 +10224,8 @@
             //更新视图
             if (sameKeys.length > 0) {
                 let varList = [];
-                each(newValueAry, (val, i) => {
-                    let k = i;
+                each(newAryOrObj, (val, k, c, i) => {
                     let v = val;
-                    if (newValueConverted) {
-                        v = val[0];
-                        k = val[1];
-                    }
                     let vars = buildVars(tmplFn.call(renderComponent, v, k, i));
                     varList.push(...vars);
                 });
@@ -10301,13 +10278,15 @@
     class TemplateMeta {
         updatePointMetas;
         fragment;
+        emptyEvent‌s;
         constructor(tmpl, component, vars) {
             let [html, v] = this.parseTemplate(tmpl);
             if (vars) {
                 assign(vars, v);
             }
             this.updatePointMetas = [];
-            this.fragment = createTemplate(this.updatePointMetas, html, v, component);
+            this.emptyEvent‌s = {};
+            this.fragment = createTemplate(this.updatePointMetas, html, v, component, this.emptyEvent‌s);
         }
         parseTemplate(tmpl) {
             let html = "";
@@ -10421,7 +10400,7 @@
         getHTML(comp) {
             let vars = [];
             let tmplM = new TemplateMeta(this, comp, vars);
-            let [rs, upAry] = renderTemplate(comp, tmplM.fragment, tmplM.updatePointMetas, vars);
+            let [rs, upAry] = renderTemplate(comp, tmplM, vars);
             return reduce(rs.childNodes, (a, v) => a + (v.nodeType == Node.TEXT_NODE ? v.nodeValue : (v.outerHTML ?? '')), '');
         }
         destroy() {
@@ -10571,7 +10550,7 @@
      * 构建模板DOM
      * @param html
      */
-    function createTemplate(updatePoints, html, vars, renderComponent) {
+    function createTemplate(updatePoints, html, vars, renderComponent, emptyEvent‌s) {
         const container = document.createElement("template");
         container.innerHTML = html;
         //遍历dom
@@ -10625,10 +10604,11 @@
                     //@event.stop.prevent.debounce
                     if (name[0] === ATTR_PREFIX_EVENT) {
                         let val;
+                        let evName = name.substring(1);
                         if (EXP_TAG.test(value)) {
                             let po = new UpdatePointMeta(varIndex);
                             po.isEvent = true;
-                            po.attrName = name.substring(1);
+                            po.attrName = evName;
                             po.nodeSn = nodeSn;
                             updatePoints.push(po);
                             val = vars[varIndex];
@@ -10637,6 +10617,13 @@
                                 continue;
                             }
                             varIndex++;
+                        }
+                        else if (isBlank(value)) {
+                            let evList = emptyEvent‌s[nodeSn];
+                            if (!evList) {
+                                evList = emptyEvent‌s[nodeSn] = [];
+                            }
+                            evList.push(evName);
                         }
                         currentNode.removeAttribute(name);
                         continue;
@@ -10778,7 +10765,8 @@
         }
         return container.content;
     }
-    function renderTemplate(component, fragment, updatePointMetas, vars) {
+    function renderTemplate(component, tmplM, vars) {
+        const { fragment, updatePointMetas, emptyEvent‌s } = tmplM;
         let rs = fragment.cloneNode(true);
         let upAry = [];
         let currentNode;
@@ -10802,10 +10790,20 @@
         });
         let nodeSn = -1;
         let varIndex = 0;
+        if (size(vars) != size(updatePointMetas)) {
+            showTagError(component.tagName, `Dynamic root elements are not supported in component view, please checker the 'render()' function`);
+            return [rs, upAry];
+        }
         while ((currentNode = nodeIterator.nextNode())) {
             nodeSn++;
             if (slotNodeMap[nodeSn] === null) {
                 slotNodeMap[nodeSn] = currentNode;
+            }
+            let emptyEvs = emptyEvent‌s[nodeSn];
+            if (emptyEvs) {
+                emptyEvs.forEach(evName => {
+                    evList.push([evName, noop, currentNode]);
+                });
             }
             let props = {};
             const upms = upmMap[nodeSn];
@@ -10891,7 +10889,7 @@
             tmplM = new TemplateMeta(tmpl, component, vars);
             TMPL_META_CACHE.set(component.constructor, tmplM);
         }
-        let [rs, upAry] = renderTemplate(component, tmplM.fragment, tmplM.updatePointMetas, vars);
+        let [rs, upAry] = renderTemplate(component, tmplM, vars);
         component.__updateTree = upAry;
         return rs;
     }
@@ -10905,7 +10903,7 @@
             Collector.start();
             let vars = buildVars(tmplFn.call(component, v, k, i));
             Collector.end(component);
-            let [rs, upAry] = renderTemplate(component, tmplM.fragment, tmplM.updatePointMetas, vars);
+            let [rs, upAry] = renderTemplate(component, tmplM, vars);
             let roots = toArray(rs.childNodes).map((n) => new WeakRef(n));
             if (keyFn) {
                 let key = keyFn.call(component, v, k, i) + '';
@@ -11326,12 +11324,18 @@
     /**
      * class用注解，用于自动注册自定义组件
      * @param name 自定义组件名称
+     * @param immediate 立即注册，默认false
      */
-    function tag(name) {
+    function tag(name, immediate = false) {
         return (target) => {
             if (target) {
-                DefinitionTagMap[target.name] = name;
-                DefinitionComponentMap[name] = target;
+                if (immediate) {
+                    customElements.define(name, target);
+                }
+                else {
+                    DefinitionTagMap[target.name] = name;
+                    DefinitionComponentMap[name] = target;
+                }
             }
         };
     }
@@ -11753,8 +11757,8 @@
                 addEmitEvent(node, renderComponent, evName, function (obj) {
                     console.debug('Model =>', path);
                     let ctx = this;
-                    //todo 这里需要测试
-                    let pathFromWrapperComponent = ctx._wrapperProp[rootPath];
+                    let rootPathInCtxMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(ctx) ?? {};
+                    let pathFromWrapperComponent = rootPathInCtxMap[rootPath];
                     let hasPath = rootPath in ctx;
                     if (!hasPath && pathFromWrapperComponent && get(ctx.wrapperComponent, rootPath) === get(ctx, pathFromWrapperComponent)) {
                         ctx = ctx.wrapperComponent || ctx;
@@ -11808,7 +11812,8 @@
                         console.debug('Model =>', path);
                         let t = e.target;
                         let ctx = this;
-                        let pathFromWrapperComponent = ctx._wrapperProp[rootPath];
+                        let rootPathInCtxMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(ctx) ?? {};
+                        let pathFromWrapperComponent = rootPathInCtxMap[rootPath];
                         let hasPath = rootPath in ctx;
                         if (!hasPath && pathFromWrapperComponent && get(ctx.wrapperComponent, rootPath) === get(ctx, pathFromWrapperComponent)) {
                             ctx = ctx.wrapperComponent || ctx;
@@ -11979,7 +11984,7 @@
         };
     }, [EnterPointType.TEXT, EnterPointType.SLOT]);
 
-    function regComponents() {
+    function defineComponents() {
         each(DefinitionComponentMap, (clz, name) => {
             customElements.define(name, clz);
         });
@@ -11987,7 +11992,7 @@
 
     const Slogan = ['complete', 'componentize', 'compact', 'companion'];
     setTimeout(() => {
-        regComponents();
+        defineComponents();
     }, 1000);
     exports.PageTest = class PageTest extends CompElem {
         //////////////////////////////////// props

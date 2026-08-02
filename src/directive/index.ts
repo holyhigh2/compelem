@@ -244,14 +244,8 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
       adds.forEach(add => {
         let i = findIndex(newKeys, k => k == add.newKey)
         let val = newValueAry[i]
-        let k = i
-        let v = val
-        if (newValueConverted) {
-          v = val[0]
-          k = newKeys[i]
-        }
-        let vars = buildVars(tmplFn.call(renderComponent, v, add.newKey, i))
-        let [rs, upAry] = renderTemplate(renderComponent, tmplM.fragment, tmplM.updatePointMetas, vars)
+        let vars = buildVars(tmplFn.call(renderComponent, val, add.newKey, i))
+        let [rs, upAry] = renderTemplate(renderComponent, tmplM, vars)
         add.fragment = rs
         each(upAry, nUp => {
           nUp.key = add.newKey
@@ -337,13 +331,8 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
     //更新视图
     if (sameKeys.length > 0) {
       let varList: any[] = []
-      each(newValueAry, (val: any, i: number) => {
-        let k = i
+      each(newAryOrObj, (val: any, k: string | number, c, i: number) => {
         let v = val
-        if (newValueConverted) {
-          v = val[0]
-          k = val[1]
-        }
         let vars = buildVars(tmplFn.call(renderComponent, v, k, i))
         varList.push(...vars)
       })

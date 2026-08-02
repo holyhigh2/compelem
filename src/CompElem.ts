@@ -427,7 +427,8 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       each(nodes, (node: Element) => node.remove())
     })
     this.#updateSlots.clear();
-    this.#slotNodes = this.#slotsEl = this.#updateSlots = this.#slotPropsMap = this.__data_.slots = null as any
+    this.#onSlotChangeHookBindThis = this.__thisRef =
+      this.#slotNodes = this.#slotsEl = this.#updateSlots = this.#slotPropsMap = this.__data_.slots = null as any
 
     this.remove()
 
@@ -1085,7 +1086,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
    * @param attrs 
    */
   #propsReady = debounce(this.propsReady, 100)
-  updateProps(props: Record<string, any>) {
+  updateProps(props: Record<string, any>, force = false) {
     let propDefs = DefinitionPropMap.get(this.constructor)
     if (!propDefs) return
     if (!this.__inited) {
@@ -1103,23 +1104,25 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
       let oldValue = this.__data_[ck]
 
-      let stateMap = HasChangedPropOrStateMap.get(this.constructor)
-      let hasChanged = stateMap?.get(ck)
-      if (hasChanged) {
-        if (!hasChanged.call(this, v, oldValue, [ck], v, oldValue)) return true;
-      } else {
-        if (isObject(v)) {
-          let shallowMap = PropShallowKeySetMap.get(this.constructor)
-          if (shallowMap?.has(ck)) {
+      if (!force) {
+        let stateMap = HasChangedPropOrStateMap.get(this.constructor)
+        let hasChanged = stateMap?.get(ck)
+        if (hasChanged) {
+          if (!hasChanged.call(this, v, oldValue, [ck], v, oldValue)) return true;
+        } else {
+          if (isObject(v)) {
+            let shallowMap = PropShallowKeySetMap.get(this.constructor)
+            if (shallowMap?.has(ck)) {
+              //默认对比算法
+              if (Object.is(oldValue, v)) {
+                return true;
+              }
+            }
+          } else {
             //默认对比算法
             if (Object.is(oldValue, v)) {
               return true;
             }
-          }
-        } else {
-          //默认对比算法
-          if (Object.is(oldValue, v)) {
-            return true;
           }
         }
       }

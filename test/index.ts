@@ -1,9 +1,9 @@
-import { CompElem, Template, computed, h, prop, query, regComponents, state, tag, watch } from '../src/index';
+import { CompElem, Template, computed, defineComponents, h, prop, query, state, tag, watch } from '../src/index';
 
 const Slogan = ['complete', 'componentize', 'compact', 'companion']
 
 setTimeout(() => {
-  regComponents()
+  defineComponents()
 }, 1000);
 
 @tag("page-test")
