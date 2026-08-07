@@ -118,5 +118,5 @@ function defineProp(target: any, propertyKey: string, options: PropOption, descr
 //内部接口
 const emptySet = new Set<string>
 export function _getObservedAttrs(ctor: Function) {
-  return ObservedAttrsMap.get(ctor) ?? emptySet
+  return ObservedAttrsMap.get(ctor) ?? ObservedAttrsMap.get(_getSuper(ctor as any)) ?? emptySet
 }

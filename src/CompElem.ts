@@ -735,7 +735,8 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     }
 
     let propName = camelCase(attributeName)
-    let propDef: PropOption = DefinitionPropMap.get(this.constructor)![propName]
+    let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(_getSuper(this.constructor as any))
+    let propDef: PropOption = get(propDefs, propName)
 
     if (isBooleanProp(propDef.type)) {
       let v = isNull(newValue) ? false : getBooleanValue(newValue)
@@ -1087,7 +1088,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
    */
   #propsReady = debounce(this.propsReady, 100)
   updateProps(props: Record<string, any>, force = false) {
-    let propDefs = DefinitionPropMap.get(this.constructor)
+    let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(_getSuper(this.constructor as any))
     if (!propDefs) return
     if (!this.__inited) {
       assign(this.#props, props)
@@ -1309,7 +1310,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     if (observedAttrs.has(name)) {
       let camelName = camelCase(name)
       if (isNull(newValue)) {
-        let propDefs = DefinitionPropMap.get(this.constructor)
+        let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(_getSuper(this.constructor as any))
         //使用默认值
         if (propDefs)
           newValue = propDefs[camelName]._defaultValue
