@@ -1,4 +1,5 @@
-# CompElem
+![Logo](./assets/logo.png)
+
 一个现代化、响应式、快速、轻量的WebComponent开发库。为开发者提供丰富、灵活、可扩展的声明式接口
 
 ## 概览  
