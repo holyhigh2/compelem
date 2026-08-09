@@ -1,4 +1,6 @@
 import { CompElem, Template, computed, defineComponents, h, prop, query, state, tag, watch } from '../src/index';
+import { CssTemplate } from '../src/render/CssTemplate';
+import { css } from '../src/render/render';
 
 const Slogan = ['complete', 'componentize', 'compact', 'companion']
 
@@ -32,8 +34,9 @@ export class PageTest extends CompElem {
 
   //////////////////////////////////// styles
   //静态样式
-  static get css(): Array<string | CSSStyleSheet> {
-    return [`:host{
+  static get css(): Array<CssTemplate> {
+    return [
+      css`:host{
         font-size:16px;
         background:gray;
       }
@@ -67,8 +70,16 @@ export class PageTest extends CompElem {
         transition:all .3s;
         background-image:var(--test-color);
         filter:hue-rotate(var(--test-hue-rotate));
-      }`];
+      }
+      `];
   }
+
+  static get hostCss() {
+    return css`
+      *{color:red;}
+    `
+  }
+
   //动态样式变量
   get cssVars() {
     return {

@@ -1,5 +1,5 @@
-/* compelem 0.25.1 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
-(function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35730/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
+/* compelem 0.25.3 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
+(function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
     typeof define === 'function' && define.amd ? define(['exports'], factory) :
@@ -7819,7 +7819,9 @@
     const HasChangedPropOrStateMap = new WeakMap();
     const ComputedUpdateDepsMap = new WeakMap();
     const CssUpdateDepsMap = new WeakMap();
-    const DirectiveScopeMap = new Map;
+    const CssTemplateCacheMap = new WeakMap();
+    const CssStyleSheetCacheMap = new WeakMap();
+    const DirectiveScopeMap = new Map();
     const ComponentDynamicCssUpdaterMap = new WeakMap();
     const ComponentUninitializedSubComponentPropMap = new WeakMap();
     const ComponentUninitializedSlotFunctionMap = new WeakMap();
@@ -8332,7 +8334,7 @@
     //内部接口
     const emptySet = new Set;
     function _getObservedAttrs(ctor) {
-        return ObservedAttrsMap.get(ctor) ?? emptySet;
+        return ObservedAttrsMap.get(ctor) ?? ObservedAttrsMap.get(_getSuper(ctor)) ?? emptySet;
     }
 
     /*************************************************************
@@ -8652,6 +8654,36 @@
         evMap[evName] = c;
     }
 
+    /**
+     * Css模板
+     * @author holyhigh2
+     */
+    class CssTemplate {
+        strings;
+        vars;
+        cssText;
+        constructor(strings, vars) {
+            this.strings = strings;
+            this.vars = vars;
+        }
+        getCssText() {
+            if (this.cssText)
+                return this.cssText;
+            let cssText = '';
+            let l = this.strings.length - 1;
+            for (let i = 0; i <= l; i++) {
+                const str = this.strings[i];
+                let val = this.vars[i] ?? '';
+                if (val instanceof CssTemplate) {
+                    val = val.getCssText();
+                }
+                cssText = cssText + str + val;
+            }
+            this.cssText = cssText;
+            return cssText;
+        }
+    }
+
     const PropTypeMap = {
         boolean: Boolean,
         string: String,
@@ -8675,7 +8707,6 @@
      * @author holyhigh2
      */
     class CompElem extends HTMLElement {
-        static __l_globalRule = document.createElement("style");
         //设置全局/组件默认属性
         static defaults(options) {
             DefaultCss = flatMap(options.css, c => {
@@ -8745,9 +8776,6 @@
         get cssSheets() {
             return ComponentStaticStyleMap.get(this.constructor);
         }
-        get globalCssSheet() {
-            return CompElem.__l_globalRule.sheet;
-        }
         get isMounted() {
             return this.#mounted;
         }
@@ -8814,15 +8842,18 @@
             if (!this.#shadow)
                 return null;
             let cssSheet;
-            if (isString(sheet)) {
-                cssSheet = new CSSStyleSheet();
-                try {
-                    cssSheet.replaceSync(sheet);
-                }
-                catch (e) {
+            if (sheet instanceof CssTemplate) {
+                let cssSheet = CssStyleSheetCacheMap.get(sheet.strings);
+                if (!cssSheet) {
+                    let cssTxt = sheet.getCssText();
+                    cssSheet = new CSSStyleSheet();
+                    try {
+                        cssSheet.replaceSync(cssTxt);
+                    }
+                    catch (e) { }
                 }
             }
-            else {
+            else if (sheet instanceof CSSStyleSheet) {
                 if (this.#shadow.adoptedStyleSheets.includes(sheet))
                     return sheet;
                 cssSheet = sheet;
@@ -8849,34 +8880,26 @@
                     ? new WeakRef(node)
                     : new WeakRef(node.host)
                 : undefined;
-            // let wrapperRoot = closest<ShadowRoot>(
-            //   this.parentNode!,
-            //   (node) =>
-            //     node instanceof ShadowRoot && !!node.host,
-            //   "parentNode"
-            // );
             let wrapper = ComponentUninitializedWrapperComponentMap.get(this);
             if (wrapper) {
                 this.#wrapperComponent = new WeakRef(wrapper);
                 ComponentUninitializedWrapperComponentMap.delete(this);
             }
-            // this.#wrapperComponent = wrapperRoot ? new WeakRef(wrapperRoot.host as CompElem) : undefined
-            if (!CompElem.__l_globalRule.parentNode) {
-                document.head.appendChild(CompElem.__l_globalRule);
-            }
             //host styles
             let hostStyle = get(this.constructor, "hostCss");
-            let styleSheet = get(this.constructor, 'hostCssSheet');
             if (hostStyle) {
-                if (!styleSheet) {
-                    if (isString(hostStyle)) {
+                let styleSheet;
+                if (hostStyle instanceof CssTemplate) {
+                    styleSheet = CssStyleSheetCacheMap.get(hostStyle.strings);
+                    if (!styleSheet) {
+                        let cssTxt = hostStyle.getCssText();
                         styleSheet = new CSSStyleSheet();
-                        styleSheet.replaceSync(hostStyle);
+                        styleSheet.replaceSync(cssTxt);
+                        CssStyleSheetCacheMap.set(hostStyle.strings, styleSheet);
                     }
-                    else {
-                        styleSheet = hostStyle;
-                    }
-                    set(this.constructor, 'hostCssSheet', styleSheet);
+                }
+                else {
+                    styleSheet = hostStyle;
                 }
                 let styleRoot = this.#wrapperComponent?.deref()?.shadowRoot ?? this.#parentComponent?.deref()?.shadowRoot ?? this.ownerDocument;
                 //detached el
@@ -9023,23 +9046,40 @@
             if (this.#initiating)
                 return;
             this.#initiating = true;
+            /////////////////////////////////////////////////// styles
             //global styles
             let globalTextContent = get(this.constructor, "globalCss");
-            if (!isEmpty(globalTextContent) && isString(globalTextContent) && !get(this.constructor, '_globalRuleInserted')) {
-                CompElem.__l_globalRule.textContent += globalTextContent; //.sheet?.insertRule(globalTextContent, 0)
-                set(this.constructor, '_globalRuleInserted', true);
+            if (globalTextContent) {
+                let styleSheet;
+                if (globalTextContent instanceof CssTemplate) {
+                    styleSheet = CssStyleSheetCacheMap.get(globalTextContent.strings);
+                    if (!styleSheet) {
+                        let cssTxt = globalTextContent.getCssText();
+                        styleSheet = new CSSStyleSheet();
+                        styleSheet.replaceSync(cssTxt);
+                        CssStyleSheetCacheMap.set(globalTextContent.strings, styleSheet);
+                    }
+                }
+                else {
+                    styleSheet = globalTextContent;
+                }
+                document.adoptedStyleSheets = [...document.adoptedStyleSheets, styleSheet];
             }
             //component styles
             let beAttached2 = ComponentStaticStyleMap.get(this.constructor);
             let styleSheets = beAttached2 ?? [];
             if (!beAttached2) {
                 each(get(this.constructor, "css"), (st) => {
-                    if (isString(st)) {
-                        let sheet = new CSSStyleSheet();
-                        sheet.replaceSync(st);
-                        styleSheets.push(sheet);
+                    if (st instanceof CssTemplate) {
+                        let styleSheet = CssStyleSheetCacheMap.get(st.strings);
+                        if (!styleSheet) {
+                            let cssTxt = st.getCssText();
+                            styleSheet = new CSSStyleSheet();
+                            styleSheet.replaceSync(cssTxt);
+                            CssStyleSheetCacheMap.set(st.strings, styleSheet);
+                        }
+                        styleSheets.push(styleSheet);
                     }
-                    else if (isFunction(st)) ;
                     else {
                         styleSheets.push(st);
                     }
@@ -9270,7 +9310,8 @@
                 newValue = null;
             }
             let propName = camelCase(attributeName);
-            let propDef = DefinitionPropMap.get(this.constructor)[propName];
+            let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(_getSuper(this.constructor));
+            let propDef = get(propDefs, propName);
             if (isBooleanProp(propDef.type)) {
                 let v = isNull(newValue) ? false : getBooleanValue(newValue);
                 if (get(this, propName) === v)
@@ -9603,7 +9644,7 @@
          */
         #propsReady = debounce(this.propsReady, 100);
         updateProps(props, force = false) {
-            let propDefs = DefinitionPropMap.get(this.constructor);
+            let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(_getSuper(this.constructor));
             if (!propDefs)
                 return;
             if (!this.__inited) {
@@ -9817,7 +9858,7 @@
             if (observedAttrs.has(name)) {
                 let camelName = camelCase(name);
                 if (isNull(newValue)) {
-                    let propDefs = DefinitionPropMap.get(this.constructor);
+                    let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(_getSuper(this.constructor));
                     //使用默认值
                     if (propDefs)
                         newValue = propDefs[camelName]._defaultValue;
@@ -11063,6 +11104,19 @@
     function h(strings, ...vars) {
         return new Template(isString(strings) ? [strings] : strings, vars);
     }
+    /**
+     * CSS模板函数，用于构建模板
+     * @param strings
+     * @param vars
+     */
+    function css(strings, ...vars) {
+        if (CssTemplateCacheMap.has(strings)) {
+            return CssTemplateCacheMap.get(strings);
+        }
+        let tmpl = new CssTemplate(strings, vars);
+        CssTemplateCacheMap.set(strings, tmpl);
+        return tmpl;
+    }
     class RefObject {
         __ref;
         get current() {
@@ -12014,7 +12068,8 @@
         //////////////////////////////////// styles
         //静态样式
         static get css() {
-            return [`:host{
+            return [
+                css `:host{
         font-size:16px;
         background:gray;
       }
@@ -12048,7 +12103,14 @@
         transition:all .3s;
         background-image:var(--test-color);
         filter:hue-rotate(var(--test-hue-rotate));
-      }`];
+      }
+      `
+            ];
+        }
+        static get hostCss() {
+            return css `
+      *{color:red;}
+    `;
         }
         //动态样式变量
         get cssVars() {

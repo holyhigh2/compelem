@@ -1,3 +1,4 @@
+import { CssTemplate } from "./render/CssTemplate";
 import { Template } from "./render/Template";
 
 /**
@@ -28,8 +29,6 @@ export interface IComponent<T = HTMLElement> {
   get slotHooks(): Record<string, (...args: any[]) => Template>;
   //通过静态getter创建的所有样式表对象，所有实例共享
   get cssSheets(): CSSStyleSheet[];
-  //通过静态getter创建的全局样式表对象，所有实例共享
-  get globalCssSheet(): CSSStyleSheet;
   //是否已挂载
   get isMounted(): boolean;
   //响应式css变量
@@ -88,7 +87,7 @@ export interface IComponent<T = HTMLElement> {
    * 向组件插入样式表，没有shadowDOM的组件调用无效
    * @param sheet 
    */
-  insertStyleSheet(sheet: string | CSSStyleSheet): CSSStyleSheet | null;
+  insertStyleSheet(sheet: CssTemplate | CSSStyleSheet): CSSStyleSheet | null;
   /**
    * 对于组件应用于原生环境或其他相似环境没有父组件但需要更新属性时调用
    * @param props {属性名:值} 对象

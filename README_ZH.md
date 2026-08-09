@@ -39,7 +39,7 @@ export class PageTest extends CompElem {
   //////////////////////////////////// styles
   //静态样式
   static get css(): Array<string | CSSStyleSheet> {
-    return [`:host{
+    return [css`:host{
         font-size:16px;
       }
       h2,p,i,h3{
@@ -157,14 +157,14 @@ export class PageTest extends CompElem {
 - ### 样式
   使用静态函数定义组件样式或全局样式（如弹框），对于包裹在上级组件内的伪类样式（如:hover）时，可通过hostCss进行指定
   ```ts
-  static get css(): Array<string | CSSStyleSheet> {
+  static get css(): Array<CssTemplate | CSSStyleSheet> {
     return [];
   }
-  static get globalCss(): string {
-    return '';
+  static get globalCss(): CssTemplate | CSSStyleSheet {
+    return css`...`;
   }
-  static get hostCss(): string {
-    return '';
+  static get hostCss(): CssTemplate | CSSStyleSheet {
+    return css`...`;
   }
   ```
   对于需要响应组件状态变化并动态更新样式时可以通过css变量进行变更，该方法会自动追踪内部所有响应状态
@@ -178,12 +178,12 @@ export class PageTest extends CompElem {
   ```
   使用 `classes` 和 `styles` 指令设置元素样式
   ```html
-  <div class="${classes({...})} c-class1" >
+  <div class="c-class1" ${classes({...})}>
   </div>
   ```
   动态样式类支持对象/数组/字符串格式，支持静态样式混写
   ```html
-  <div style="${styles('cursor:pointer;...',{...})}" >
+  <div style="..." ${styles('cursor:pointer;...',{...})}>
   </div>
   ```
   动态内联样式支持字符串/对象两种格式
@@ -422,7 +422,6 @@ return h` <l-tooltip>
 
 - @state 定义组件内状态属性。可选参数{prop}，可指定 propName 初始化值
 - @prop 定义父组件参数，默认不可修改。可选参数{type,required,model,getter,setter}
-  > 设置 getter/setter 后，该属性的`@watch` 将会失效
 - @query/queryAll 定义 CssSelector 查询结果
 - @tag 自定义组件的标签名
 - @watch 监控 state/prop 变更
@@ -488,3 +487,6 @@ class CustomButton{
   }
 }
 ```
+
+## 扩展
+VSCode - 可在VSCode 扩展中搜索 compelem 即可安装框架扩展

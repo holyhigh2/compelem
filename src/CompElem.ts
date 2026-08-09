@@ -37,12 +37,13 @@ import {
   trim,
   walkTree
 } from "myfx";
-import { ComponentDynamicCssUpdaterMap, ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, ComputedUpdateDepsMap, CssUpdateDepsMap, DATA_KEY, DefinitionCompEventMap, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, HasChangedPropOrStateMap, PropShallowKeySetMap, SLOT_NAME_DEFAULT, WatchImmediateListMap, WatchKeysListMap, WatchKeysOnceMap } from "./constants";
+import { ComponentDynamicCssUpdaterMap, ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, ComputedUpdateDepsMap, CssStyleSheetCacheMap, CssUpdateDepsMap, DATA_KEY, DefinitionCompEventMap, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, HasChangedPropOrStateMap, PropShallowKeySetMap, SLOT_NAME_DEFAULT, WatchImmediateListMap, WatchKeysListMap, WatchKeysOnceMap } from "./constants";
 import { DecoratorWrapper } from "./decorator";
 import { _getObservedAttrs } from "./decorators/prop";
 import { addEvent, EvHadler } from "./events/event";
 import { IComponent } from "./IComponent";
 import { Collector, getterValue, OBJECT_VAR_PATH, Queue, requestUpdate, setterValue } from "./reactive";
+import { CssTemplate } from "./render/CssTemplate";
 import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildVars, buildView, updateSubScopeView, updateView } from "./render/render";
 import { Template } from "./render/Template";
 import { UpdatePoint } from "./render/UpdatePoint";
@@ -74,7 +75,6 @@ const PROP_NAME_SLOTS = 'slots'
  * @author holyhigh2
  */
 export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent<T> {
-  static __l_globalRule = document.createElement("style");
   //设置全局/组件默认属性
   static defaults(options: DefaultProps) {
     DefaultCss = flatMap<string | CSSStyleSheet, CSSStyleSheet>(options.css!, c => {
@@ -154,9 +154,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   get cssSheets() {
     return ComponentStaticStyleMap.get(this.constructor)!
   }
-  get globalCssSheet() {
-    return CompElem.__l_globalRule.sheet!
-  }
   get isMounted() {
     return this.#mounted
   }
@@ -178,13 +175,13 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   /**
    * 组件样式，CSSStyleSheet可动态变更
    */
-  static get css(): Array<string | CSSStyleSheet> {
+  static get css(): Array<CssTemplate | CSSStyleSheet> {
     return [];
   }
-  static get globalCss(): string | undefined {
+  static get globalCss(): CssTemplate | CSSStyleSheet | undefined {
     return undefined;
   }
-  static get hostCss(): string | CSSStyleSheet | undefined {
+  static get hostCss(): CssTemplate | CSSStyleSheet | undefined {
     return undefined;
   }
   get cssVars(): Record<string, string | number | undefined> {
@@ -229,16 +226,19 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
     this.#updatedD = this.#update.bind(this)
   }
-  insertStyleSheet(sheet: string | CSSStyleSheet): CSSStyleSheet | null {
+  insertStyleSheet(sheet: CssTemplate | CSSStyleSheet): CSSStyleSheet | null {
     if (!this.#shadow) return null
-    let cssSheet: CSSStyleSheet;
-    if (isString(sheet)) {
-      cssSheet = new CSSStyleSheet();
-      try {
-        cssSheet.replaceSync(sheet);
-      } catch (e) {
+    let cssSheet!: CSSStyleSheet;
+    if (sheet instanceof CssTemplate) {
+      let cssSheet = CssStyleSheetCacheMap.get(sheet.strings)
+      if (!cssSheet) {
+        let cssTxt = sheet.getCssText()
+        cssSheet = new CSSStyleSheet();
+        try {
+          cssSheet.replaceSync(cssTxt)
+        } catch (e) { }
       }
-    } else {
+    } else if (sheet instanceof CSSStyleSheet) {
       if (this.#shadow.adoptedStyleSheets.includes(sheet)) return sheet
 
       cssSheet = sheet;
@@ -274,35 +274,26 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         : new WeakRef((node as ShadowRoot)!.host as CompElem)
       : undefined;
 
-    // let wrapperRoot = closest<ShadowRoot>(
-    //   this.parentNode!,
-    //   (node) =>
-    //     node instanceof ShadowRoot && !!node.host,
-    //   "parentNode"
-    // );
     let wrapper = ComponentUninitializedWrapperComponentMap.get(this)
     if (wrapper) {
       this.#wrapperComponent = new WeakRef(wrapper)
       ComponentUninitializedWrapperComponentMap.delete(this)
     }
-    // this.#wrapperComponent = wrapperRoot ? new WeakRef(wrapperRoot.host as CompElem) : undefined
-
-    if (!CompElem.__l_globalRule.parentNode) {
-      document.head.appendChild(CompElem.__l_globalRule)
-    }
 
     //host styles
-    let hostStyle = get<string | CSSStyleSheet>(this.constructor, "hostCss")
-    let styleSheet: CSSStyleSheet = get(this.constructor, 'hostCssSheet')
+    let hostStyle = get<CssTemplate | CSSStyleSheet>(this.constructor, "hostCss")
     if (hostStyle) {
-      if (!styleSheet) {
-        if (isString(hostStyle)) {
+      let styleSheet: CSSStyleSheet | undefined
+      if (hostStyle instanceof CssTemplate) {
+        styleSheet = CssStyleSheetCacheMap.get(hostStyle.strings)
+        if (!styleSheet) {
+          let cssTxt = hostStyle.getCssText()
           styleSheet = new CSSStyleSheet();
-          styleSheet.replaceSync(hostStyle)
-        } else {
-          styleSheet = hostStyle
+          styleSheet.replaceSync(cssTxt)
+          CssStyleSheetCacheMap.set(hostStyle.strings, styleSheet)
         }
-        set(this.constructor, 'hostCssSheet', styleSheet)
+      } else {
+        styleSheet = hostStyle
       }
       let styleRoot = this.#wrapperComponent?.deref()?.shadowRoot ?? this.#parentComponent?.deref()?.shadowRoot ?? this.ownerDocument
       //detached el
@@ -461,24 +452,37 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     this.#initiating = true;
 
     /////////////////////////////////////////////////// styles
-    let dynamicStyleAry: Function[] = []
     //global styles
-    let globalTextContent = get<string>(this.constructor, "globalCss")
-    if (!isEmpty(globalTextContent) && isString(globalTextContent) && !get(this.constructor, '_globalRuleInserted')) {
-      CompElem.__l_globalRule.textContent += globalTextContent//.sheet?.insertRule(globalTextContent, 0)
-      set(this.constructor, '_globalRuleInserted', true)
+    let globalTextContent = get<CssTemplate | CSSStyleSheet>(this.constructor, "globalCss")
+    if (globalTextContent) {
+      let styleSheet: CSSStyleSheet | undefined
+      if (globalTextContent instanceof CssTemplate) {
+        styleSheet = CssStyleSheetCacheMap.get(globalTextContent.strings)
+        if (!styleSheet) {
+          let cssTxt = globalTextContent.getCssText()
+          styleSheet = new CSSStyleSheet();
+          styleSheet.replaceSync(cssTxt)
+          CssStyleSheetCacheMap.set(globalTextContent.strings, styleSheet)
+        }
+      } else {
+        styleSheet = globalTextContent
+      }
+      document.adoptedStyleSheets = [...document.adoptedStyleSheets, styleSheet];
     }
     //component styles
     let beAttached2 = ComponentStaticStyleMap.get(this.constructor)
     let styleSheets: CSSStyleSheet[] = beAttached2 ?? [];
     if (!beAttached2) {
-      each(get<[]>(this.constructor, "css"), (st) => {
-        if (isString(st)) {
-          let sheet = new CSSStyleSheet();
-          sheet.replaceSync(st)
-          styleSheets.push(sheet);
-        } else if (isFunction(st)) {
-          dynamicStyleAry.push(st)
+      each(get<Array<CssTemplate | CSSStyleSheet>>(this.constructor, "css"), (st) => {
+        if (st instanceof CssTemplate) {
+          let styleSheet = CssStyleSheetCacheMap.get(st.strings)
+          if (!styleSheet) {
+            let cssTxt = st.getCssText()
+            styleSheet = new CSSStyleSheet();
+            styleSheet.replaceSync(cssTxt)
+            CssStyleSheetCacheMap.set(st.strings, styleSheet)
+          }
+          styleSheets.push(styleSheet);
         } else {
           styleSheets.push(st);
         }

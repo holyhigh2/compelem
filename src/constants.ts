@@ -1,5 +1,6 @@
 import { CompElem } from "./CompElem";
 import { DecoratorWrapper } from "./decorator";
+import { CssTemplate } from "./render/CssTemplate";
 import { Getter, PropOption, StateOption, TplFn } from "./types";
 
 export const SLOT_NAME_DEFAULT = 'default'
@@ -39,8 +40,10 @@ export const HasChangedPropOrStateMap = new WeakMap<Function, Map<string, Functi
 
 export const ComputedUpdateDepsMap = new WeakMap<Function, Map<string, Set<Function>>>()
 export const CssUpdateDepsMap = new WeakMap<Function, Set<string>>()
+export const CssTemplateCacheMap = new WeakMap<TemplateStringsArray, CssTemplate>()
+export const CssStyleSheetCacheMap = new WeakMap<TemplateStringsArray, CSSStyleSheet>()
 
-export const DirectiveScopeMap = new Map<Function, string[]>
+export const DirectiveScopeMap = new Map<Function, string[]>()
 
 export const ComponentDynamicCssUpdaterMap = new WeakMap<CompElem<any>, Map<Function, CSSStyleSheet>>()
 export const ComponentUninitializedSubComponentPropMap = new WeakMap<CompElem<any>, Map<Node, Record<string, any>>>()

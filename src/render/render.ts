@@ -25,7 +25,7 @@ import {
   trim
 } from "myfx";
 import { CompElem } from "../CompElem";
-import { ComponentUninitializedWrapperComponentMap, DefinitionComponentMap, DefinitionPropMap, DefinitionTagMap, DirectiveScopeMap, PATH_SEPARATOR, PLACEHOLDER } from "../constants";
+import { ComponentUninitializedWrapperComponentMap, CssTemplateCacheMap, DefinitionComponentMap, DefinitionPropMap, DefinitionTagMap, DirectiveScopeMap, PATH_SEPARATOR, PLACEHOLDER } from "../constants";
 import {
   directiveScopeChecker,
   updateDirective
@@ -33,6 +33,7 @@ import {
 import { Collector } from "../reactive";
 import { DirectiveInstance, DirectiveUpdateTag, EnterPointType, KeyFn, TplFn, UpdatedSource } from "../types";
 import { addUninitializedSubComponentProp, getSlotComponent, isCompElemNode, showTagError } from "../utils";
+import { CssTemplate } from "./CssTemplate";
 import { Template } from "./Template";
 import { TemplateMeta } from "./TemplateMeta";
 import { UpdatePoint } from "./UpdatePoint";
@@ -659,6 +660,26 @@ export function h(
     isString(strings) ? ([strings] as any) : strings,
     vars
   );
+}
+
+/**
+ * CSS模板函数，用于构建模板
+ * @param strings
+ * @param vars
+ */
+export function css(
+  strings: TemplateStringsArray,
+  ...vars: any
+): CssTemplate {
+  if (CssTemplateCacheMap.has(strings)) {
+    return CssTemplateCacheMap.get(strings)!
+  }
+  let tmpl = new CssTemplate(
+    strings,
+    vars
+  );
+  CssTemplateCacheMap.set(strings, tmpl)
+  return tmpl
 }
 
 

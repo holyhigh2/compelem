@@ -1,6 +1,6 @@
 import { each } from "myfx";
 import { DefinitionComponentMap } from "./constants";
-import { createRef, h } from "./render/render";
+import { createRef, css, h } from "./render/render";
 import { Template } from './render/Template';
 
 //decorators
@@ -30,7 +30,7 @@ export * from "./directives/Slot";
 export * from "./directives/Styles";
 export * from "./directives/When";
 
-export { createRef, h, Template };
+export { createRef, css, h, Template };
 export function defineComponents() {
     each(DefinitionComponentMap, (clz, name) => {
         customElements.define(name, clz as any)
