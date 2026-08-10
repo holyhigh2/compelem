@@ -1,4 +1,4 @@
-/* compelem 0.25.3 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
+/* compelem 0.26.0 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
 (function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
@@ -7799,6 +7799,15 @@
         Mode["Prod"] = "prod";
         Mode["Dev"] = "dev";
     })(Mode || (Mode = {}));
+    const PropTypeMap = {
+        boolean: Boolean,
+        string: String,
+        number: Number,
+        object: Object,
+        array: Array,
+        function: Function,
+        undefined: Object
+    };
     const DefinitionCompEventMap = new Map();
     const DefinitionTagMap = {};
     const DefinitionComponentMap = {};
@@ -7821,6 +7830,7 @@
     const CssUpdateDepsMap = new WeakMap();
     const CssTemplateCacheMap = new WeakMap();
     const CssStyleSheetCacheMap = new WeakMap();
+    const CssScopeCacheMap = new WeakMap();
     const DirectiveScopeMap = new Map();
     const ComponentDynamicCssUpdaterMap = new WeakMap();
     const ComponentUninitializedSubComponentPropMap = new WeakMap();
@@ -7830,6 +7840,36 @@
     const PROP_NAME_SLOTS$1 = 'slots';
     const DATA_KEY = '__data_';
     const PLACEHOLDER = "⟬Ċ⟭";
+
+    /**
+     * Css模板
+     * @author holyhigh2
+     */
+    class CssTemplate {
+        strings;
+        vars;
+        cssText;
+        constructor(strings, vars) {
+            this.strings = strings;
+            this.vars = vars;
+        }
+        getCssText() {
+            if (this.cssText)
+                return this.cssText;
+            let cssText = '';
+            let l = this.strings.length - 1;
+            for (let i = 0; i <= l; i++) {
+                const str = this.strings[i];
+                let val = this.vars[i] ?? '';
+                if (val instanceof CssTemplate) {
+                    val = val.getCssText();
+                }
+                cssText = cssText + str + val;
+            }
+            this.cssText = cssText;
+            return cssText;
+        }
+    }
 
     function showError(msg) {
         console.error(`[CompElem]`, msg);
@@ -7925,6 +7965,69 @@
         }
         let p = propMap.get(node) ?? {};
         propMap.set(node, assign(p, props));
+    }
+
+    /**
+     * 样式应用区域范围
+     */
+    var Csscope;
+    (function (Csscope) {
+        Csscope["INNER"] = "inner";
+        Csscope["HOST"] = "host";
+        Csscope["GLOBAL"] = "global"; //全局样式
+    })(Csscope || (Csscope = {}));
+    /**
+     * 样式表应用区域注解
+     * @param name 自定义组件名称
+     * @param immediate 立即注册，默认false
+     */
+    function csscope(...scopes) {
+        return (target, name, descriptor) => {
+            {
+                if (typeof target !== 'function' || !descriptor.get) {
+                    showTagError(target.constructor.name, `@csscope can only be used on a static getter`);
+                    return;
+                }
+            }
+            let getterRs = descriptor.get();
+            let css = isArray(getterRs) ? getterRs : [getterRs];
+            css.forEach(cs => {
+                let styleSheet;
+                if (cs instanceof CssTemplate) {
+                    styleSheet = CssStyleSheetCacheMap.get(cs.strings);
+                    if (!styleSheet) {
+                        let cssTxt = cs.getCssText();
+                        styleSheet = new CSSStyleSheet();
+                        styleSheet.replaceSync(cssTxt);
+                        CssStyleSheetCacheMap.set(cs.strings, styleSheet);
+                    }
+                }
+                else if (cs instanceof CSSStyleSheet) {
+                    styleSheet = cs;
+                }
+                if (!styleSheet)
+                    return;
+                let scopeMap = CssScopeCacheMap.get(target);
+                if (!scopeMap) {
+                    scopeMap = new Map();
+                    CssScopeCacheMap.set(target, scopeMap);
+                }
+                each(scopes, sc => {
+                    if (sc === Csscope.GLOBAL) {
+                        if (!document.adoptedStyleSheets.includes(styleSheet))
+                            document.adoptedStyleSheets = [...document.adoptedStyleSheets, styleSheet];
+                        return;
+                    }
+                    let list = scopeMap.get(sc);
+                    if (!list) {
+                        list = [];
+                        scopeMap.set(sc, list);
+                    }
+                    list.push(styleSheet);
+                });
+            });
+            return descriptor;
+        };
     }
 
     /**
@@ -8654,47 +8757,7 @@
         evMap[evName] = c;
     }
 
-    /**
-     * Css模板
-     * @author holyhigh2
-     */
-    class CssTemplate {
-        strings;
-        vars;
-        cssText;
-        constructor(strings, vars) {
-            this.strings = strings;
-            this.vars = vars;
-        }
-        getCssText() {
-            if (this.cssText)
-                return this.cssText;
-            let cssText = '';
-            let l = this.strings.length - 1;
-            for (let i = 0; i <= l; i++) {
-                const str = this.strings[i];
-                let val = this.vars[i] ?? '';
-                if (val instanceof CssTemplate) {
-                    val = val.getCssText();
-                }
-                cssText = cssText + str + val;
-            }
-            this.cssText = cssText;
-            return cssText;
-        }
-    }
-
-    const PropTypeMap = {
-        boolean: Boolean,
-        string: String,
-        number: Number,
-        object: Object,
-        array: Array,
-        function: Function,
-        undefined: Object
-    };
     //组件静态样式
-    const ComponentStaticStyleMap = new WeakMap();
     let DefaultCss = [];
     let CompElemSn = 0;
     const SlotCompMap = new WeakMap();
@@ -8737,7 +8800,6 @@
         __updateSubViewDeps;
         _cssUpdateInNextTick = false;
         _cssVarOldValueMap;
-        __cssSheets;
         _watchUpdateSetInNextTick;
         _watchUpdateArgsInNextTick;
         _computedUpdateSetInNextTick;
@@ -8774,7 +8836,7 @@
             return this.#slotHooks;
         }
         get cssSheets() {
-            return ComponentStaticStyleMap.get(this.constructor);
+            return CssScopeCacheMap.get(this.constructor)?.get(Csscope.INNER);
         }
         get isMounted() {
             return this.#mounted;
@@ -8792,18 +8854,6 @@
         #updateViewImmediately = false;
         #updateNextImmediatelyQ;
         //////////////////////////////////// styles
-        /**
-         * 组件样式，CSSStyleSheet可动态变更
-         */
-        static get css() {
-            return [];
-        }
-        static get globalCss() {
-            return undefined;
-        }
-        static get hostCss() {
-            return undefined;
-        }
         get cssVars() {
             return {};
         }
@@ -8886,29 +8936,18 @@
                 ComponentUninitializedWrapperComponentMap.delete(this);
             }
             //host styles
-            let hostStyle = get(this.constructor, "hostCss");
-            if (hostStyle) {
-                let styleSheet;
-                if (hostStyle instanceof CssTemplate) {
-                    styleSheet = CssStyleSheetCacheMap.get(hostStyle.strings);
-                    if (!styleSheet) {
-                        let cssTxt = hostStyle.getCssText();
-                        styleSheet = new CSSStyleSheet();
-                        styleSheet.replaceSync(cssTxt);
-                        CssStyleSheetCacheMap.set(hostStyle.strings, styleSheet);
-                    }
-                }
-                else {
-                    styleSheet = hostStyle;
-                }
+            let hostCss = CssScopeCacheMap.get(this.constructor)?.get(Csscope.HOST);
+            if (hostCss) {
                 let styleRoot = this.#wrapperComponent?.deref()?.shadowRoot ?? this.#parentComponent?.deref()?.shadowRoot ?? this.ownerDocument;
                 //detached el
                 if (this.#wrapperComponent && !this.#wrapperComponent.deref()?.shadowRoot?.contains(this)) {
                     styleRoot = closest(this, n => n instanceof HTMLDocument || n instanceof ShadowRoot, 'parentNode');
                 }
-                if (styleRoot && styleSheet && !styleRoot.adoptedStyleSheets.includes(styleSheet)) {
-                    styleRoot.adoptedStyleSheets = [...styleRoot.adoptedStyleSheets, styleSheet];
-                }
+                each(hostCss, cs => {
+                    if (!styleRoot.adoptedStyleSheets.includes(cs)) {
+                        styleRoot.adoptedStyleSheets = [...styleRoot.adoptedStyleSheets, cs];
+                    }
+                });
             }
             this.setup();
             this.__bindEvents();
@@ -8988,7 +9027,6 @@
             this._watchUpdateSetInNextTick?.clear();
             this._computedUpdateSetInNextTick?.clear();
             this._computedUpdateSetInNextTick = null;
-            this.__cssSheets = null;
             this.__updateSubViewDeps?.clear();
             //sup scope
             if (this.#parentComponent) {
@@ -9046,46 +9084,6 @@
             if (this.#initiating)
                 return;
             this.#initiating = true;
-            /////////////////////////////////////////////////// styles
-            //global styles
-            let globalTextContent = get(this.constructor, "globalCss");
-            if (globalTextContent) {
-                let styleSheet;
-                if (globalTextContent instanceof CssTemplate) {
-                    styleSheet = CssStyleSheetCacheMap.get(globalTextContent.strings);
-                    if (!styleSheet) {
-                        let cssTxt = globalTextContent.getCssText();
-                        styleSheet = new CSSStyleSheet();
-                        styleSheet.replaceSync(cssTxt);
-                        CssStyleSheetCacheMap.set(globalTextContent.strings, styleSheet);
-                    }
-                }
-                else {
-                    styleSheet = globalTextContent;
-                }
-                document.adoptedStyleSheets = [...document.adoptedStyleSheets, styleSheet];
-            }
-            //component styles
-            let beAttached2 = ComponentStaticStyleMap.get(this.constructor);
-            let styleSheets = beAttached2 ?? [];
-            if (!beAttached2) {
-                each(get(this.constructor, "css"), (st) => {
-                    if (st instanceof CssTemplate) {
-                        let styleSheet = CssStyleSheetCacheMap.get(st.strings);
-                        if (!styleSheet) {
-                            let cssTxt = st.getCssText();
-                            styleSheet = new CSSStyleSheet();
-                            styleSheet.replaceSync(cssTxt);
-                            CssStyleSheetCacheMap.set(st.strings, styleSheet);
-                        }
-                        styleSheets.push(styleSheet);
-                    }
-                    else {
-                        styleSheets.push(st);
-                    }
-                });
-                ComponentStaticStyleMap.set(this.constructor, styleSheets);
-            }
             ////////////////////////////////////////////////// Props & States
             const props = this.#initProps();
             this.propsReady(props);
@@ -9166,7 +9164,7 @@
                 this.#shadow = this.attachShadow({
                     mode: "open"
                 });
-                this.#shadow.adoptedStyleSheets = [...DefaultCss, ...(ComponentStaticStyleMap.get(this.constructor) ?? [])];
+                this.#shadow.adoptedStyleSheets = [...DefaultCss, ...(CssScopeCacheMap.get(this.constructor)?.get(Csscope.INNER) ?? [])];
                 fragment = buildView(tmpl, this);
                 if (fragment && size(fragment.children) > 0) {
                     this.#renderRoots = filter(fragment.children, (n) => n.nodeType === Node.ELEMENT_NODE).map(n => new WeakRef(n));
@@ -9517,6 +9515,7 @@
                 }
                 this.__data_[key] = val;
                 rs[key] = val;
+                //use prototype
                 delete this[key];
             }
             return rs;
@@ -11365,7 +11364,7 @@
             keySet.add(stateKey);
         }
         //setters & getters
-        Reflect.defineProperty(target.constructor.prototype, stateKey, {
+        Reflect.defineProperty(target, stateKey, {
             get() {
                 return getterValue(stateKey, this);
             },
@@ -12195,6 +12194,12 @@
     __decorate([
         query('i[name="text"]')
     ], exports.PageTest.prototype, "text", void 0);
+    __decorate([
+        csscope(Csscope.INNER, Csscope.HOST)
+    ], exports.PageTest, "css", null);
+    __decorate([
+        csscope(Csscope.HOST)
+    ], exports.PageTest, "hostCss", null);
     exports.PageTest = __decorate([
         tag("page-test")
     ], exports.PageTest);

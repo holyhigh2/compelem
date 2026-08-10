@@ -37,8 +37,9 @@ import {
   trim,
   walkTree
 } from "myfx";
-import { ComponentDynamicCssUpdaterMap, ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, ComputedUpdateDepsMap, CssStyleSheetCacheMap, CssUpdateDepsMap, DATA_KEY, DefinitionCompEventMap, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, HasChangedPropOrStateMap, PropShallowKeySetMap, SLOT_NAME_DEFAULT, WatchImmediateListMap, WatchKeysListMap, WatchKeysOnceMap } from "./constants";
+import { ComponentDynamicCssUpdaterMap, ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, ComputedUpdateDepsMap, CssScopeCacheMap, CssStyleSheetCacheMap, CssUpdateDepsMap, DATA_KEY, DefinitionCompEventMap, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, HasChangedPropOrStateMap, PropShallowKeySetMap, PropTypeMap, SLOT_NAME_DEFAULT, WatchImmediateListMap, WatchKeysListMap, WatchKeysOnceMap } from "./constants";
 import { DecoratorWrapper } from "./decorator";
+import { Csscope } from "./decorators/csscope";
 import { _getObservedAttrs } from "./decorators/prop";
 import { addEvent, EvHadler } from "./events/event";
 import { IComponent } from "./IComponent";
@@ -49,17 +50,8 @@ import { Template } from "./render/Template";
 import { UpdatePoint } from "./render/UpdatePoint";
 import { Constructor, DefaultProps, Getter, PropOption, SlotOptions, StateOption, TplFn, UpdatedSource } from "./types";
 import { _getSuper, _toUpdatePath, getBooleanValue, isBooleanProp, showTagError } from "./utils";
-const PropTypeMap: Record<string, Constructor<any>> = {
-  boolean: Boolean,
-  string: String,
-  number: Number,
-  object: Object,
-  array: Array,
-  function: Function,
-  undefined: Object
-}
+
 //组件静态样式
-const ComponentStaticStyleMap = new WeakMap<Function, CSSStyleSheet[]>()
 let DefaultCss: CSSStyleSheet[] = []
 let DefaultGlobalProps = {}
 let DefaultComponentProps: Record<string, any> = {}
@@ -111,7 +103,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
   _cssUpdateInNextTick = false
   _cssVarOldValueMap: Record<string, string | number>
-  __cssSheets: Array<CSSStyleSheet>
 
   _watchUpdateSetInNextTick: Set<Function>
   _watchUpdateArgsInNextTick: Map<Function, Record<string, any>>
@@ -152,7 +143,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     return this.#slotHooks;
   }
   get cssSheets() {
-    return ComponentStaticStyleMap.get(this.constructor)!
+    return CssScopeCacheMap.get(this.constructor)?.get(Csscope.INNER)!
   }
   get isMounted() {
     return this.#mounted
@@ -172,18 +163,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   #updateNextImmediatelyQ: Function[]
 
   //////////////////////////////////// styles
-  /**
-   * 组件样式，CSSStyleSheet可动态变更
-   */
-  static get css(): Array<CssTemplate | CSSStyleSheet> {
-    return [];
-  }
-  static get globalCss(): CssTemplate | CSSStyleSheet | undefined {
-    return undefined;
-  }
-  static get hostCss(): CssTemplate | CSSStyleSheet | undefined {
-    return undefined;
-  }
   get cssVars(): Record<string, string | number | undefined> {
     return {}
   }
@@ -228,9 +207,9 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   }
   insertStyleSheet(sheet: CssTemplate | CSSStyleSheet): CSSStyleSheet | null {
     if (!this.#shadow) return null
-    let cssSheet!: CSSStyleSheet;
+    let cssSheet: CSSStyleSheet | undefined;
     if (sheet instanceof CssTemplate) {
-      let cssSheet = CssStyleSheetCacheMap.get(sheet.strings)
+      cssSheet = CssStyleSheetCacheMap.get(sheet.strings)
       if (!cssSheet) {
         let cssTxt = sheet.getCssText()
         cssSheet = new CSSStyleSheet();
@@ -240,13 +219,13 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       }
     } else if (sheet instanceof CSSStyleSheet) {
       if (this.#shadow.adoptedStyleSheets.includes(sheet)) return sheet
-
       cssSheet = sheet;
     }
 
-    this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, cssSheet]
+    if (cssSheet)
+      this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, cssSheet]
 
-    return cssSheet;
+    return cssSheet!;
   }
   /**
    * Returns the root component in the parent chain, or itself if it's the top-level component.
@@ -281,28 +260,18 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     }
 
     //host styles
-    let hostStyle = get<CssTemplate | CSSStyleSheet>(this.constructor, "hostCss")
-    if (hostStyle) {
-      let styleSheet: CSSStyleSheet | undefined
-      if (hostStyle instanceof CssTemplate) {
-        styleSheet = CssStyleSheetCacheMap.get(hostStyle.strings)
-        if (!styleSheet) {
-          let cssTxt = hostStyle.getCssText()
-          styleSheet = new CSSStyleSheet();
-          styleSheet.replaceSync(cssTxt)
-          CssStyleSheetCacheMap.set(hostStyle.strings, styleSheet)
-        }
-      } else {
-        styleSheet = hostStyle
-      }
+    let hostCss = CssScopeCacheMap.get(this.constructor)?.get(Csscope.HOST)
+    if (hostCss) {
       let styleRoot = this.#wrapperComponent?.deref()?.shadowRoot ?? this.#parentComponent?.deref()?.shadowRoot ?? this.ownerDocument
       //detached el
       if (this.#wrapperComponent && !this.#wrapperComponent.deref()?.shadowRoot?.contains(this)) {
         styleRoot = closest(this, n => n instanceof HTMLDocument || n instanceof ShadowRoot, 'parentNode')!
       }
-      if (styleRoot && styleSheet && !styleRoot.adoptedStyleSheets.includes(styleSheet)) {
-        styleRoot.adoptedStyleSheets = [...styleRoot.adoptedStyleSheets, styleSheet]
-      }
+      each(hostCss, cs => {
+        if (!styleRoot.adoptedStyleSheets.includes(cs)) {
+          styleRoot.adoptedStyleSheets = [...styleRoot.adoptedStyleSheets, cs]
+        }
+      })
     }
 
     this.setup();
@@ -389,7 +358,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     this._computedUpdateSetInNextTick?.clear()
     this._computedUpdateSetInNextTick = null as any
 
-    this.__cssSheets = null as any
     this.__updateSubViewDeps?.clear()
 
     //sup scope
@@ -450,45 +418,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     //防止在钩子中出现重新挂载的情况
     if (this.#initiating) return;
     this.#initiating = true;
-
-    /////////////////////////////////////////////////// styles
-    //global styles
-    let globalTextContent = get<CssTemplate | CSSStyleSheet>(this.constructor, "globalCss")
-    if (globalTextContent) {
-      let styleSheet: CSSStyleSheet | undefined
-      if (globalTextContent instanceof CssTemplate) {
-        styleSheet = CssStyleSheetCacheMap.get(globalTextContent.strings)
-        if (!styleSheet) {
-          let cssTxt = globalTextContent.getCssText()
-          styleSheet = new CSSStyleSheet();
-          styleSheet.replaceSync(cssTxt)
-          CssStyleSheetCacheMap.set(globalTextContent.strings, styleSheet)
-        }
-      } else {
-        styleSheet = globalTextContent
-      }
-      document.adoptedStyleSheets = [...document.adoptedStyleSheets, styleSheet];
-    }
-    //component styles
-    let beAttached2 = ComponentStaticStyleMap.get(this.constructor)
-    let styleSheets: CSSStyleSheet[] = beAttached2 ?? [];
-    if (!beAttached2) {
-      each(get<Array<CssTemplate | CSSStyleSheet>>(this.constructor, "css"), (st) => {
-        if (st instanceof CssTemplate) {
-          let styleSheet = CssStyleSheetCacheMap.get(st.strings)
-          if (!styleSheet) {
-            let cssTxt = st.getCssText()
-            styleSheet = new CSSStyleSheet();
-            styleSheet.replaceSync(cssTxt)
-            CssStyleSheetCacheMap.set(st.strings, styleSheet)
-          }
-          styleSheets.push(styleSheet);
-        } else {
-          styleSheets.push(st);
-        }
-      });
-      ComponentStaticStyleMap.set(this.constructor, styleSheets)
-    }
 
     ////////////////////////////////////////////////// Props & States
     const props = this.#initProps();
@@ -578,7 +507,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         mode: "open"
       });
 
-      this.#shadow.adoptedStyleSheets = [...DefaultCss, ...(ComponentStaticStyleMap.get(this.constructor) ?? [])];
+      this.#shadow.adoptedStyleSheets = [...DefaultCss, ...(CssScopeCacheMap.get(this.constructor)?.get(Csscope.INNER) ?? [])];
       fragment = buildView(tmpl, this)
       if (fragment && size(fragment.children) > 0) {
         this.#renderRoots = filter<HTMLElement>(fragment.children, (n: Node) => n.nodeType === Node.ELEMENT_NODE).map<WeakRef<HTMLElement>>(n => new WeakRef(n))
@@ -959,6 +888,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       this.__data_[key] = val;
       rs[key] = val;
 
+      //use prototype
       delete (this as any)[key]
     }
 

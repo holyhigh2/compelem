@@ -1,7 +1,7 @@
 import { CompElem } from "./CompElem";
 import { DecoratorWrapper } from "./decorator";
 import { CssTemplate } from "./render/CssTemplate";
-import { Getter, PropOption, StateOption, TplFn } from "./types";
+import { Constructor, Getter, PropOption, StateOption, TplFn } from "./types";
 
 export const SLOT_NAME_DEFAULT = 'default'
 /**
@@ -16,6 +16,15 @@ export enum CollectorType {
 export enum Mode {
     Prod = 'prod',
     Dev = 'dev'
+}
+export const PropTypeMap: Record<string, Constructor<any>> = {
+    boolean: Boolean,
+    string: String,
+    number: Number,
+    object: Object,
+    array: Array,
+    function: Function,
+    undefined: Object
 }
 export const DefinitionCompEventMap = new Map<Function, Array<Record<string, any>>>()
 export const DefinitionTagMap = {} as Record<string, string>;
@@ -42,6 +51,7 @@ export const ComputedUpdateDepsMap = new WeakMap<Function, Map<string, Set<Funct
 export const CssUpdateDepsMap = new WeakMap<Function, Set<string>>()
 export const CssTemplateCacheMap = new WeakMap<TemplateStringsArray, CssTemplate>()
 export const CssStyleSheetCacheMap = new WeakMap<TemplateStringsArray, CSSStyleSheet>()
+export const CssScopeCacheMap = new WeakMap<Function, Map<string, CSSStyleSheet[]>>()
 
 export const DirectiveScopeMap = new Map<Function, string[]>()
 

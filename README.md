@@ -37,8 +37,9 @@ export class PageTest extends CompElem {
   }
 
   //////////////////////////////////// styles
-  //静态样式
-  static get css(): Array<string | CSSStyleSheet> {
+  //样式表通过样式装饰器 + 静态getter函数实现
+  @csscope(Csscope.INNER)
+  static get css(): Array<CssTemplate | CSSStyleSheet> {
     return [css`:host{
         font-size:16px;
       }
@@ -142,7 +143,8 @@ export class PageTest extends CompElem {
 - ### 无视图
   对于无体组件无需定义渲染函数，常用于layout、grid等结构控制相关组件。无视图组件仅支持global及host样式，如
   ```ts
-  static get hostCss(): string {
+  @csscope(Csscope.HOST, Csscope.GLOBAL)
+  static get css(): string {
     return `
       l-main{
         display: block;
@@ -155,15 +157,11 @@ export class PageTest extends CompElem {
   同样，无视图组件的renderRoot/renderRoots/...等属性都为空
 
 - ### 样式
-  使用静态函数定义组件样式或全局样式（如弹框），对于包裹在上级组件内的伪类样式（如:hover）时，可通过hostCss进行指定
+
+  通过样式域装饰器和css模板函数可以构建3层样式应用域
   ```ts
-  static get css(): Array<CssTemplate | CSSStyleSheet> {
-    return [];
-  }
-  static get globalCss(): CssTemplate | CSSStyleSheet {
-    return css`...`;
-  }
-  static get hostCss(): CssTemplate | CSSStyleSheet {
+  @csscope(Csscope.INNER, Csscope.GLOBAL)
+  static get anyName(): Array<CssTemplate | CSSStyleSheet> | CssTemplate | CSSStyleSheet{
     return css`...`;
   }
   ```
@@ -187,6 +185,11 @@ export class PageTest extends CompElem {
   </div>
   ```
   动态内联样式支持字符串/对象两种格式
+- ### 样式域
+  - `Csscope.INNER` 组件内部样式，通过组件shadowDOM设置
+  - `Csscope.HOST` 组件外部样式，通过父组件shadowDOM / 全局设置
+  - `Csscope.GLOBAL` 全局样式，通过document设置
+
 - ### 属性
 
   属性是由组件外部提供参数的响应变量，可通过`@prop`注解定义。为了确保属性值仅来源于组件外部，属性无法直接进行赋值，仅支持在父组件视图中传递属性值
@@ -489,4 +492,5 @@ class CustomButton{
 ```
 
 ## 扩展
-VSCode - 可在VSCode 扩展中搜索 compelem 即可安装框架扩展
+- [VSCode](https://marketplace.visualstudio.com/items?itemName=holyhigh2.compelem-vscode) - 为h函数和css片段提供语法加亮/智能提示/诊断等功能
+- [Vite](https://www.npmjs.com/package/vite-plugin-compelem-css) - 用于在导入scss/css文件时直接转换为CssTemplate

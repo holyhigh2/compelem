@@ -1,4 +1,4 @@
-import { CompElem, Template, computed, defineComponents, h, prop, query, state, tag, watch } from '../src/index';
+import { CompElem, Csscope, Template, computed, csscope, defineComponents, h, prop, query, state, tag, watch } from '../src/index';
 import { CssTemplate } from '../src/render/CssTemplate';
 import { css } from '../src/render/render';
 
@@ -34,6 +34,7 @@ export class PageTest extends CompElem {
 
   //////////////////////////////////// styles
   //静态样式
+  @csscope(Csscope.INNER, Csscope.GLOBAL)
   static get css(): Array<CssTemplate> {
     return [
       css`:host{
@@ -74,6 +75,7 @@ export class PageTest extends CompElem {
       `];
   }
 
+  @csscope(Csscope.HOST)
   static get hostCss() {
     return css`
       *{color:red;}
