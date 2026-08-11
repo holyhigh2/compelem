@@ -678,7 +678,10 @@ export function css(
     strings,
     vars
   );
-  CssTemplateCacheMap.set(strings, tmpl)
+
+  let strVal = strings.join('')
+  if (!isEmpty(strVal))
+    CssTemplateCacheMap.set(strings, tmpl)
   return tmpl
 }
 
