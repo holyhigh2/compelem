@@ -68,7 +68,7 @@ export function addEvent(fullName: string, cbk: EvHadler, node: Element, compone
   }
 
   if (isExtEvent(evName)) {
-    return addExtEvent(evName, node, c, parts, component)
+    return addExtEvent(evName, node, c, parts, component, isOnce)
   }
 
   let listener = (e: Event) => {

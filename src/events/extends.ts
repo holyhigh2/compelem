@@ -1,4 +1,4 @@
-import myfx, { closest, get, includes } from "myfx";
+import myfx, { closest, get, includes, remove, size } from "myfx";
 import { CompElem } from "../CompElem";
 import { EvHadler } from "./event";
 /*************************************************************
@@ -12,7 +12,7 @@ import { EvHadler } from "./event";
  *************************************************************/
 const ExtEvNames = ['resize', 'outside', 'mutate']
 ///////////////////////////////////////////////// resize
-const AllResizeEls = new WeakMap;
+const AllResizeEls = new WeakMap<Node, EvHadler[]>();
 const AllOutsideDownEls: Array<Element | EvHadler>[] = [];
 const AllOutsideClickEls: Array<Element | EvHadler>[] = [];
 const AllOutsideDblClickEls: Array<Element | EvHadler>[] = [];
@@ -30,25 +30,47 @@ const resizeObserver = new ResizeObserver((entries) => {
       ResizeTargetInitSet.add(entry.target)
       continue
     }
-    let cbk = AllResizeEls.get(entry.target)
-    if (cbk) {
-      cbk({ target: entry.target, contentBoxSize, borderBoxSize, type: 'resize' })
+    let cbks = AllResizeEls.get(entry.target)
+    if (cbks) {
+      cbks.forEach(cbk => {
+        cbk({ target: entry.target, contentBoxSize, borderBoxSize, type: 'resize' } as any)
+      })
     }
   }
 });
-function addResize(node: Element, cbk: EvHadler, component: CompElem<any>) {
-  if (AllResizeEls.has(node)) return;
+function addResize(node: Element, cbk: EvHadler, component: CompElem<any>, isOnce: boolean) {
+  let cbks = AllResizeEls.get(node)
+  if (!cbks) {
+    cbks = []
+    AllResizeEls.set(node, cbks)
+  }
 
-  AllResizeEls.set(node, cbk)
+  let observer = resizeObserver
+
+  if (isOnce) {
+    let fn = cbk
+    cbk = (...args) => {
+      fn(...args)
+      remove(cbks, c => c === cbk)
+      if (size(cbks) < 1) {
+        observer.unobserve(node)
+        AllResizeEls.delete(node)
+      }
+    }
+  }
+  cbks.push(cbk)
+
   resizeObserver.observe(node);
 
   //record
-  let observer = resizeObserver
-  return (remove = false) => {
-    observer.unobserve(node);
-    AllResizeEls.delete(node)
-    if (remove) {
-      observer = node = null as any
+  return (toRemove = false) => {
+    remove(cbks, c => c === cbk)
+    if (size(cbks) < 1) {
+      observer.unobserve(node)
+      AllResizeEls.delete(node)
+      if (toRemove) {
+        observer = node = null as any
+      }
     }
   }
 }
@@ -191,9 +213,9 @@ export function isExtEvent(evName: string) {
   return ExtEvNames.includes(evName)
 }
 
-export function addExtEvent(evName: string, node: Element, cbk: EvHadler, parts: string[], component: CompElem<any>) {
+export function addExtEvent(evName: string, node: Element, cbk: EvHadler, parts: string[], component: CompElem<any>, isOnce: boolean) {
   if (evName === 'resize') {
-    return addResize(node, cbk, component)
+    return addResize(node, cbk, component, isOnce)
   } else if (evName === 'outside') {
     switch (parts[0]) {
       case 'mousedown':
