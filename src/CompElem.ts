@@ -546,30 +546,28 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
       this.#mounted = true;
 
-      if (this.#shadow) {
-        //instance dynamic style
-        Collector.start()
-        let cssVarObj = this.cssVars
-        Collector.end()
+      //instance dynamic style
+      Collector.start()
+      let cssVarObj = this.cssVars
+      Collector.end()
 
-        if (!isEmpty(cssVarObj)) {
-          this._cssVarOldValueMap = {}
-          let deps = CssUpdateDepsMap.get(this.constructor)
-          if (!deps) {
-            deps = new Set(Collector.popVarPathList())
-            CssUpdateDepsMap.set(this.constructor, deps)
-          }
-          let cssStr = ''
-          each(cssVarObj, (v, k) => {
-            let cssVarKey = '--' + kebabCase(k).replace(/^-+/, '')
-            if (isBlank(v) || isNil(v)) {
-              v = 'initial'// invalid value
-            }
-            this._cssVarOldValueMap[cssVarKey] = v
-            cssStr += ';' + cssVarKey + ':' + v
-          })
-          this.style.cssText += cssStr
+      if (!isEmpty(cssVarObj)) {
+        this._cssVarOldValueMap = {}
+        let deps = CssUpdateDepsMap.get(this.constructor)
+        if (!deps) {
+          deps = new Set(Collector.popVarPathList())
+          CssUpdateDepsMap.set(this.constructor, deps)
         }
+        let cssStr = ''
+        each(cssVarObj, (v, k) => {
+          let cssVarKey = '--' + kebabCase(k).replace(/^-+/, '')
+          if (isBlank(v) || isNil(v)) {
+            v = 'initial'// invalid value
+          }
+          this._cssVarOldValueMap[cssVarKey] = v
+          cssStr += ';' + cssVarKey + ':' + v
+        })
+        this.style.cssText += cssStr
       }
 
       if (fragment && size(fragment.children) > 0) {
