@@ -95,7 +95,7 @@ export function createTemplate(
   html: string,
   vars: any[],
   renderComponent: CompElem,
-  emptyEvent‌s: Record<number, string[]>
+  emptyEvents: Record<number, string[]>
 ): DocumentFragment {
   const container = document.createElement("template");
   container.innerHTML = html
@@ -187,9 +187,9 @@ export function createTemplate(
 
             varIndex++;
           } else if (isBlank(value)) {
-            let evList = emptyEvent‌s[nodeSn]
+            let evList = emptyEvents[nodeSn]
             if (!evList) {
-              evList = emptyEvent‌s[nodeSn] = []
+              evList = emptyEvents[nodeSn] = []
             }
             evList.push(evName)
           }
@@ -354,7 +354,7 @@ export function createTemplate(
   return container.content;
 }
 export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, vars: any[]): [DocumentFragment, UpdatePoint[]] {
-  const { fragment, updatePointMetas, emptyEvent‌s } = tmplM
+  const { fragment, updatePointMetas, emptyEvents } = tmplM
   let rs = fragment.cloneNode(true) as DocumentFragment
   let upAry: UpdatePoint[] = []
 
@@ -392,7 +392,7 @@ export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, va
     if (slotNodeMap[nodeSn] === null) {
       slotNodeMap[nodeSn] = currentNode
     }
-    let emptyEvs = emptyEvent‌s[nodeSn]
+    let emptyEvs = emptyEvents[nodeSn]
     if (emptyEvs) {
       emptyEvs.forEach(evName => {
         evList.push([evName, noop, currentNode])

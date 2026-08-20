@@ -35,10 +35,11 @@ export const DefinitionPropMap = new WeakMap<Function, Record<string, PropOption
 export const DefinitionModelMap = new WeakMap<Function, string[]>()
 export const DefinitionDecoratorMap = new Map<Function, DecoratorWrapper[]>()
 export const ObservedAttrsMap = new Map<Function, Set<string>>()
+export const ViewDepMap = new Map<Function, Array<string>>()
 
 export const WatchKeysOnceMap = new WeakMap<Function, Map<string, boolean>>()
 export const WatchKeysDeepListMap = new WeakMap<Function, string[]>()
-export const WatchKeysListMap = new WeakMap<Function, string[]>()
+export const WatchKeyRootMap = new WeakMap<Function, Map<string, string[]>>()
 export const WatchUpdateMap = new WeakMap<Function, Record<string, Set<Function>>>()
 export const WatchDeepUpdateMap = new WeakMap<Function, Record<string, Set<Function>>>()
 export const WatchImmediateListMap = new WeakMap<Function, Record<string, Set<Function>>>()

@@ -5,7 +5,7 @@
 
 import { concat, get, isArray, isFunction, isObject, isSymbol, some, startsWith, toArray } from "myfx";
 import { CompElem } from "./CompElem";
-import { ComputedUpdateDepsMap, CssUpdateDepsMap, DATA_KEY, HasChangedPropOrStateMap, PROP_NAME_SLOTS, PropShallowKeySetMap, StateShallowKeySetMap, WatchDeepUpdateMap, WatchKeysDeepListMap, WatchKeysListMap, WatchKeysOnceMap, WatchUpdateMap } from "./constants";
+import { ComputedUpdateDepsMap, CssUpdateDepsMap, DATA_KEY, HasChangedPropOrStateMap, PROP_NAME_SLOTS, PropShallowKeySetMap, StateShallowKeySetMap, WatchDeepUpdateMap, WatchKeyRootMap, WatchKeysDeepListMap, WatchKeysOnceMap, WatchUpdateMap } from "./constants";
 import { UpdatePoint } from "./render/UpdatePoint";
 import { Updater } from "./types";
 import { _getSuper } from "./utils";
@@ -82,13 +82,16 @@ export function emitModelEvent(propertyKey: string, v: any, context: CompElem) {
 
 function requestWatchUpdate(context: CompElem, newValue: any, oldValue: any, fullPath: string, rootObjNew?: any, rootObjOld?: any) {
   let superComp = _getSuper(context.constructor as any)
-  let watchKeys = WatchKeysListMap.get(context.constructor) ?? WatchKeysListMap.get(superComp)
   let watchKeysDeep = WatchKeysDeepListMap.get(context.constructor) ?? WatchKeysDeepListMap.get(superComp)
   let watchDeepUpdateMap = WatchDeepUpdateMap.get(context.constructor) ?? WatchDeepUpdateMap.get(superComp)!
   let watchUpdateMap = WatchUpdateMap.get(context.constructor) ?? WatchUpdateMap.get(superComp)!
   let onceMap = WatchKeysOnceMap.get(context.constructor) ?? WatchKeysOnceMap.get(superComp)!
 
-  watchKeys?.forEach(wk => {
+  let rootMap = WatchKeyRootMap.get(context.constructor) ?? WatchKeyRootMap.get(superComp)
+  let rootKey = fullPath.split('.')[0]
+  let candiKeys = rootMap?.get(rootKey)
+
+  candiKeys?.forEach(wk => {
     if (fullPath === wk ||
       (startsWith(wk, fullPath + '.') && !Object.is(get(context._getPrivateData(), wk), get(newValue, wk))) ||
       (startsWith(fullPath, wk + '.') && watchKeysDeep?.includes(wk) && !Object.is(get(context._getPrivateData(), wk), get(newValue, wk)))
@@ -286,6 +289,13 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
 
 export function notifyUpdate(context: CompElem, newValue: any, oldValue: any, path: string[], subNewValue?: any, subOldValue?: any) {
   context._notify(newValue, oldValue, path)
+}
+
+export function appendUpdate(context: CompElem<any>, nv: any, ov: any, path: string[]) {
+  let k = path.join('.')
+  requestWatchUpdate(context, nv, ov, k, nv, ov)
+  requestComputedUpdate(context, k)
+  requestCssUpdate(context, k)
 }
 
 export function requestUpdate(context: CompElem<any>, nv: any, ov: any, subChain: string[], rootObjNew?: any, rootObjOld?: any) {

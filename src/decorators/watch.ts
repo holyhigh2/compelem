@@ -1,5 +1,5 @@
 import { assign, get, isArray } from "myfx";
-import { WatchDeepUpdateMap, WatchImmediateListMap, WatchKeysDeepListMap, WatchKeysListMap, WatchKeysOnceMap, WatchUpdateMap } from "../constants";
+import { WatchDeepUpdateMap, WatchImmediateListMap, WatchKeyRootMap, WatchKeysDeepListMap, WatchKeysOnceMap, WatchUpdateMap } from "../constants";
 import { WatchOptions } from "../types";
 import { _getSuper } from "../utils";
 
@@ -15,11 +15,12 @@ export function watch(source: string | string[], options?: WatchOptions): (targe
     let watchUpdateMap = WatchUpdateMap.get(target.constructor)!
     let onceMap = WatchKeysOnceMap.get(target.constructor)!
     let watchKeysDeep = WatchKeysDeepListMap.get(target.constructor)!
-    let watchKeys = WatchKeysListMap.get(target.constructor)
+    let watchRootKeyMap = WatchKeyRootMap.get(target.constructor)
     let watchImmediateList = WatchImmediateListMap.get(target.constructor)!
-    if (!watchKeys) {
-      watchKeys = []
-      WatchKeysListMap.set(target.constructor, watchKeys)
+    if (!watchRootKeyMap) {
+      watchRootKeyMap = new Map()
+      WatchKeyRootMap.set(target.constructor, watchRootKeyMap)
+
       watchKeysDeep = []
       WatchKeysDeepListMap.set(target.constructor, watchKeysDeep)
 
@@ -36,8 +37,11 @@ export function watch(source: string | string[], options?: WatchOptions): (targe
 
       let parentCtor = _getSuper(target.constructor)
       while (parentCtor) {
-        if (WatchKeysListMap.has(parentCtor)) {
-          watchKeys.push(...WatchKeysListMap.get(parentCtor)!)
+        if (WatchKeyRootMap.has(parentCtor)) {
+          WatchKeyRootMap.get(parentCtor)?.forEach((v, k) => {
+            watchRootKeyMap!.set(k, v)
+          })
+
           watchKeysDeep.push(...WatchKeysDeepListMap.get(parentCtor)!)
           WatchKeysOnceMap.get(parentCtor)?.forEach((v, k) => {
             onceMap.set(k, v)
@@ -61,7 +65,13 @@ export function watch(source: string | string[], options?: WatchOptions): (targe
         onceMap.set(src, false)
       }
       let deep = get(options, "deep", false);
-      watchKeys.push(src)
+      let root = src.split('.')[0]
+      let list = watchRootKeyMap.get(root)
+      if (!list) {
+        list = []
+        watchRootKeyMap.set(root, list)
+      }
+      if (!list.includes(src)) list.push(src)
       if (deep) {
         watchDeepUpdateMap[src] = watchDeepUpdateMap[src] ?? new Set()
         watchDeepUpdateMap[src].add(handler)

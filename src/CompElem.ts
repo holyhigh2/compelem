@@ -37,13 +37,13 @@ import {
   trim,
   walkTree
 } from "myfx";
-import { ComponentDynamicCssUpdaterMap, ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, ComputedUpdateDepsMap, CssScopeCacheMap, CssUpdateDepsMap, DATA_KEY, DefinitionCompEventMap, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, HasChangedPropOrStateMap, PropShallowKeySetMap, PropTypeMap, SLOT_NAME_DEFAULT, WatchImmediateListMap, WatchKeysListMap, WatchKeysOnceMap } from "./constants";
+import { ComponentDynamicCssUpdaterMap, ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, ComputedUpdateDepsMap, CssScopeCacheMap, CssUpdateDepsMap, DATA_KEY, DefinitionCompEventMap, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, HasChangedPropOrStateMap, PropShallowKeySetMap, PropTypeMap, SLOT_NAME_DEFAULT, ViewDepMap, WatchImmediateListMap, WatchKeyRootMap, WatchKeysOnceMap } from "./constants";
 import { DecoratorWrapper } from "./decorator";
 import { Csscope } from "./decorators/csscope";
 import { _getObservedAttrs } from "./decorators/prop";
 import { addEvent, EvHadler } from "./events/event";
 import { IComponent } from "./IComponent";
-import { Collector, getterValue, OBJECT_VAR_PATH, Queue, requestUpdate, setterValue } from "./reactive";
+import { appendUpdate, Collector, getterValue, OBJECT_VAR_PATH, Queue, requestUpdate, setterValue } from "./reactive";
 import { CssTemplate } from "./render/CssTemplate";
 import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildVars, buildView, updateSubScopeView, updateView } from "./render/render";
 import { Template } from "./render/Template";
@@ -221,7 +221,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       cssSheet = sheet;
     }
 
-    if (cssSheet)
+    if (cssSheet && !this.#shadow.adoptedStyleSheets.includes(cssSheet))
       this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, cssSheet]
 
     return cssSheet!;
@@ -261,10 +261,9 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     //host styles
     let hostCss = CssScopeCacheMap.get(this.constructor)?.get(Csscope.HOST)
     if (hostCss) {
-      let styleRoot = this.#wrapperComponent?.deref()?.shadowRoot ?? this.#parentComponent?.deref()?.shadowRoot ?? this.ownerDocument
-      //detached el
-      if (this.#wrapperComponent && !this.#wrapperComponent.deref()?.shadowRoot?.contains(this)) {
-        styleRoot = closest(this, n => n instanceof HTMLDocument || n instanceof ShadowRoot, 'parentNode')!
+      let styleRoot = this.#wrapperComponent?.deref()?.shadowRoot ?? this.#parentComponent?.deref()?.shadowRoot as HTMLDocument | ShadowRoot | undefined
+      if (!styleRoot || !styleRoot.contains(this)) {
+        styleRoot = this.ownerDocument
       }
       each(hostCss, cs => {
         if (!styleRoot.adoptedStyleSheets.includes(cs)) {
@@ -420,7 +419,8 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
     ////////////////////////////////////////////////// Props & States
     const props = this.#initProps();
-
+    this.#props = {}
+    assign(this.#props, props)
     this.propsReady(props)
     for (const key in props) {
       const v = props[key];
@@ -439,8 +439,8 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
     //3. Watch
     let superComp = _getSuper(this.constructor as any)
-    let watchKeys = WatchKeysListMap.get(this.constructor) ?? WatchKeysListMap.get(superComp)
-    if (watchKeys) {
+    let watchKeyMap = WatchKeyRootMap.get(this.constructor) ?? WatchKeyRootMap.get(superComp)
+    if (watchKeyMap) {
       this._watchUpdateSetInNextTick = new Set()
       this._watchUpdateArgsInNextTick = new Map()
       let onceMap = WatchKeysOnceMap.get(this.constructor) ?? WatchKeysOnceMap.get(superComp)!
@@ -492,8 +492,8 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     let tmpl = this.render()
     Collector.end();
     let viewDeps = Collector.popVarPathList()
-    if (!this.constructor.prototype._viewDeps) {
-      this.constructor.prototype._viewDeps = viewDeps
+    if (!ViewDepMap.has(this.constructor)) {
+      ViewDepMap.set(this.constructor, viewDeps)
     }
 
     let fragment: DocumentFragment | undefined
@@ -538,61 +538,59 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     })
 
     this.beforeMount();
-    setTimeout(() => {
-      if (this.isDestroyed) {
-        console.debug('Component is destroyed before mount', this.tagName)
-        return
+    if (this.isDestroyed) {
+      console.debug('Component is destroyed before mount', this.tagName)
+      return
+    }
+
+    this.#mounted = true;
+
+    //instance dynamic style
+    Collector.start()
+    let cssVarObj = this.cssVars
+    Collector.end()
+
+    if (!isEmpty(cssVarObj)) {
+      this._cssVarOldValueMap = {}
+      let deps = CssUpdateDepsMap.get(this.constructor)
+      if (!deps) {
+        deps = new Set(Collector.popVarPathList())
+        CssUpdateDepsMap.set(this.constructor, deps)
       }
-
-      this.#mounted = true;
-
-      //instance dynamic style
-      Collector.start()
-      let cssVarObj = this.cssVars
-      Collector.end()
-
-      if (!isEmpty(cssVarObj)) {
-        this._cssVarOldValueMap = {}
-        let deps = CssUpdateDepsMap.get(this.constructor)
-        if (!deps) {
-          deps = new Set(Collector.popVarPathList())
-          CssUpdateDepsMap.set(this.constructor, deps)
+      let cssStr = ''
+      each(cssVarObj, (v, k) => {
+        let cssVarKey = '--' + kebabCase(k).replace(/^-+/, '')
+        if (isBlank(v) || isNil(v)) {
+          v = 'initial'// invalid value
         }
-        let cssStr = ''
-        each(cssVarObj, (v, k) => {
-          let cssVarKey = '--' + kebabCase(k).replace(/^-+/, '')
-          if (isBlank(v) || isNil(v)) {
-            v = 'initial'// invalid value
-          }
-          this._cssVarOldValueMap[cssVarKey] = v
-          cssStr += ';' + cssVarKey + ':' + v
-        })
-        this.style.cssText += cssStr
-      }
-
-      if (fragment && size(fragment.children) > 0) {
-        this.#shadow.append(fragment)
-        ComponentUninitializedSubComponentPropMap.delete(this)
-      }
-
-      ary && ary.forEach(dw => {
-        dw.mounted(this, (key, value) => {
-          that.__data_[key] = value
-          return that.__data_[key]
-        })
+        this._cssVarOldValueMap[cssVarKey] = v
+        cssStr += ';' + cssVarKey + ':' + v
       })
+      this.style.cssText += cssStr
+    }
 
-      if (this.#updateNextImmediatelyQ) {
-        this.#updateNextImmediatelyQ.forEach((cbk) => Queue.pushNext(cbk as any))
-      }
-      if (this.#updateViewImmediately) {
-        Queue.pushNext(this.#updatedD)
-      }
+    if (fragment && size(fragment.children) > 0) {
+      this.#shadow.append(fragment)
+      ComponentUninitializedSubComponentPropMap.delete(this)
+    }
 
-      this.__bindEvents()
+    ary && ary.forEach(dw => {
+      dw.mounted(this, (key, value) => {
+        that.__data_[key] = value
+        return that.__data_[key]
+      })
+    })
 
-      this.mounted();
-    }, 0)
+    if (this.#updateNextImmediatelyQ) {
+      this.#updateNextImmediatelyQ.forEach((cbk) => Queue.pushNext(cbk as any))
+    }
+    if (this.#updateViewImmediately) {
+      Queue.pushNext(this.#updatedD)
+    }
+
+    this.__bindEvents()
+
+    this.mounted();
   }
 
   propsReady(props: Record<string, any>) { }
@@ -732,23 +730,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       dw.updated(this, changed)
     })
 
-    //1. filter update point
-    let toUpdateView = false
-    let toUpdateUps = new Set<UpdatePoint>()
-    let viewDeps = this.constructor.prototype._viewDeps
-    each(changed, (x, k: string) => {
-      if (!toUpdateView && viewDeps?.includes(k)) {
-        toUpdateView = true
-      }
-      if (this.__updateSubViewDeps?.has(k)) {
-        let ups = this.__updateSubViewDeps.get(k)
-        if (ups) {
-          ups.forEach(up => {
-            toUpdateUps.add(up)
-          })
-        }
-      }
-    });
     //update watch
     this._watchUpdateSetInNextTick?.forEach((fn) => {
       let { newValue, oldValue, chain, rootObjNew, rootObjOld, fullMatch } = this._watchUpdateArgsInNextTick.get(fn)!
@@ -759,16 +740,22 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     this._watchUpdateSetInNextTick?.clear()
     this._watchUpdateArgsInNextTick?.clear()
     // update computed
-    this._computedUpdateSetInNextTick?.forEach(fn => {
-      let k = get<string>(fn, 'key')
-      let oldValue = this.__data_[k]
-      let newValue = fn.call(this)
-      if (!isObject(newValue) && newValue === oldValue) return
+    let computedGuard = 0
+    while (this._computedUpdateSetInNextTick?.size > 0 && computedGuard < 10) {
+      computedGuard++
+      let fns = Array.from(this._computedUpdateSetInNextTick)
+      this._computedUpdateSetInNextTick.clear()
+      fns.forEach(fn => {
+        let k = get<string>(fn, 'key')
+        let oldValue = this.__data_[k]
+        let newValue = fn.call(this)
+        if (!isObject(newValue) && newValue === oldValue) return
 
-      this.__data_[k] = newValue
-      this._notify(newValue, oldValue, [k])
-    })
-    this._computedUpdateSetInNextTick?.clear()
+        this.__data_[k] = newValue
+        appendUpdate(this, newValue, oldValue, [k])
+        changed[k] = { value: newValue, chain: [k], oldValue: oldValue, end: true }
+      })
+    }
     // update css
     if (this._cssUpdateInNextTick) {
       let cssVarObj = this.cssVars
@@ -784,6 +771,24 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         this.style.setProperty(cssVarKey, v + '')
       })
     }
+
+    //1. filter update
+    let toUpdateView = false
+    let toUpdateUps = new Set<UpdatePoint>()
+    let viewDeps = ViewDepMap.get(this.constructor)
+    each(changed, (x, k: string) => {
+      if (!toUpdateView && viewDeps?.includes(k)) {
+        toUpdateView = true
+      }
+      if (this.__updateSubViewDeps?.has(k)) {
+        let ups = this.__updateSubViewDeps.get(k)
+        if (ups) {
+          ups.forEach(up => {
+            toUpdateUps.add(up)
+          })
+        }
+      }
+    });
 
     //2. update view
     if (this.#renderRoot?.deref()) {
@@ -883,7 +888,8 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       }
 
       this.__data_[key] = val;
-      rs[key] = val;
+      if (hasAttr)
+        rs[key] = val;
 
       //use prototype
       delete (this as any)[key]
@@ -1064,6 +1070,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       }
 
       set(this.__data_, ck, v)
+      props[ck] = v
       requestUpdate(this, v, oldValue, [ck])
     })
     assign(this.#props, props)
@@ -1149,6 +1156,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
     const cs = flatMap(this.childNodes, node => {
       if (node.nodeType === Node.COMMENT_NODE) return []
+      if (node.nodeType === Node.TEXT_NODE && isBlank(node.textContent)) return []
       if (node instanceof HTMLSlotElement) return node.assignedNodes({ flatten: true })
       return node
     })
@@ -1325,12 +1333,21 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
    * 强制更新一次视图
    */
   forceUpdate() {
-    each(this.__data_, (v, k: string) => {
-      this.#updateSources[k] = {
+    let viewDeps = ViewDepMap.get(this.constructor)
+    if (viewDeps && size(viewDeps) > 0) {
+      each(viewDeps, (k: string) => {
+        this.#updateSources[k] = {
+          value: undefined,
+          chain: undefined,
+        };
+      })
+    } else {
+      //force update for non-UI components‌ 
+      this.#updateSources['__force__'] = {
         value: undefined,
         chain: undefined,
       };
-    })
+    }
     this.#update();
   }
 }
