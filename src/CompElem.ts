@@ -16,7 +16,6 @@ import {
   isBoolean,
   isDefined,
   isEmpty,
-  isFunction,
   isNil,
   isNull,
   isObject,
@@ -37,11 +36,11 @@ import {
   trim,
   walkTree
 } from "myfx";
-import { ComponentDynamicCssUpdaterMap, ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, ComputedUpdateDepsMap, CssScopeCacheMap, CssUpdateDepsMap, DATA_KEY, DefinitionCompEventMap, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, HasChangedPropOrStateMap, PropShallowKeySetMap, PropTypeMap, SLOT_NAME_DEFAULT, ViewDepMap, WatchImmediateListMap, WatchKeyRootMap, WatchKeysOnceMap } from "./constants";
+import { ComponentDynamicCssUpdaterMap, ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, ComputedUpdateDepsMap, CssScopeCacheMap, CssUpdateDepsMap, DATA_KEY, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, HasChangedPropOrStateMap, PropShallowKeySetMap, PropTypeMap, SLOT_NAME_DEFAULT, ViewDepMap, WatchImmediateListMap, WatchKeyRootMap, WatchKeysOnceMap } from "./constants";
 import { DecoratorWrapper } from "./decorator";
 import { Csscope } from "./decorators/csscope";
 import { _getObservedAttrs } from "./decorators/prop";
-import { addEvent, EvHadler } from "./events/event";
+import { bindEvents, emitEvent, EvHadler, matchEmit, registerEvent, releaseEventHandlers } from "./events/event";
 import { IComponent } from "./IComponent";
 import { appendUpdate, Collector, getterValue, OBJECT_VAR_PATH, Queue, requestUpdate, setterValue } from "./reactive";
 import { CssTemplate } from "./render/CssTemplate";
@@ -95,9 +94,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   #shadow: ShadowRoot;
   //保存所有渲染上下文 {CompElem/Directive}
   __updateTree: Array<UpdatePoint>
-  _eventBindList: Array<[string, Function, Node, Function?]>
-
-  __docoEventMap: Map<string, Function>
 
   __updateSubViewDeps: Map<string, Set<UpdatePoint>>
 
@@ -273,51 +269,9 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     }
 
     this.setup();
-    this.__bindEvents()
   }
 
   disconnectedCallback() {
-    this.__unbindEvents()
-  }
-  __bindEvents() {
-    let evs = this._eventBindList
-    each(evs, (v: any) => {
-      let [evName, cbk, node, binded] = v
-      if (binded) return
-      if (!node) return
-      let handler = cbk && (get(globalThis, cbk.name) !== cbk) ? cbk.bind(this) : cbk
-      let unbinder = addEvent(evName, handler, node, this)
-      v[3] = unbinder
-    })
-
-    //event decoration
-    let events = DefinitionCompEventMap.get(this.constructor)!
-    if (size(events) > 0) {
-      if (!this.__docoEventMap)
-        this.__docoEventMap = new Map()
-      each(events, ({ name, targetFn, fnName }) => {
-        if (this.__docoEventMap.has(name + "@" + fnName)) return
-
-        let eventTarget = targetFn ? targetFn(this) : this
-        let cbk = get(this, fnName) as Function
-        let handler = cbk && (get(globalThis, cbk.name) !== cbk) ? cbk.bind(this) : cbk
-        let unbinder = addEvent(name, handler, eventTarget, this)
-        this.__docoEventMap.set(name + "@" + fnName, unbinder!)
-      })
-    }
-  }
-  __unbindEvents() {
-    each(this._eventBindList, (v: any) => {
-      let [, , , unbinder] = v
-      if (unbinder) unbinder()
-      v[3] = null
-    })
-    let delDecoKeys: string[] = []
-    each(this.__docoEventMap, (unbinder: any, k: string) => {
-      if (unbinder) unbinder()
-      delDecoKeys.push(k)
-    })
-    delDecoKeys.forEach(k => this.__docoEventMap.delete(k))
   }
   beforeDestroyed() {
   }
@@ -340,10 +294,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     this.beforeDestroyed()
 
     //events
-    this.__unbindEvents()
-
-    this.__docoEventMap?.clear()
-    this.__docoEventMap = this._eventBindList = null as any
+    releaseEventHandlers(this)
 
     //styles
     ComponentDynamicCssUpdaterMap.get(this)?.clear()
@@ -588,7 +539,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       Queue.pushNext(this.#updatedD)
     }
 
-    this.__bindEvents()
+    bindEvents(this)
 
     this.mounted();
   }
@@ -1111,8 +1062,8 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     }
 
     let evName = 'slotchange'
-    let unbinder = addEvent(evName, this.#onSlotChangeHookBindThis, slot, this)
-    this._eventBindList.push([evName, this.#onSlotChangeHookBindThis, slot, unbinder!])
+    //slotchange
+    registerEvent(this, evName, this.#onSlotChangeHookBindThis, slot)
 
     //3. 保存参数
     if (!isEmpty(props)) {
@@ -1292,6 +1243,11 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     }
     arg.target = this;
 
+    if (process.env.DEV && !has(this.#attrs, 'emit-native') && !matchEmit(this.constructor, evName)) {
+      showTagError(this.tagName, `'${evName}' was not declared in @emits`)
+      return
+    }
+
     if (has(this.#attrs, 'emit-native')) {
       this.dispatchEvent(
         new CustomEvent(evName, {
@@ -1303,15 +1259,11 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       );
     } else {
       let evSrc = get<number>(this, '__c_emit_event_')
-      this.wrapperComponent?._callEmitEvent(evSrc, evName, arg)
+      if (!this.wrapperComponent) {
+        return
+      }
+      emitEvent(this.wrapperComponent, evSrc, evName, arg)
     }
-
-  }
-
-  _callEmitEvent(evSrc: number, evName: string, arg: Record<string, any>) {
-    let evMap = this._subComponentEventMap.get(evSrc)
-    let evFn = get(evMap, evName)
-    if (isFunction(evFn)) evFn.call(this, arg)
   }
   /**
    * 下一帧执行

@@ -9,6 +9,7 @@ export * from "./decorator/index";
 export * from "./decorators/computed";
 export * from "./decorators/csscope";
 export * from "./decorators/debounced";
+export * from "./decorators/emits";
 export * from "./decorators/event";
 export * from "./decorators/onced";
 export * from "./decorators/prop";

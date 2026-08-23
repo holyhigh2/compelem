@@ -2,7 +2,7 @@ import { CompElem } from "../CompElem";
 import { DefinitionComponentMap, DefinitionTagMap } from "../constants";
 
 /**
- * class用注解，用于自动注册自定义组件
+ * class用装饰器，用于自动注册自定义组件
  * @param name 自定义组件名称
  * @param immediate 立即注册，默认false
  */

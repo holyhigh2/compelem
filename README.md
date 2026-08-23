@@ -144,8 +144,8 @@ export class PageTest extends CompElem {
   对于无体组件无需定义渲染函数，常用于layout、grid等结构控制相关组件。无视图组件仅支持global及host样式，如
   ```ts
   @csscope(Csscope.HOST, Csscope.GLOBAL)
-  static get css(): string {
-    return `
+  static get css() {
+    return css`
       l-main{
         display: block;
         flex: 1;
@@ -282,7 +282,7 @@ export class PageTest extends CompElem {
   - emit(evName: string, arg: Record<string, any>, event?: Event) 抛出自定义事件
   - nextTick(cbk: () => void) 下一帧执行函数
   - forceUpdate() 强制更新一次视图
-  - insertStyleSheet(sheet: string | CSSStyleSheet): CSSStyleSheet 向组件ShadowDOM插入样式表，仅影响组件实例
+  - insertStyleSheet(sheet: CssTemplate | CSSStyleSheet): CSSStyleSheet 向组件ShadowDOM插入样式表，仅影响组件实例
   - destroy() 销毁组件
 
 ## 组件渲染流程
@@ -433,9 +433,10 @@ return h` <l-tooltip>
 - @event 定义事件，支持修饰符
 - @onced 定义一次性事件
 - @throttled 定义节流函数
+- @emits 声明组件事件
 
 ### 继承
-  部分指令可由子类继承不会覆盖，包括@state/@prop/@watch/@computed
+  部分指令可由子类继承不会覆盖，包括@state/@prop/@watch/@computed/@emits
 
 ## 事件
 在CompElem中有三类不同事件，分别返回原生事件对象或自定义对象
@@ -444,12 +445,24 @@ return h` <l-tooltip>
 2. 扩展原生事件 —— `<div @resize="..."` 在原生元素/组件元素上都可以监听扩展原生事件，监听器回调参数返回自定义数据对象
 3. 组件事件 —— `<l-select @change="..."` 在组件元素上默认仅可监听组件事件，监听器回调参数返回自定义数据对象
 
-### 组件原生事件
-如果想要在组件上监听原生事件如`click`等，需要使用`native`关键字
-```html
-<l-select @click.native="${...}"></l-select>
+### 组件事件
+  组件通过`emit`接口触发的事件必须提前通过`@emits`进行注册，如
+  ```ts
+  @emits('update:value','update:*','change1')
+  @tag("page-test")
+  export class PageTest extends CompElem {
+    ...
+    onChange(){
+      //如果未声明事件会报错
+      this.emit('change1',...)
+    }
+  }
+  ```
+  非组件事件都会作为原生事件进行监听，如
+  ```html
+<l-select @change1="${...}" @click="..."></l-select>
 ```
-此时click事件监听器参数返回原生事件对象
+  其中click事件会当作原生事件进行监听
 
 ### 跨框架事件监听
 如果组件要用于非 `CompElem` 框架时，需要为组件添加 `emit-native`属性，这样框架会将组件事件转为`CustomEvent`
@@ -484,9 +497,9 @@ return h` <l-tooltip>
 ```ts
 class CustomButton{
   ...
-  @event('click.native', (comp) => comp)
+  @event('click', (comp) => comp)
   onClick() {
-    this.emit('click')
+    this.emit('myclick')
   }
 }
 ```

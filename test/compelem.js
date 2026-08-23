@@ -1,5 +1,4 @@
-/* compelem 0.26.0 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
-(function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
+/* compelem 0.26.4 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
     typeof define === 'function' && define.amd ? define(['exports'], factory) :
@@ -7809,6 +7808,8 @@
         undefined: Object
     };
     const DefinitionCompEventMap = new Map();
+    //组件可 emit 事件声明（@emits 装饰器写入，含通配符如 'update:*'）
+    const DefinitionCompEmitMap = new WeakMap();
     const DefinitionTagMap = {};
     const DefinitionComponentMap = {};
     const DefinitionComputedMap = new WeakMap();
@@ -7817,9 +7818,10 @@
     const DefinitionModelMap = new WeakMap();
     const DefinitionDecoratorMap = new Map();
     const ObservedAttrsMap = new Map();
+    const ViewDepMap = new Map();
     const WatchKeysOnceMap = new WeakMap();
     const WatchKeysDeepListMap = new WeakMap();
-    const WatchKeysListMap = new WeakMap();
+    const WatchKeyRootMap = new WeakMap();
     const WatchUpdateMap = new WeakMap();
     const WatchDeepUpdateMap = new WeakMap();
     const WatchImmediateListMap = new WeakMap();
@@ -8102,12 +8104,14 @@
     }
     function requestWatchUpdate(context, newValue, oldValue, fullPath, rootObjNew, rootObjOld) {
         let superComp = _getSuper(context.constructor);
-        let watchKeys = WatchKeysListMap.get(context.constructor) ?? WatchKeysListMap.get(superComp);
         let watchKeysDeep = WatchKeysDeepListMap.get(context.constructor) ?? WatchKeysDeepListMap.get(superComp);
         let watchDeepUpdateMap = WatchDeepUpdateMap.get(context.constructor) ?? WatchDeepUpdateMap.get(superComp);
         let watchUpdateMap = WatchUpdateMap.get(context.constructor) ?? WatchUpdateMap.get(superComp);
         let onceMap = WatchKeysOnceMap.get(context.constructor) ?? WatchKeysOnceMap.get(superComp);
-        watchKeys?.forEach(wk => {
+        let rootMap = WatchKeyRootMap.get(context.constructor) ?? WatchKeyRootMap.get(superComp);
+        let rootKey = fullPath.split('.')[0];
+        let candiKeys = rootMap?.get(rootKey);
+        candiKeys?.forEach(wk => {
             if (fullPath === wk ||
                 (startsWith(wk, fullPath + '.') && !Object.is(get(context._getPrivateData(), wk), get(newValue, wk))) ||
                 (startsWith(fullPath, wk + '.') && watchKeysDeep?.includes(wk) && !Object.is(get(context._getPrivateData(), wk), get(newValue, wk)))) {
@@ -8295,6 +8299,12 @@
     function notifyUpdate(context, newValue, oldValue, path, subNewValue, subOldValue) {
         context._notify(newValue, oldValue, path);
     }
+    function appendUpdate(context, nv, ov, path) {
+        let k = path.join('.');
+        requestWatchUpdate(context, nv, ov, k, nv, ov);
+        requestComputedUpdate(context, k);
+        requestCssUpdate(context, k);
+    }
     function requestUpdate(context, nv, ov, subChain, rootObjNew, rootObjOld) {
         rootObjNew = rootObjNew ?? nv;
         rootObjOld = rootObjOld ?? ov;
@@ -8451,7 +8461,7 @@
      *************************************************************/
     const ExtEvNames = ['resize', 'outside', 'mutate'];
     ///////////////////////////////////////////////// resize
-    const AllResizeEls = new WeakMap;
+    const AllResizeEls = new WeakMap();
     const AllOutsideDownEls = [];
     const AllOutsideClickEls = [];
     const AllOutsideDblClickEls = [];
@@ -8468,24 +8478,43 @@
                 ResizeTargetInitSet.add(entry.target);
                 continue;
             }
-            let cbk = AllResizeEls.get(entry.target);
-            if (cbk) {
-                cbk({ target: entry.target, contentBoxSize, borderBoxSize, type: 'resize' });
+            let cbks = AllResizeEls.get(entry.target);
+            if (cbks) {
+                cbks.forEach(cbk => {
+                    cbk({ target: entry.target, contentBoxSize, borderBoxSize, type: 'resize' });
+                });
             }
         }
     });
-    function addResize(node, cbk, component) {
-        if (AllResizeEls.has(node))
-            return;
-        AllResizeEls.set(node, cbk);
+    function addResize(node, cbk, component, isOnce) {
+        let cbks = AllResizeEls.get(node);
+        if (!cbks) {
+            cbks = [];
+            AllResizeEls.set(node, cbks);
+        }
+        let observer = resizeObserver;
+        if (isOnce) {
+            let fn = cbk;
+            cbk = (...args) => {
+                fn(...args);
+                remove(cbks, c => c === cbk);
+                if (size(cbks) < 1) {
+                    observer.unobserve(node);
+                    AllResizeEls.delete(node);
+                }
+            };
+        }
+        cbks.push(cbk);
         resizeObserver.observe(node);
         //record
-        let observer = resizeObserver;
-        return (remove = false) => {
-            observer.unobserve(node);
-            AllResizeEls.delete(node);
-            if (remove) {
-                observer = node = null;
+        return (toRemove = false) => {
+            remove(cbks, c => c === cbk);
+            if (size(cbks) < 1) {
+                observer.unobserve(node);
+                AllResizeEls.delete(node);
+                if (toRemove) {
+                    observer = node = null;
+                }
             }
         };
     }
@@ -8622,9 +8651,9 @@
     function isExtEvent(evName) {
         return ExtEvNames.includes(evName);
     }
-    function addExtEvent(evName, node, cbk, parts, component) {
+    function addExtEvent(evName, node, cbk, parts, component, isOnce) {
         if (evName === 'resize') {
-            return addResize(node, cbk);
+            return addResize(node, cbk, component, isOnce);
         }
         else if (evName === 'outside') {
             switch (parts[0]) {
@@ -8644,7 +8673,6 @@
 
     const MODI_EV_DEBOUNCE = /,|^(debounce:.+)|(debounce$)/;
     const MODI_EV_THROTTLE = /,|^(throttle:.+)|(throttle$)/;
-    const MODI_EV_NATIVE = 'native';
     const MODI_EV_SELF = 'self';
     const MODI_EV_STOP = 'stop';
     const MODI_EV_PREVENT = 'prevent';
@@ -8675,10 +8703,19 @@
      * 部分修饰符支持参数，使用冒号传参如：throttle:100 / debounce:100
      *************************************************************/
     const VFN = () => { };
-    function addEvent(fullName, cbk, node, component) {
+    /**
+     * "click.stop.prevent.debounce:100" → { evName: 'click', parts: [...] }
+     */
+    function parseEventName(fullName) {
         let parts = fullName.split('.');
         let evName = parts.shift();
-        let isOnce = parts.includes(MODI_EV_ONCE);
+        return { evName, parts };
+    }
+    /**
+     * 流程控制包装：debounce / throttle / once
+     * 组件事件（addEmitEvent）与扩展事件（addExtEvent）共用
+     */
+    function wrapControlFn(cbk, parts) {
         let c = cbk ?? VFN;
         let modi;
         if (modi = find(parts, x => MODI_EV_DEBOUNCE.test(x))) {
@@ -8689,28 +8726,22 @@
             let params = modi.split(MODI_PARAM_DIVIDER);
             c = throttle(c, parseInt(params[1]) || 100);
         }
-        if (isOnce) {
+        if (parts.includes(MODI_EV_ONCE)) {
             c = once(c);
         }
-        let ctor = DefinitionComponentMap[node.tagName?.toLowerCase()];
-        if (ctor) {
-            if (node === component && !parts.includes(MODI_EV_NATIVE)) {
-                parts.push(MODI_EV_NATIVE);
-            }
-            if (!parts.includes(MODI_EV_NATIVE)) {
-                addEmitEvent(node, component, evName, c);
-                return noop;
-            }
-        }
-        if (isExtEvent(evName)) {
-            return addExtEvent(evName, node, c, parts);
-        }
-        let listener = (e) => {
+        return c;
+    }
+    /**
+     * 纯修饰符监听器包装：stop/prevent/self/鼠标/键盘
+     * @param delegated 委托模式下 self 由外层分发器（handleEvent）判定，此处跳过
+     */
+    function wrapListener(c, parts, delegated = false) {
+        let handler = (e) => {
             if (parts.includes(MODI_EV_PREVENT))
                 e.preventDefault();
             if (parts.includes(MODI_EV_STOP))
                 e.stopPropagation();
-            if (parts.includes(MODI_EV_SELF) && e.target !== e.currentTarget)
+            if (!delegated && parts.includes(MODI_EV_SELF) && e.target !== e.currentTarget)
                 return;
             if (e instanceof MouseEvent) {
                 if (parts.includes(MODI_EV_MOUSE_LEFT) && e.button != 0)
@@ -8721,15 +8752,17 @@
                     return;
             }
             else if (e instanceof KeyboardEvent) {
-                if (remove(parts, p => p == MODI_EV_KEYBOARD_COMBO_CTRL)[0] && !e.ctrlKey)
+                //使用副本，避免污染 parts（委托模式下 parts 为持久引用）
+                let ks = parts.slice();
+                if (remove(ks, p => p == MODI_EV_KEYBOARD_COMBO_CTRL)[0] && !e.ctrlKey)
                     return;
-                if (remove(parts, p => p == MODI_EV_KEYBOARD_COMBO_ALT)[0] && !e.altKey)
+                if (remove(ks, p => p == MODI_EV_KEYBOARD_COMBO_ALT)[0] && !e.altKey)
                     return;
-                if (remove(parts, p => p == MODI_EV_KEYBOARD_COMBO_SHIFT)[0] && !e.shiftKey)
+                if (remove(ks, p => p == MODI_EV_KEYBOARD_COMBO_SHIFT)[0] && !e.shiftKey)
                     return;
-                if (remove(parts, p => p == MODI_EV_KEYBOARD_COMBO_META)[0] && !e.metaKey)
+                if (remove(ks, p => p == MODI_EV_KEYBOARD_COMBO_META)[0] && !e.metaKey)
                     return;
-                let checkKeys = map(parts, k => MODI_EV_KEYBOARD_KEY_MAP[k] || k);
+                let checkKeys = map(ks, k => MODI_EV_KEYBOARD_KEY_MAP[k] || k);
                 if (size(checkKeys) > 0 && !checkKeys.includes(e.key.toLowerCase()))
                     return;
             }
@@ -8737,14 +8770,16 @@
         };
         let capture = parts.includes(MODI_EV_CAPTURE) || false;
         let passive = parts.includes(MODI_EV_PASSIVE) || false;
-        let options = { capture, passive };
-        node.addEventListener(evName, listener, options);
-        //record
-        return (remove = false) => {
-            node.removeEventListener(evName, listener, options);
-            if (remove)
-                node = null;
-        };
+        let once = parts.includes(MODI_EV_ONCE) || false;
+        return { handler, options: { capture, once, passive } };
+    }
+    /**
+     * 完整修饰符包装：流程控制（debounce/throttle/once）+ 监听器修饰符
+     * 委托（registerDelegation）与独立监听（registerElementEvent）共用
+     */
+    function applyEventModifiers(cbk, parts, delegated = false) {
+        let c = wrapControlFn(cbk, parts);
+        return wrapListener(c, parts, delegated);
     }
     function addEmitEvent(node, component, evName, c) {
         let eventSourceSn = get(node, '__c_emit_event_') ?? component._subComponentEventSn++;
@@ -8755,6 +8790,301 @@
             component._subComponentEventMap.set(eventSourceSn, evMap);
         }
         evMap[evName] = c;
+    }
+    //冒泡事件（BUBBLE）     —— renderRoot 上 bubble 委托
+    const BUBBLE_EVENTS = new Set([
+        'click', 'dblclick', 'mousedown', 'mouseup', 'mousemove', 'mouseover', 'mouseout',
+        'input', 'change', 'submit', 'keydown', 'keyup', 'keypress',
+        'focusin', 'focusout', 'touchstart', 'touchend', 'touchmove',
+        'pointerdown', 'pointerup', 'pointermove', 'pointerover', 'pointerout',
+        'contextmenu', 'wheel', 'select', 'dragstart', 'drag', 'dragend', 'dragenter',
+        'dragleave', 'dragover', 'drop', 'paste', 'cut', 'copy', 'compositionstart',
+        'compositionend', 'compositionupdate', 'auxclick', 'gotpointercapture', 'lostpointercapture'
+    ]);
+    //捕获事件（CAPTURE）    —— renderRoot 上 capture 委托（不冒泡但有捕获阶段）
+    const CAPTURE_EVENTS = new Set([
+        'focus', 'blur', 'visibilitychange'
+    ]);
+    //特殊传播（NO_DELEGATE）：无传播语义，既不冒泡也无法被祖先捕获，必须直接绑定
+    const NO_DELEGATE_EVENTS = new Set([
+        'mouseenter', 'mouseleave', 'pointerenter', 'pointerleave'
+    ]);
+    //元素事件（ELEMENT）：资源/媒体/滚动等，一律独立直接绑定，不走任何委托
+    const ELEMENT_EVENTS = new Set([
+        //资源加载类（重名、早发、无传播）
+        'load', 'error', 'abort',
+        //媒体类（依附元素实例状态）
+        'play', 'pause', 'playing', 'waiting', 'canplay', 'canplaythrough',
+        'loadedmetadata', 'loadeddata', 'ended', 'timeupdate', 'volumechange',
+        'seeking', 'seeked', 'progress', 'stalled', 'suspend', 'emptied',
+        'ratechange', 'durationchange', 'loadstart',
+        //CSS 过渡 / 动画
+        'transitionstart', 'transitionrun', 'transitionend', 'transitioncancel',
+        'animationstart', 'animationend', 'animationcancel', 'animationiteration',
+        //元素级滚动（高频、无冒泡、passive 需精细控制）
+        'scroll',
+        //slot 元素特有（无传播）
+        'slotchange'
+    ]);
+    const ComponentEventStateMap = new WeakMap();
+    function getState(comp) {
+        let s = ComponentEventStateMap.get(comp);
+        if (!s) {
+            s = {
+                bindList: [],
+                docoEventMap: new Map(),
+                handlerMap: new WeakMap(),
+                releaseList: [],
+                delegationKeySet: new Set(),
+                abortController: undefined,
+                dispatch: e => dispatchDelegated(comp, e)
+            };
+            ComponentEventStateMap.set(comp, s);
+        }
+        return s;
+    }
+    /**
+     * 获取/惰性创建实例的事件注册队列（render.ts / Model.ts 使用）
+     */
+    function getEventBindList(comp) {
+        return getState(comp).bindList;
+    }
+    /**
+     * 创建 AbortController（无 renderRoot 组件同样需要，仅用于直接监听）
+     */
+    function initEventHandlers(comp) {
+        let s = getState(comp);
+        if (!s.abortController) {
+            s.abortController = new AbortController();
+        }
+    }
+    /**
+     * 统一绑定入口：遍历 bindList 与 @event 装饰器注册表
+     * 由 setup 末尾与动态子视图插入（insertSubView）调用
+     */
+    function bindEvents(comp) {
+        let s = getState(comp);
+        //1. 模板/指令事件
+        each(s.bindList, (v) => {
+            let [evName, cbk, node, binded] = v;
+            if (binded)
+                return;
+            if (!node)
+                return;
+            let handler = cbk && (get(globalThis, cbk.name) !== cbk) ? cbk.bind(comp) : cbk;
+            registerEvent(comp, evName, handler, node);
+            v[3] = noop; //绑定标记（signal 统一释放，无需真实 unbinder）
+        });
+        //2. @event 装饰器事件（目标可为 window/document/host）
+        let events = DefinitionCompEventMap.get(comp.constructor) ?? DefinitionCompEventMap.get(_getSuper(comp.constructor));
+        if (events && size(events) > 0) {
+            each(events, ({ name, targetFn, fnName }) => {
+                let key = name + "@" + fnName;
+                if (s.docoEventMap.has(key))
+                    return;
+                let eventTarget = targetFn ? targetFn(comp) : comp;
+                let cbk = get(comp, fnName);
+                let handler = cbk && (get(globalThis, cbk.name) !== cbk) ? cbk.bind(comp) : cbk;
+                registerEvent(comp, name, handler, eventTarget);
+                s.docoEventMap.set(key, handler);
+            });
+        }
+    }
+    /**
+     * 匹配组件声明的 emit 事件（精确名或 'update:*' 通配符），沿继承链向上查找
+     */
+    function matchEmit(ctor, evName) {
+        let c = ctor;
+        while (c && c !== CompElem) {
+            let set = DefinitionCompEmitMap.get(c);
+            if (set) {
+                if (set.has(evName))
+                    return true;
+                for (let n of set) {
+                    if (n.endsWith(':*') && evName.startsWith(n.slice(0, -1)))
+                        return true;
+                }
+            }
+            c = _getSuper(c);
+        }
+        return false;
+    }
+    /**
+     * 统一注册入口（组件事件不代理 / 扩展事件全局 / 委托或独立监听）
+     * @param fullName 事件全名，含修饰符，如 "click.stop.prevent"
+     * @param cbk 回调（已绑定 this）
+     * @param node 目标节点（Element | Window | Document）
+     */
+    function registerEvent(comp, fullName, cbk, node) {
+        let { evName, parts } = parseEventName(fullName);
+        //1. 组件事件（不代理）
+        if (node instanceof Element) {
+            let ctor = DefinitionComponentMap[node.tagName?.toLowerCase()];
+            if (ctor) {
+                //绑定在组件自身 host 上的事件默认 native（直接 DOM 监听自身）
+                let tagName = node.tagName.toLowerCase();
+                if (node === comp && !parts.includes('native'))
+                    parts.push('native');
+                if (!parts.includes('native') && !parts.includes('emit')) {
+                    //未声明 emits 且为标准 DOM 事件 → 自动 native（避免每次手写 .native）
+                    let declared = matchEmit(ctor, evName);
+                    let isStd = BUBBLE_EVENTS.has(evName) || CAPTURE_EVENTS.has(evName)
+                        || ELEMENT_EVENTS.has(evName) || NO_DELEGATE_EVENTS.has(evName);
+                    if (!declared && isStd)
+                        parts.push('native');
+                }
+                if (!parts.includes('native')) {
+                    addEmitEvent(node, comp, evName, wrapControlFn(cbk, parts));
+                    if (!matchEmit(ctor, evName)) {
+                        console.warn(`[CompElem] <${tagName}> 未声明事件 '${evName}'（可用 @emits 声明，或加 .emit/.native 修饰符）`);
+                    }
+                    return;
+                }
+            }
+        }
+        //2. 扩展事件（全局注册，unbinder 进释放列表）
+        if (isExtEvent(evName)) {
+            let unbinder = addExtEvent(evName, node, wrapControlFn(cbk, parts), parts, comp, parts.includes('once'));
+            if (unbinder)
+                getState(comp).releaseList.push(unbinder);
+            return;
+        }
+        //3. 委托判定：renderRoot 存在 + 节点在渲染树内 + 事件可委托
+        let delegate = isInRenderTree(comp, node)
+            && !ELEMENT_EVENTS.has(evName)
+            && !NO_DELEGATE_EVENTS.has(evName);
+        if (delegate) {
+            //显式 .capture 修饰符优先于分类默认
+            let capture = parts.includes('capture') || CAPTURE_EVENTS.has(evName);
+            registerDelegation(comp, evName, cbk, parts, node, capture);
+        }
+        else {
+            registerElementEvent(comp, evName, cbk, parts, node);
+        }
+    }
+    /**
+     * 节点是否位于 renderRoot 树内（无 shadowDOM 组件返回 false，不委托）
+     */
+    function isInRenderTree(comp, node) {
+        if (!(node instanceof Element))
+            return false;
+        let root = comp.renderRoot;
+        if (!root)
+            return false;
+        return node === root || root.contains(node);
+    }
+    /**
+     * 委托注册：写入注册表，懒挂载 root 监听
+     */
+    function registerDelegation(comp, evName, cbk, parts, node, capture) {
+        if (!ensureDelegationListener(comp, evName, capture)) {
+            //防御降级（正常流程 isInRenderTree 已保证可委托）
+            registerElementEvent(comp, evName, cbk, parts, node);
+            return;
+        }
+        let { handler } = applyEventModifiers(cbk, parts, true);
+        let s = getState(comp);
+        let map = s.handlerMap.get(node);
+        if (!map) {
+            map = new Map();
+            s.handlerMap.set(node, map);
+        }
+        let entries = map.get(evName);
+        if (!entries) {
+            entries = [];
+            map.set(evName, entries);
+        }
+        entries.push({ handler, parts });
+    }
+    /**
+     * 懒挂载委托监听：首次注册某事件类型时在 renderRoot 上挂载
+     * @returns 挂载成功（无 renderRoot 返回 false）
+     */
+    function ensureDelegationListener(comp, evName, capture) {
+        let root = comp.renderRoot;
+        if (!root)
+            return false;
+        initEventHandlers(comp);
+        let s = getState(comp);
+        let key = (capture ? 'c:' : 'b:') + evName;
+        if (s.delegationKeySet.has(key))
+            return true;
+        root.addEventListener(evName, s.dispatch, { capture, signal: s.abortController.signal });
+        s.delegationKeySet.add(key);
+        return true;
+    }
+    /**
+     * 独立监听：目标节点直接绑定
+     * 适用：元素事件 / 特殊传播事件 / 无 shadowDOM 组件 / 不在渲染树内的装饰器目标
+     */
+    function registerElementEvent(comp, evName, cbk, parts, node) {
+        initEventHandlers(comp);
+        let { handler, options } = applyEventModifiers(cbk, parts);
+        node.addEventListener(evName, handler, {
+            capture: options.capture,
+            once: options.once,
+            passive: options.passive,
+            signal: getState(comp).abortController.signal
+        });
+    }
+    /**
+     * 委托分发器：沿 e.target → renderRoot 路径触发所有命中注册者
+     * （与原生冒泡一致：目标先触发，祖先后触发；stop 阻止传播出组件边界）
+     */
+    function dispatchDelegated(comp, e) {
+        let root = comp.renderRoot;
+        if (!root)
+            return;
+        let type = e.type;
+        //收集 target → root 路径上的元素
+        let els = [];
+        let node = e.target;
+        while (node) {
+            if (node instanceof Element)
+                els.push(node);
+            if (node === root)
+                break;
+            node = node.parentNode ?? (node instanceof ShadowRoot ? node.host : null);
+        }
+        let s = getState(comp);
+        //从 target 向上触发所有命中注册者
+        for (let cur of els) {
+            let entries = s.handlerMap.get(cur)?.get(type);
+            if (!entries || entries.length < 1)
+                continue;
+            for (let i = 0; i < entries.length; i++) {
+                let entry = entries[i];
+                //委托 self：事件须源自注册节点自身
+                if (entry.parts.includes('self') && e.target !== cur)
+                    continue;
+                //once：命中后移除条目防重入
+                if (entry.parts.includes('once')) {
+                    entries.splice(i, 1);
+                    i--;
+                    if (entries.length < 1)
+                        s.handlerMap.get(cur)?.delete(type);
+                }
+                entry.handler(e);
+            }
+        }
+    }
+    /**
+     * 释放：abort 全部 signal 监听 + 扩展事件全局注册 + 清空注册表
+     * 由 destroy 调用
+     */
+    function releaseEventHandlers(comp) {
+        let s = getState(comp);
+        s.abortController?.abort();
+        s.abortController = undefined;
+        each(s.releaseList, (fn) => {
+            if (typeof fn === 'function')
+                fn(true);
+        });
+        s.releaseList = [];
+        s.docoEventMap.clear();
+        s.handlerMap = new WeakMap();
+        s.delegationKeySet.clear();
+        s.bindList.length = 0;
     }
 
     //组件静态样式
@@ -8795,8 +9125,6 @@
         #shadow;
         //保存所有渲染上下文 {CompElem/Directive}
         __updateTree;
-        _eventBindList;
-        __docoEventMap;
         __updateSubViewDeps;
         _cssUpdateInNextTick = false;
         _cssVarOldValueMap;
@@ -8893,7 +9221,6 @@
                 return null;
             let cssSheet;
             if (sheet instanceof CssTemplate) {
-                let cssSheet = CssStyleSheetCacheMap.get(sheet.strings);
                 if (!cssSheet) {
                     let cssTxt = sheet.getCssText();
                     cssSheet = new CSSStyleSheet();
@@ -8908,7 +9235,8 @@
                     return sheet;
                 cssSheet = sheet;
             }
-            this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, cssSheet];
+            if (cssSheet && !this.#shadow.adoptedStyleSheets.includes(cssSheet))
+                this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, cssSheet];
             return cssSheet;
         }
         /**
@@ -8938,10 +9266,9 @@
             //host styles
             let hostCss = CssScopeCacheMap.get(this.constructor)?.get(Csscope.HOST);
             if (hostCss) {
-                let styleRoot = this.#wrapperComponent?.deref()?.shadowRoot ?? this.#parentComponent?.deref()?.shadowRoot ?? this.ownerDocument;
-                //detached el
-                if (this.#wrapperComponent && !this.#wrapperComponent.deref()?.shadowRoot?.contains(this)) {
-                    styleRoot = closest(this, n => n instanceof HTMLDocument || n instanceof ShadowRoot, 'parentNode');
+                let styleRoot = this.#wrapperComponent?.deref()?.shadowRoot ?? this.#parentComponent?.deref()?.shadowRoot;
+                if (!styleRoot || !styleRoot.contains(this)) {
+                    styleRoot = this.ownerDocument;
                 }
                 each(hostCss, cs => {
                     if (!styleRoot.adoptedStyleSheets.includes(cs)) {
@@ -8950,53 +9277,8 @@
                 });
             }
             this.setup();
-            this.__bindEvents();
         }
         disconnectedCallback() {
-            this.__unbindEvents();
-        }
-        __bindEvents() {
-            let evs = this._eventBindList;
-            each(evs, (v) => {
-                let [evName, cbk, node, binded] = v;
-                if (binded)
-                    return;
-                if (!node)
-                    return;
-                let handler = cbk && (get(globalThis, cbk.name) !== cbk) ? cbk.bind(this) : cbk;
-                let unbinder = addEvent(evName, handler, node, this);
-                v[3] = unbinder;
-            });
-            //event decoration
-            let events = DefinitionCompEventMap.get(this.constructor);
-            if (size(events) > 0) {
-                if (!this.__docoEventMap)
-                    this.__docoEventMap = new Map();
-                each(events, ({ name, targetFn, fnName }) => {
-                    if (this.__docoEventMap.has(name + "@" + fnName))
-                        return;
-                    let eventTarget = targetFn ? targetFn(this) : this;
-                    let cbk = get(this, fnName);
-                    let handler = cbk && (get(globalThis, cbk.name) !== cbk) ? cbk.bind(this) : cbk;
-                    let unbinder = addEvent(name, handler, eventTarget, this);
-                    this.__docoEventMap.set(name + "@" + fnName, unbinder);
-                });
-            }
-        }
-        __unbindEvents() {
-            each(this._eventBindList, (v) => {
-                let [, , , unbinder] = v;
-                if (unbinder)
-                    unbinder();
-                v[3] = null;
-            });
-            let delDecoKeys = [];
-            each(this.__docoEventMap, (unbinder, k) => {
-                if (unbinder)
-                    unbinder();
-                delDecoKeys.push(k);
-            });
-            delDecoKeys.forEach(k => this.__docoEventMap.delete(k));
         }
         beforeDestroyed() {
         }
@@ -9015,10 +9297,8 @@
                 dw.destroy(this);
             });
             this.beforeDestroyed();
-            //events
-            this.__unbindEvents();
-            this.__docoEventMap?.clear();
-            this.__docoEventMap = this._eventBindList = null;
+            //events（signal 一次性释放 + 扩展事件全局注册清理）
+            releaseEventHandlers(this);
             //styles
             ComponentDynamicCssUpdaterMap.get(this)?.clear();
             ComponentDynamicCssUpdaterMap.delete(this);
@@ -9086,6 +9366,8 @@
             this.#initiating = true;
             ////////////////////////////////////////////////// Props & States
             const props = this.#initProps();
+            this.#props = {};
+            assign(this.#props, props);
             this.propsReady(props);
             for (const key in props) {
                 const v = props[key];
@@ -9100,8 +9382,8 @@
             });
             //3. Watch
             let superComp = _getSuper(this.constructor);
-            let watchKeys = WatchKeysListMap.get(this.constructor) ?? WatchKeysListMap.get(superComp);
-            if (watchKeys) {
+            let watchKeyMap = WatchKeyRootMap.get(this.constructor) ?? WatchKeyRootMap.get(superComp);
+            if (watchKeyMap) {
                 this._watchUpdateSetInNextTick = new Set();
                 this._watchUpdateArgsInNextTick = new Map();
                 let onceMap = WatchKeysOnceMap.get(this.constructor) ?? WatchKeysOnceMap.get(superComp);
@@ -9151,8 +9433,8 @@
             let tmpl = this.render();
             Collector.end();
             let viewDeps = Collector.popVarPathList();
-            if (!this.constructor.prototype._viewDeps) {
-                this.constructor.prototype._viewDeps = viewDeps;
+            if (!ViewDepMap.has(this.constructor)) {
+                ViewDepMap.set(this.constructor, viewDeps);
             }
             let fragment;
             if (tmpl === null) {
@@ -9192,55 +9474,51 @@
                 });
             });
             this.beforeMount();
-            setTimeout(() => {
-                if (this.isDestroyed) {
-                    console.debug('Component is destroyed before mount', this.tagName);
-                    return;
+            if (this.isDestroyed) {
+                console.debug('Component is destroyed before mount', this.tagName);
+                return;
+            }
+            this.#mounted = true;
+            //instance dynamic style
+            Collector.start();
+            let cssVarObj = this.cssVars;
+            Collector.end();
+            if (!isEmpty(cssVarObj)) {
+                this._cssVarOldValueMap = {};
+                let deps = CssUpdateDepsMap.get(this.constructor);
+                if (!deps) {
+                    deps = new Set(Collector.popVarPathList());
+                    CssUpdateDepsMap.set(this.constructor, deps);
                 }
-                this.#mounted = true;
-                if (this.#shadow) {
-                    //instance dynamic style
-                    Collector.start();
-                    let cssVarObj = this.cssVars;
-                    Collector.end();
-                    if (!isEmpty(cssVarObj)) {
-                        this._cssVarOldValueMap = {};
-                        let deps = CssUpdateDepsMap.get(this.constructor);
-                        if (!deps) {
-                            deps = new Set(Collector.popVarPathList());
-                            CssUpdateDepsMap.set(this.constructor, deps);
-                        }
-                        let cssStr = '';
-                        each(cssVarObj, (v, k) => {
-                            let cssVarKey = '--' + kebabCase(k).replace(/^-+/, '');
-                            if (isBlank(v) || isNil(v)) {
-                                v = 'initial'; // invalid value
-                            }
-                            this._cssVarOldValueMap[cssVarKey] = v;
-                            cssStr += ';' + cssVarKey + ':' + v;
-                        });
-                        this.style.cssText += cssStr;
+                let cssStr = '';
+                each(cssVarObj, (v, k) => {
+                    let cssVarKey = '--' + kebabCase(k).replace(/^-+/, '');
+                    if (isBlank(v) || isNil(v)) {
+                        v = 'initial'; // invalid value
                     }
-                }
-                if (fragment && size(fragment.children) > 0) {
-                    this.#shadow.append(fragment);
-                    ComponentUninitializedSubComponentPropMap.delete(this);
-                }
-                ary && ary.forEach(dw => {
-                    dw.mounted(this, (key, value) => {
-                        that.__data_[key] = value;
-                        return that.__data_[key];
-                    });
+                    this._cssVarOldValueMap[cssVarKey] = v;
+                    cssStr += ';' + cssVarKey + ':' + v;
                 });
-                if (this.#updateNextImmediatelyQ) {
-                    this.#updateNextImmediatelyQ.forEach((cbk) => Queue.pushNext(cbk));
-                }
-                if (this.#updateViewImmediately) {
-                    Queue.pushNext(this.#updatedD);
-                }
-                this.__bindEvents();
-                this.mounted();
-            }, 0);
+                this.style.cssText += cssStr;
+            }
+            if (fragment && size(fragment.children) > 0) {
+                this.#shadow.append(fragment);
+                ComponentUninitializedSubComponentPropMap.delete(this);
+            }
+            ary && ary.forEach(dw => {
+                dw.mounted(this, (key, value) => {
+                    that.__data_[key] = value;
+                    return that.__data_[key];
+                });
+            });
+            if (this.#updateNextImmediatelyQ) {
+                this.#updateNextImmediatelyQ.forEach((cbk) => Queue.pushNext(cbk));
+            }
+            if (this.#updateViewImmediately) {
+                Queue.pushNext(this.#updatedD);
+            }
+            bindEvents(this);
+            this.mounted();
         }
         propsReady(props) { }
         render() {
@@ -9370,23 +9648,6 @@
             ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
                 dw.updated(this, changed);
             });
-            //1. filter update point
-            let toUpdateView = false;
-            let toUpdateUps = new Set();
-            let viewDeps = this.constructor.prototype._viewDeps;
-            each(changed, (x, k) => {
-                if (!toUpdateView && viewDeps?.includes(k)) {
-                    toUpdateView = true;
-                }
-                if (this.__updateSubViewDeps?.has(k)) {
-                    let ups = this.__updateSubViewDeps.get(k);
-                    if (ups) {
-                        ups.forEach(up => {
-                            toUpdateUps.add(up);
-                        });
-                    }
-                }
-            });
             //update watch
             this._watchUpdateSetInNextTick?.forEach((fn) => {
                 let { newValue, oldValue, chain, rootObjNew, rootObjOld, fullMatch } = this._watchUpdateArgsInNextTick.get(fn);
@@ -9397,16 +9658,22 @@
             this._watchUpdateSetInNextTick?.clear();
             this._watchUpdateArgsInNextTick?.clear();
             // update computed
-            this._computedUpdateSetInNextTick?.forEach(fn => {
-                let k = get(fn, 'key');
-                let oldValue = this.__data_[k];
-                let newValue = fn.call(this);
-                if (!isObject(newValue) && newValue === oldValue)
-                    return;
-                this.__data_[k] = newValue;
-                this._notify(newValue, oldValue, [k]);
-            });
-            this._computedUpdateSetInNextTick?.clear();
+            let computedGuard = 0;
+            while (this._computedUpdateSetInNextTick?.size > 0 && computedGuard < 10) {
+                computedGuard++;
+                let fns = Array.from(this._computedUpdateSetInNextTick);
+                this._computedUpdateSetInNextTick.clear();
+                fns.forEach(fn => {
+                    let k = get(fn, 'key');
+                    let oldValue = this.__data_[k];
+                    let newValue = fn.call(this);
+                    if (!isObject(newValue) && newValue === oldValue)
+                        return;
+                    this.__data_[k] = newValue;
+                    appendUpdate(this, newValue, oldValue, [k]);
+                    changed[k] = { value: newValue, chain: [k], oldValue: oldValue, end: true };
+                });
+            }
             // update css
             if (this._cssUpdateInNextTick) {
                 let cssVarObj = this.cssVars;
@@ -9422,6 +9689,23 @@
                     this.style.setProperty(cssVarKey, v + '');
                 });
             }
+            //1. filter update
+            let toUpdateView = false;
+            let toUpdateUps = new Set();
+            let viewDeps = ViewDepMap.get(this.constructor);
+            each(changed, (x, k) => {
+                if (!toUpdateView && viewDeps?.includes(k)) {
+                    toUpdateView = true;
+                }
+                if (this.__updateSubViewDeps?.has(k)) {
+                    let ups = this.__updateSubViewDeps.get(k);
+                    if (ups) {
+                        ups.forEach(up => {
+                            toUpdateUps.add(up);
+                        });
+                    }
+                }
+            });
             //2. update view
             if (this.#renderRoot?.deref()) {
                 if (toUpdateView) {
@@ -9514,7 +9798,8 @@
                     this.#updateAttribute(propDef, key, val);
                 }
                 this.__data_[key] = val;
-                rs[key] = val;
+                if (hasAttr)
+                    rs[key] = val;
                 //use prototype
                 delete this[key];
             }
@@ -9688,6 +9973,7 @@
                     need2UpdateAttrs.push([propDef, ck, v]);
                 }
                 set(this.__data_, ck, v);
+                props[ck] = v;
                 requestUpdate(this, v, oldValue, [ck]);
             });
             assign(this.#props, props);
@@ -9724,8 +10010,8 @@
                 SlotCompMap.set(slot, this);
             }
             let evName = 'slotchange';
-            let unbinder = addEvent(evName, this.#onSlotChangeHookBindThis, slot, this);
-            this._eventBindList.push([evName, this.#onSlotChangeHookBindThis, slot, unbinder]);
+            //slotchange 为元素事件（无传播），统一走事件模块独立绑定 + signal
+            registerEvent(this, evName, this.#onSlotChangeHookBindThis, slot);
             //3. 保存参数
             if (!isEmpty(props)) {
                 let slotMap = this.#slotPropsMap[name];
@@ -9769,6 +10055,8 @@
                 return;
             const cs = flatMap(this.childNodes, node => {
                 if (node.nodeType === Node.COMMENT_NODE)
+                    return [];
+                if (node.nodeType === Node.TEXT_NODE && isBlank(node.textContent))
                     return [];
                 if (node instanceof HTMLSlotElement)
                     return node.assignedNodes({ flatten: true });
@@ -9892,6 +10180,10 @@
                 arg.event = event;
             }
             arg.target = this;
+            //DEV 校验：emit 未声明事件时警告（emit-native 模式跳过）
+            if (!has(this.#attrs, 'emit-native') && !matchEmit(this.constructor, evName)) {
+                console.warn(`[CompElem <${this.tagName}>] emit('${evName}') 未在 @emits 中声明`);
+            }
             if (has(this.#attrs, 'emit-native')) {
                 this.dispatchEvent(new CustomEvent(evName, {
                     bubbles: false,
@@ -9929,12 +10221,22 @@
          * 强制更新一次视图
          */
         forceUpdate() {
-            each(this.__data_, (v, k) => {
-                this.#updateSources[k] = {
+            let viewDeps = ViewDepMap.get(this.constructor);
+            if (viewDeps && size(viewDeps) > 0) {
+                each(viewDeps, (k) => {
+                    this.#updateSources[k] = {
+                        value: undefined,
+                        chain: undefined,
+                    };
+                });
+            }
+            else {
+                //force update for non-UI components‌ 
+                this.#updateSources['__force__'] = {
                     value: undefined,
                     chain: undefined,
                 };
-            });
+            }
             this.#update();
         }
     }
@@ -10201,7 +10503,7 @@
                         each(parentViewsIdMap, (v, pid) => set(n, pid, v));
                     });
                 });
-                renderComponent.__bindEvents();
+                bindEvents(renderComponent);
                 addGroup = groupAddNodes(adds);
                 addGroup.forEach((v, i) => {
                     let treeNode = v.fragment;
@@ -10318,15 +10620,15 @@
     class TemplateMeta {
         updatePointMetas;
         fragment;
-        emptyEvent‌s;
+        emptyEvents;
         constructor(tmpl, component, vars) {
             let [html, v] = this.parseTemplate(tmpl);
             if (vars) {
                 assign(vars, v);
             }
             this.updatePointMetas = [];
-            this.emptyEvent‌s = {};
-            this.fragment = createTemplate(this.updatePointMetas, html, v, component, this.emptyEvent‌s);
+            this.emptyEvents = {};
+            this.fragment = createTemplate(this.updatePointMetas, html, v, component, this.emptyEvents);
         }
         parseTemplate(tmpl) {
             let html = "";
@@ -10590,7 +10892,7 @@
      * 构建模板DOM
      * @param html
      */
-    function createTemplate(updatePoints, html, vars, renderComponent, emptyEvent‌s) {
+    function createTemplate(updatePoints, html, vars, renderComponent, emptyEvents) {
         const container = document.createElement("template");
         container.innerHTML = html;
         //遍历dom
@@ -10659,9 +10961,9 @@
                             varIndex++;
                         }
                         else if (isBlank(value)) {
-                            let evList = emptyEvent‌s[nodeSn];
+                            let evList = emptyEvents[nodeSn];
                             if (!evList) {
-                                evList = emptyEvent‌s[nodeSn] = [];
+                                evList = emptyEvents[nodeSn] = [];
                             }
                             evList.push(evName);
                         }
@@ -10806,16 +11108,13 @@
         return container.content;
     }
     function renderTemplate(component, tmplM, vars) {
-        const { fragment, updatePointMetas, emptyEvent‌s } = tmplM;
+        const { fragment, updatePointMetas, emptyEvents } = tmplM;
         let rs = fragment.cloneNode(true);
         let upAry = [];
         let currentNode;
         let textDirectives = [];
         let direcitves = [];
-        let evList = component._eventBindList;
-        if (!evList) {
-            evList = component._eventBindList = [];
-        }
+        let evList = getEventBindList(component);
         //遍历dom
         const nodeIterator = document.createNodeIterator(rs, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
         let upmMap = {};
@@ -10839,7 +11138,7 @@
             if (slotNodeMap[nodeSn] === null) {
                 slotNodeMap[nodeSn] = currentNode;
             }
-            let emptyEvs = emptyEvent‌s[nodeSn];
+            let emptyEvs = emptyEvents[nodeSn];
             if (emptyEvs) {
                 emptyEvs.forEach(evName => {
                     evList.push([evName, noop, currentNode]);
@@ -10975,7 +11274,7 @@
         }
         let len = fragment.childNodes.length;
         if (len > 0) {
-            component.__bindEvents();
+            bindEvents(component);
             node.parentNode.insertBefore(fragment, node);
         }
     }
@@ -11113,7 +11412,9 @@
             return CssTemplateCacheMap.get(strings);
         }
         let tmpl = new CssTemplate(strings, vars);
-        CssTemplateCacheMap.set(strings, tmpl);
+        let strVal = strings.join('');
+        if (!isEmpty(strVal))
+            CssTemplateCacheMap.set(strings, tmpl);
         return tmpl;
     }
     class RefObject {
@@ -11261,6 +11562,53 @@
     }
 
     /**
+     * class装饰器：声明组件可 emit 的事件名
+     *
+     * 用于两处决策：
+     * 1. 父组件模板绑定子组件事件时（registerEvent）：声明过 → emit 语义；
+     *    未声明且为标准 DOM 事件 → 自动 native，无需手写 .native
+     * 2. emit() 调用时的 DEV 校验（未声明事件给出警告）
+     *
+     * 支持通配符 'update:*'（匹配 update:value 等，配合 model 指令使用）。
+     * 事件名禁止包含 '.'（parseEventName 以 '.' 拆分修饰符）。
+     *
+     * @param eventNames 事件名列表，如 'input'、'change'、'update:*'
+     * @example
+     * @emits('input', 'change', 'update:*')
+     * @tag('l-input')
+     * class LInput extends CompElem { ... }
+     */
+    function emits(...eventNames) {
+        return (target) => {
+            let set = DefinitionCompEmitMap.get(target);
+            if (!set) {
+                set = new Set();
+                DefinitionCompEmitMap.set(target, set);
+            }
+            eventNames.forEach(n => set.add(n));
+        };
+    }
+
+    /**
+     * 绑定非视图事件，如window/document等
+     * @param eventName 事件名，含修饰参数。同视图模板中的事件名
+     * @param eventTarget 事件绑定目标，默认this
+     */
+    function event(eventName, eventTarget) {
+        return (target, name, descriptor) => {
+            if (!DefinitionCompEventMap.has(target.constructor)) {
+                let mixinEvents = [];
+                let parentCtor = target.constructor;
+                while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
+                    mixinEvents = concat(mixinEvents, DefinitionCompEventMap.get(parentCtor) ?? []);
+                }
+                DefinitionCompEventMap.set(target.constructor, mixinEvents);
+            }
+            DefinitionCompEventMap.get(target.constructor)?.push({ name: eventName, targetFn: eventTarget, fnName: name });
+        };
+    }
+
+    /**
      * 缓存策略
      */
     var QueryCache;
@@ -11405,11 +11753,11 @@
             let watchUpdateMap = WatchUpdateMap.get(target.constructor);
             let onceMap = WatchKeysOnceMap.get(target.constructor);
             let watchKeysDeep = WatchKeysDeepListMap.get(target.constructor);
-            let watchKeys = WatchKeysListMap.get(target.constructor);
+            let watchRootKeyMap = WatchKeyRootMap.get(target.constructor);
             let watchImmediateList = WatchImmediateListMap.get(target.constructor);
-            if (!watchKeys) {
-                watchKeys = [];
-                WatchKeysListMap.set(target.constructor, watchKeys);
+            if (!watchRootKeyMap) {
+                watchRootKeyMap = new Map();
+                WatchKeyRootMap.set(target.constructor, watchRootKeyMap);
                 watchKeysDeep = [];
                 WatchKeysDeepListMap.set(target.constructor, watchKeysDeep);
                 onceMap = new Map();
@@ -11422,8 +11770,10 @@
                 WatchImmediateListMap.set(target.constructor, watchImmediateList);
                 let parentCtor = _getSuper(target.constructor);
                 while (parentCtor) {
-                    if (WatchKeysListMap.has(parentCtor)) {
-                        watchKeys.push(...WatchKeysListMap.get(parentCtor));
+                    if (WatchKeyRootMap.has(parentCtor)) {
+                        WatchKeyRootMap.get(parentCtor)?.forEach((v, k) => {
+                            watchRootKeyMap.set(k, v);
+                        });
                         watchKeysDeep.push(...WatchKeysDeepListMap.get(parentCtor));
                         WatchKeysOnceMap.get(parentCtor)?.forEach((v, k) => {
                             onceMap.set(k, v);
@@ -11444,7 +11794,14 @@
                     onceMap.set(src, false);
                 }
                 let deep = get(options, "deep", false);
-                watchKeys.push(src);
+                let root = src.split('.')[0];
+                let list = watchRootKeyMap.get(root);
+                if (!list) {
+                    list = [];
+                    watchRootKeyMap.set(root, list);
+                }
+                if (!list.includes(src))
+                    list.push(src);
                 if (deep) {
                     watchDeepUpdateMap[src] = watchDeepUpdateMap[src] ?? new Set();
                     watchDeepUpdateMap[src].add(handler);
@@ -11550,7 +11907,7 @@
      * 1. 支持多根输出
      * 2.
      */
-    directive(function ForEach(value, keyFn, tmpl) {
+    const forEach = directive(function ForEach(value, keyFn, tmpl) {
         return (pointNode, newArgs, oldArgs, { renderComponent, varChain, updatedMap }) => {
             let newAryOrObj = newArgs[0];
             get(oldArgs, 0);
@@ -11800,7 +12157,7 @@
             if (!(rootPath in renderComponent) && (rootPathInContext && !(rootPathInContext in renderComponent))) {
                 showError(`model - property '${rootPath}' is not defined on the instance of ` + renderComponent.tagName);
             }
-            let evList = renderComponent._eventBindList;
+            let evList = getEventBindList(renderComponent);
             if (!isObject(modelValue) && !trim(modelValue))
                 modelValue = '';
             let ctor = DefinitionComponentMap[node.tagName.toLowerCase()];
@@ -12195,7 +12552,7 @@
         query('i[name="text"]')
     ], exports.PageTest.prototype, "text", void 0);
     __decorate([
-        csscope(Csscope.INNER, Csscope.HOST)
+        csscope(Csscope.INNER, Csscope.GLOBAL)
     ], exports.PageTest, "css", null);
     __decorate([
         csscope(Csscope.HOST)
@@ -12203,6 +12560,586 @@
     exports.PageTest = __decorate([
         tag("page-test")
     ], exports.PageTest);
+    ////////////////////////////////////////////////// 事件代理专项探针
+    const makeSilentWav = () => {
+        const sampleRate = 8000;
+        const seconds = 0.1;
+        const samples = Math.floor(sampleRate * seconds);
+        const dataSize = samples * 2;
+        const buffer = new ArrayBuffer(44 + dataSize);
+        const view = new DataView(buffer);
+        const writeStr = (offset, str) => {
+            for (let i = 0; i < str.length; i++)
+                view.setUint8(offset + i, str.charCodeAt(i));
+        };
+        writeStr(0, 'RIFF');
+        view.setUint32(4, 36 + dataSize, true);
+        writeStr(8, 'WAVE');
+        writeStr(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, 1, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * 2, true);
+        view.setUint16(32, 2, true);
+        view.setUint16(34, 16, true);
+        writeStr(36, 'data');
+        view.setUint32(40, dataSize, true);
+        //静音 PCM（全 0）
+        let bin = '';
+        const bytes = new Uint8Array(buffer);
+        for (let i = 0; i < bytes.length; i++)
+            bin += String.fromCharCode(bytes[i]);
+        return 'data:audio/wav;base64,' + btoa(bin);
+    };
+    const GIF_1PX = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+    //子组件（emit 事件源）
+    exports.EventProbeSub = class EventProbeSub extends CompElem {
+        render() {
+            return h `<button id="sub-emit" @click=${this.emitClick}>emit-me</button>`;
+        }
+        emitClick() {
+            this.emit('custom-click', { v: 1 });
+        }
+    };
+    exports.EventProbeSub = __decorate([
+        emits('custom-click'),
+        tag('event-probe-sub')
+    ], exports.EventProbeSub);
+    //无 shadowDOM 组件（render 返回 null）：@event 装饰器直接绑定 window，仅自身事件监听
+    exports.EventProbeNull = class EventProbeNull extends CompElem {
+        onProbe() {
+            let n = parseInt(this.getAttribute('data-probe-count') || '0');
+            this.setAttribute('data-probe-count', (n + 1) + '');
+        }
+        render() {
+            return null;
+        }
+    };
+    __decorate([
+        event('probe-window', () => window)
+    ], exports.EventProbeNull.prototype, "onProbe", null);
+    exports.EventProbeNull = __decorate([
+        tag('event-probe-null')
+    ], exports.EventProbeNull);
+    exports.EventProbe = class EventProbe extends CompElem {
+        results = [];
+        list = [1, 2, 3];
+        imgSrc = GIF_1PX;
+        wavSrc = makeSilentWav();
+        probe = { click: 0, stop: 0, once: 0, focus: 0, load: 0, play: 0, enter: 0, each: 0, sub: 0, key: 0 };
+        log(name, ok, detail = '') {
+            this.results = [...this.results, `${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' (' + detail + ')' : ''}`];
+        }
+        mounted() {
+            setTimeout(() => this.runProbe(), 100);
+        }
+        //////////////////////////////////// 事件回调
+        onBtnClick() { this.probe.click++; }
+        onBtnStop() { this.probe.stop++; }
+        onBtnOnce() { this.probe.once++; }
+        onInputFocus() { this.probe.focus++; }
+        onImgLoad() { this.probe.load++; }
+        onImgError() { }
+        onAudioPlay() { this.probe.play++; }
+        onDivEnter() { this.probe.enter++; }
+        onEachClick() { this.probe.each++; }
+        onSubEvent() { this.probe.sub++; }
+        onKeyDown() { this.probe.key++; }
+        runProbe() {
+            const root = this.renderRoot;
+            const $ = (sel) => root.querySelector(sel);
+            //1. 冒泡事件委托（click）
+            this.probe.click = 0;
+            $('#btn-click').click();
+            this.log('冒泡事件委托 click', this.probe.click === 1);
+            //2. .stop 修饰符（阻止传播出组件边界，用 document 冒泡阶段监听验证）
+            let docGot = false;
+            const docCbk = () => { docGot = true; };
+            document.addEventListener('click', docCbk, false);
+            this.probe.stop = 0;
+            $('#btn-stop').click();
+            document.removeEventListener('click', docCbk, false);
+            this.log('.stop 修饰符', this.probe.stop === 1 && !docGot);
+            //3. .once 修饰符（委托命中后移除条目）
+            this.probe.once = 0;
+            const onceBtn = $('#btn-once');
+            onceBtn.click();
+            onceBtn.click();
+            this.log('.once 修饰符', this.probe.once === 1);
+            //4. 捕获事件委托（focus：无冒泡，捕获阶段）
+            this.probe.focus = 0;
+            const inp = $('#inp-focus');
+            inp.focus();
+            inp.blur();
+            this.log('捕获事件委托 focus', this.probe.focus === 1);
+            //5. 元素事件 load（独立绑定，不代理；dataURL 早载场景）
+            this.probe.load = 0;
+            setTimeout(() => {
+                this.log('元素事件 load（独立绑定）', this.probe.load === 1, 'load=' + this.probe.load);
+                //6. 媒体事件 play（audio，独立绑定）
+                const audio = $('#aud-play');
+                audio.play().then(() => {
+                    setTimeout(() => {
+                        this.log('元素事件 play（独立绑定）', this.probe.play === 1, 'play=' + this.probe.play);
+                    }, 300);
+                }).catch((e) => {
+                    this.log('元素事件 play（独立绑定）', false, 'play rejected: ' + e);
+                });
+                //7. 特殊传播 mouseenter（直接绑定）
+                this.probe.enter = 0;
+                $('#enter').dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
+                this.log('mouseenter（直接绑定）', this.probe.enter === 1);
+                //8. 键盘组合修饰符 ctrl.enter（委托 + 修饰符）
+                this.probe.key = 0;
+                const keyInp = $('#inp-key');
+                keyInp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
+                keyInp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: false, bubbles: true }));
+                this.log('键盘组合修饰符 ctrl.enter（委托）', this.probe.key === 1);
+                //9. 组件事件 emit（不代理）
+                this.probe.sub = 0;
+                root.querySelector('#sub-emit').click();
+                setTimeout(() => {
+                    this.log('组件事件 emit（不代理）', this.probe.sub === 1);
+                    //10. 无 shadowDOM 组件 @event window 绑定
+                    const nullComp = root.querySelector('event-probe-null');
+                    window.dispatchEvent(new CustomEvent('probe-window'));
+                    this.log('无 shadowDOM @event window 绑定', nullComp?.getAttribute('data-probe-count') === '1', 'count=' + nullComp?.getAttribute('data-probe-count'));
+                    //11. 动态节点委托（ForEach 新增节点后事件仍生效）
+                    this.probe.each = 0;
+                    root.querySelector('button[data-key="1"]').click();
+                    this.list = [...this.list, 4];
+                    setTimeout(() => {
+                        root.querySelector('button[data-key="4"]').click();
+                        this.log('动态节点委托（ForEach 新增）', this.probe.each === 2, 'each=' + this.probe.each);
+                        //12. destroy 释放 signal 监听
+                        const tmp = document.createElement('event-probe-null');
+                        document.body.appendChild(tmp);
+                        setTimeout(() => {
+                            window.dispatchEvent(new CustomEvent('probe-window'));
+                            tmp.destroy();
+                            const before = tmp.getAttribute('data-probe-count');
+                            window.dispatchEvent(new CustomEvent('probe-window'));
+                            this.log('destroy 释放 signal 监听', tmp.getAttribute('data-probe-count') === before, 'count=' + tmp.getAttribute('data-probe-count'));
+                            this.log('——探针完成——', true);
+                        }, 100);
+                    }, 300);
+                }, 50);
+            }, 400);
+        }
+        render() {
+            return h `<div>
+      <h3>事件代理专项探针</h3>
+      <button id="btn-click" @click=${this.onBtnClick}>click</button>
+      <button id="btn-stop" @click.stop=${this.onBtnStop}>click.stop</button>
+      <button id="btn-once" @click.once=${this.onBtnOnce}>click.once</button>
+      <input id="inp-focus" @focus=${this.onInputFocus} />
+      <input id="inp-key" @keydown.ctrl.enter=${this.onKeyDown} />
+      <img id="img-load" src=${this.imgSrc} @load=${this.onImgLoad} @error=${this.onImgError} />
+      <audio id="aud-play" src=${this.wavSrc} @play=${this.onAudioPlay}></audio>
+      <div id="enter" @mouseenter=${this.onDivEnter}>hover-me</div>
+      <div>
+        ${forEach(this.list, (item) => item + '', (item) => h `<button key="${item}" data-key="${item}" @click=${this.onEachClick}>each-${item}</button>`)}
+      </div>
+      <event-probe-sub @custom-click=${this.onSubEvent}></event-probe-sub>
+      <event-probe-null></event-probe-null>
+      <pre id="probe-result">${this.results.join('\n')}</pre>
+    </div>`;
+        }
+    };
+    __decorate([
+        state
+    ], exports.EventProbe.prototype, "results", void 0);
+    __decorate([
+        state
+    ], exports.EventProbe.prototype, "list", void 0);
+    exports.EventProbe = __decorate([
+        tag('event-probe')
+    ], exports.EventProbe);
+    ////////////////////////////////////////////////// 代理事件（含修饰符）专项探针
+    exports.EventDelegateProbe = class EventDelegateProbe extends CompElem {
+        results = [];
+        list = [1];
+        probe = {
+            bubble: 0, click: 0, stop: 0, prevent: 0, once: 0,
+            selfOut: 0, focus: 0, key: 0, left: 0, each: 0
+        };
+        lastPrevented = false;
+        watchName(nv) {
+            console.log(nv);
+        }
+        log(name, ok, detail = '') {
+            this.results = [...this.results, `${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' (' + detail + ')' : ''}`];
+        }
+        mounted() {
+            setTimeout(() => this.runProbe(), 100);
+        }
+        //////////////////////////////////// 事件回调
+        onBubble() { this.probe.bubble++; }
+        onBtnClick() { this.probe.click++; }
+        onBtnStop() { this.probe.stop++; }
+        onBtnPrevent(e) { this.probe.prevent++; this.lastPrevented = e.defaultPrevented; }
+        onBtnOnce() { this.probe.once++; }
+        onSelfOut() { this.probe.selfOut++; }
+        onFocus() { this.probe.focus++; }
+        onKeyDown() { this.probe.key++; }
+        onMouseLeft() { this.probe.left++; }
+        onEachClick() { this.probe.each++; }
+        runProbe() {
+            const root = this.renderRoot;
+            const $ = (sel) => root.querySelector(sel);
+            //1. 冒泡委托：子元素点击冒泡到祖先 div 的委托监听
+            this.probe.bubble = 0;
+            $('#bubble-child').click();
+            this.log('冒泡委托（子→父）', this.probe.bubble === 1);
+            //2. 基础 click 委托
+            this.probe.click = 0;
+            $('#btn-click').click();
+            this.log('冒泡事件委托 click', this.probe.click === 1);
+            //3. .stop 修饰符（阻止传播出组件边界，用 document 冒泡阶段监听验证）
+            let docGot = false;
+            const docCbk = () => { docGot = true; };
+            document.addEventListener('click', docCbk, false);
+            this.probe.stop = 0;
+            $('#btn-stop').click();
+            document.removeEventListener('click', docCbk, false);
+            this.log('.stop 修饰符', this.probe.stop === 1 && !docGot);
+            //4. .prevent 修饰符（回调执行前已 preventDefault）
+            this.probe.prevent = 0;
+            this.lastPrevented = false;
+            $('#btn-prevent').click();
+            this.log('.prevent 修饰符', this.probe.prevent === 1 && this.lastPrevented);
+            //5. .once 修饰符（委托命中后移除条目，二次点击不再触发）
+            this.probe.once = 0;
+            const onceBtn = $('#btn-once');
+            onceBtn.click();
+            onceBtn.click();
+            this.log('.once 修饰符', this.probe.once === 1);
+            //6. .self 修饰符（子元素点击不触发 / 自身点击触发）
+            this.probe.selfOut = 0;
+            $('#self-inner').click();
+            this.log('.self 修饰符（子元素不触发）', this.probe.selfOut === 0);
+            $('#self-box').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            this.log('.self 修饰符（自身触发）', this.probe.selfOut === 1);
+            //7. 捕获事件 + .capture 修饰符（focus 无冒泡，须捕获阶段委托）
+            this.probe.focus = 0;
+            const inp = $('#inp-focus');
+            inp.focus();
+            inp.blur();
+            this.log('捕获事件 focus.capture', this.probe.focus === 1);
+            //8. 键盘组合修饰符 ctrl.enter（委托 + 修饰符）
+            this.probe.key = 0;
+            const keyInp = $('#inp-key');
+            keyInp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
+            keyInp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: false, bubbles: true }));
+            this.log('键盘组合修饰符 ctrl.enter', this.probe.key === 1);
+            //9. 鼠标按键修饰符 .left
+            this.probe.left = 0;
+            $('#mouse-left').dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true }));
+            $('#mouse-left').dispatchEvent(new MouseEvent('mousedown', { button: 2, bubbles: true }));
+            this.log('鼠标按键修饰符 .left', this.probe.left === 1, 'left=' + this.probe.left);
+            //10. 动态节点委托（ForEach 新增节点后事件仍生效）
+            this.probe.each = 0;
+            $('button[data-key="1"]').click();
+            this.list = [...this.list, 2];
+            setTimeout(() => {
+                $('button[data-key="2"]').click();
+                this.log('动态节点委托（ForEach 新增）', this.probe.each === 2, 'each=' + this.probe.each);
+                this.log('——代理事件探针完成——', true);
+            }, 300);
+        }
+        render() {
+            return h `<div>
+      <h3>代理事件（含修饰符）</h3>
+      <div id="bubble"><button id="bubble-child" @click=${this.onBubble}>bubble-child</button></div>
+      <button id="btn-click" @click=${this.onBtnClick}>click</button>
+      <button id="btn-stop" @click.stop=${this.onBtnStop}>click.stop</button>
+      <button id="btn-prevent" @click.prevent=${this.onBtnPrevent}>click.prevent</button>
+      <button id="btn-once" @click.once=${this.onBtnOnce}>click.once</button>
+      <div id="self-box" @click.self=${this.onSelfOut}><button id="self-inner">self-inner</button></div>
+      <input id="inp-focus" @focus.capture=${this.onFocus} />
+      <input id="inp-key" @keydown.ctrl.enter=${this.onKeyDown} />
+      <div id="mouse-left" @mousedown.left=${this.onMouseLeft}>mouse-left</div>
+      <div>
+        ${forEach(this.list, (item) => item + '', (item) => h `<button key="${item}" data-key="${item}" @click=${this.onEachClick}>each-${item}</button>`)}
+      </div>
+      <pre id="delegate-result">${this.results.join('\n')}</pre>
+    </div>`;
+        }
+    };
+    __decorate([
+        state
+    ], exports.EventDelegateProbe.prototype, "results", void 0);
+    __decorate([
+        state
+    ], exports.EventDelegateProbe.prototype, "list", void 0);
+    __decorate([
+        state
+    ], exports.EventDelegateProbe.prototype, "probe", void 0);
+    __decorate([
+        watch('probe', { deep: true })
+    ], exports.EventDelegateProbe.prototype, "watchName", null);
+    exports.EventDelegateProbe = __decorate([
+        tag('event-delegate-probe')
+    ], exports.EventDelegateProbe);
+    ////////////////////////////////////////////////// 独立事件专项探针
+    exports.EventDirectProbe = class EventDirectProbe extends CompElem {
+        results = [];
+        probe = { load: 0, error: 0, scroll: 0, enter: 0, leave: 0, doc: 0, win: 0 };
+        imgSrc = GIF_1PX;
+        log(name, ok, detail = '') {
+            this.results = [...this.results, `${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' (' + detail + ')' : ''}`];
+        }
+        mounted() {
+            setTimeout(() => this.runProbe(), 100);
+        }
+        //////////////////////////////////// 事件回调
+        onImgLoad() { this.probe.load++; }
+        onImgError() { this.probe.error++; }
+        onScroll() { this.probe.scroll++; }
+        onEnter() { this.probe.enter++; }
+        onLeave() { this.probe.leave++; }
+        onDocEvent() { this.probe.doc++; }
+        onWinEvent() { this.probe.win++; }
+        runProbe() {
+            const root = this.renderRoot;
+            const $ = (sel) => root.querySelector(sel);
+            //1. 元素事件 scroll（不冒泡，独立绑定才有效）
+            this.probe.scroll = 0;
+            $('#box-scroll').dispatchEvent(new Event('scroll'));
+            this.log('元素事件 scroll（独立绑定）', this.probe.scroll === 1);
+            //2. 特殊传播 mouseenter/mouseleave（无传播语义，直接绑定）
+            this.probe.enter = 0;
+            this.probe.leave = 0;
+            $('#box-hover').dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
+            $('#box-hover').dispatchEvent(new MouseEvent('mouseleave', { bubbles: false }));
+            this.log('特殊传播 mouseenter/mouseleave（独立绑定）', this.probe.enter === 1 && this.probe.leave === 1);
+            //3. @event 装饰器 → document（独立绑定，非 Element 目标）
+            this.probe.doc = 0;
+            document.dispatchEvent(new CustomEvent('direct-doc-event'));
+            this.log('@event document 目标（独立绑定）', this.probe.doc === 1);
+            //4. @event 装饰器 → window（独立绑定）
+            this.probe.win = 0;
+            window.dispatchEvent(new CustomEvent('direct-win-event'));
+            this.log('@event window 目标（独立绑定）', this.probe.win === 1);
+            //5. 元素事件 load：dataURL 可能在探针启动前已加载完成，不做计数重置，断言已触发
+            setTimeout(() => {
+                this.log('元素事件 load（独立绑定）', this.probe.load >= 1, 'load=' + this.probe.load);
+                //6. 元素事件 error：合成 error 事件确定性验证（不依赖 404 网络时序）
+                this.probe.error = 0;
+                $('#img-error').dispatchEvent(new Event('error'));
+                this.log('元素事件 error（独立绑定）', this.probe.error === 1);
+                this.log('——独立事件探针完成——', true);
+            }, 400);
+        }
+        render() {
+            return h `<div>
+      <h3>独立事件（元素事件 / 特殊传播 / 装饰器目标）</h3>
+      <div id="box-scroll" style="height:60px;overflow:auto" @scroll=${this.onScroll}>scrollable</div>
+      <div id="box-hover" @mouseenter=${this.onEnter} @mouseleave=${this.onLeave}>hover-me</div>
+      <img id="img-load" src=${this.imgSrc} @load=${this.onImgLoad} @error=${this.onImgError} />
+      <img id="img-error" src="./missing-image.png" @error=${this.onImgError} />
+      <pre id="direct-result">${this.results.join('\n')}</pre>
+    </div>`;
+        }
+    };
+    __decorate([
+        state
+    ], exports.EventDirectProbe.prototype, "results", void 0);
+    __decorate([
+        event('direct-doc-event', () => document)
+    ], exports.EventDirectProbe.prototype, "onDocEvent", null);
+    __decorate([
+        event('direct-win-event', () => window)
+    ], exports.EventDirectProbe.prototype, "onWinEvent", null);
+    exports.EventDirectProbe = __decorate([
+        tag('event-direct-probe')
+    ], exports.EventDirectProbe);
+    ////////////////////////////////////////////////// 扩展事件专项探针
+    exports.EventExtProbe = class EventExtProbe extends CompElem {
+        results = [];
+        probe = { outside: 0, outsideDown: 0, resize: 0, attr: 0, child: 0 };
+        lastAttrName = '';
+        log(name, ok, detail = '') {
+            this.results = [...this.results, `${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' (' + detail + ')' : ''}`];
+        }
+        mounted() {
+            setTimeout(() => this.runProbe(), 100);
+        }
+        //////////////////////////////////// 事件回调
+        onOutside() { this.probe.outside++; }
+        onOutsideDown() { this.probe.outsideDown++; }
+        onResize() { this.probe.resize++; }
+        onMutateAttr(d) { this.probe.attr++; this.lastAttrName = d.attributeName; }
+        onMutateChild() { this.probe.child++; }
+        runProbe() {
+            const root = this.renderRoot;
+            const $ = (sel) => root.querySelector(sel);
+            //1. outside：盒内点击不触发
+            this.probe.outside = 0;
+            $('#box-outside').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            this.log('outside（盒内点击不触发）', this.probe.outside === 0);
+            //2. outside：盒外点击触发（全局注册）
+            this.probe.outside = 0;
+            $('#btn-other').click();
+            this.log('outside（盒外点击触发）', this.probe.outside === 1, 'n=' + this.probe.outside);
+            //3. outside.mousedown 修饰符（合成事件须 composed 穿透 shadow 边界到达 document 监听）
+            this.probe.outsideDown = 0;
+            $('#btn-other').dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }));
+            this.log('outside.mousedown 修饰符', this.probe.outsideDown === 1);
+            //4. resize（ResizeObserver，异步触发）
+            this.probe.resize = 0;
+            const box = $('#box-resize');
+            box.style.width = '260px';
+            setTimeout(() => {
+                this.log('resize（ResizeObserver）', this.probe.resize === 1, 'n=' + this.probe.resize);
+                //5. mutate.attr（属性变更）
+                this.probe.attr = 0;
+                const box2 = $('#box-mutate');
+                box2.setAttribute('data-x', '1');
+                setTimeout(() => {
+                    this.log('mutate.attr', this.probe.attr === 1 && this.lastAttrName === 'data-x', 'attr=' + this.lastAttrName);
+                    //6. mutate.child（子节点变更）
+                    this.probe.child = 0;
+                    const box3 = $('#box-mutate-child');
+                    box3.appendChild(document.createElement('i'));
+                    setTimeout(() => {
+                        this.log('mutate.child', this.probe.child === 1);
+                        //7. destroy 释放扩展事件（unbinder 进释放列表）
+                        this.checkDestroyRelease();
+                    }, 100);
+                }, 100);
+            }, 300);
+        }
+        checkDestroyRelease() {
+            const tmp = document.createElement('event-ext-destroy-probe');
+            document.body.appendChild(tmp);
+            setTimeout(() => {
+                const t = tmp;
+                //destroy 会清空 renderRoot，必须先保存按钮引用
+                const btn = t.renderRoot.querySelector('#other');
+                const before = t.count;
+                btn.click();
+                const after1 = t.count;
+                tmp.destroy();
+                btn.click();
+                const after2 = t.count;
+                this.log('扩展事件 destroy 释放（outside）', after1 === before + 1 && after2 === after1, `b=${before} a1=${after1} a2=${after2}`);
+                this.log('——扩展事件探针完成——', true);
+            }, 200);
+        }
+        render() {
+            return h `<div>
+      <h3>扩展事件（outside / resize / mutate）</h3>
+      <div id="box-outside" @outside=${this.onOutside} @outside.mousedown=${this.onOutsideDown}>outside-target</div>
+      <button id="btn-other">outside-other</button>
+      <div id="box-resize" style="width:120px;height:40px" @resize=${this.onResize}>resize-me</div>
+      <div id="box-mutate" @mutate.attr=${this.onMutateAttr}>mutate-attr</div>
+      <div id="box-mutate-child" @mutate.child=${this.onMutateChild}>mutate-child</div>
+      <pre id="ext-result">${this.results.join('\n')}</pre>
+    </div>`;
+        }
+    };
+    __decorate([
+        state
+    ], exports.EventExtProbe.prototype, "results", void 0);
+    exports.EventExtProbe = __decorate([
+        tag('event-ext-probe')
+    ], exports.EventExtProbe);
+    //扩展事件 destroy 释放探针（最小组件，避免嵌套自触发）
+    exports.EventExtDestroyProbe = class EventExtDestroyProbe extends CompElem {
+        count = 0;
+        onOutside() { this.count++; }
+        render() {
+            return h `<div>
+      <div id="box" @outside=${this.onOutside}>destroy-box</div>
+      <button id="other">other</button>
+    </div>`;
+        }
+    };
+    exports.EventExtDestroyProbe = __decorate([
+        tag('event-ext-destroy-probe')
+    ], exports.EventExtDestroyProbe);
+    ////////////////////////////////////////////////// emits 声明专项探针
+    //子组件：声明 custom-action（精确）与 update:*（通配符）；未声明 click / unlisted-event
+    exports.EventEmitsSub = class EventEmitsSub extends CompElem {
+        render() {
+            return h `<button id="btn">sub</button>`;
+        }
+        emitAction() { this.emit('custom-action', { v: 1 }); }
+        emitUpdate() { this.emit('update:foo', { v: 2 }); }
+        emitClick() { this.emit('click', { v: 4 }); }
+        emitUndeclared() { this.emit('unlisted-event', { v: 3 }); }
+    };
+    exports.EventEmitsSub = __decorate([
+        emits('custom-action', 'update:*'),
+        tag('event-emits-sub')
+    ], exports.EventEmitsSub);
+    exports.EventEmitsProbe = class EventEmitsProbe extends CompElem {
+        results = [];
+        probe = { native: 0, action: 0, update: 0, emitMod: 0 };
+        log(name, ok, detail = '') {
+            this.results = [...this.results, `${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' (' + detail + ')' : ''}`];
+        }
+        mounted() {
+            setTimeout(() => this.runProbe(), 100);
+        }
+        onNative() { this.probe.native++; }
+        onAction() { this.probe.action++; }
+        onUpdateFoo() { this.probe.update++; }
+        onEmitMod() { this.probe.emitMod++; }
+        runProbe() {
+            const root = this.renderRoot;
+            const $ = (sel) => root.querySelector(sel);
+            const sub = $('event-emits-sub');
+            //1. 自动 native：子组件未声明 'click'（标准事件）→ @click 自动绑定原生，无需 .native
+            this.probe.native = 0;
+            sub.click();
+            this.log('组件事件自动 native（未声明标准事件）', this.probe.native === 1);
+            //2. 声明 emit 语义：@emits('custom-action') 精确匹配
+            this.probe.action = 0;
+            sub.emitAction();
+            this.log('声明 emit 语义（精确匹配）', this.probe.action === 1);
+            //3. 通配符：@emits('update:*') 命中 @update:foo
+            this.probe.update = 0;
+            sub.emitUpdate();
+            this.log('声明 emit 通配符（update:*）', this.probe.update === 1);
+            //4. .emit 强制修饰符：未声明 'click' 也强制 emit 语义（不自动 native）
+            this.probe.emitMod = 0;
+            sub.emitClick();
+            this.log('.emit 强制修饰符', this.probe.emitMod === 1);
+            //5. emit() 侧 DEV 警告：未声明事件 emit 时 console.warn
+            const origWarn = console.warn;
+            let warned = 0;
+            console.warn = (...a) => { warned++; origWarn(...a); };
+            sub.emitUndeclared();
+            console.warn = origWarn;
+            this.log('emit() 未声明事件 DEV 警告', warned >= 1, 'warn=' + warned);
+            //6. emit-native 属性：emit() 校验跳过（不警告）
+            const subNative = $('event-emits-sub[emit-native]');
+            const origWarn2 = console.warn;
+            let warned2 = 0;
+            console.warn = (...a) => { warned2++; origWarn2(...a); };
+            subNative.emitAction();
+            console.warn = origWarn2;
+            this.log('emit-native 跳过 DEV 警告', warned2 === 0, 'warn=' + warned2);
+            this.log('——emits 声明探针完成——', true);
+        }
+        render() {
+            return h `<div>
+      <h3>emits 声明（自动 native / emit 语义 / 通配符 / 修饰符）</h3>
+      <event-emits-sub id="sub" @click=${this.onNative} @custom-action=${this.onAction} @update:foo=${this.onUpdateFoo} @click.emit=${this.onEmitMod}></event-emits-sub>
+      <event-emits-sub id="sub-native" emit-native></event-emits-sub>
+      <pre id="emits-result">${this.results.join('\n')}</pre>
+    </div>`;
+        }
+    };
+    __decorate([
+        state
+    ], exports.EventEmitsProbe.prototype, "results", void 0);
+    exports.EventEmitsProbe = __decorate([
+        tag('event-emits-probe')
+    ], exports.EventEmitsProbe);
 
     Object.defineProperty(exports, '__esModule', { value: true });
 

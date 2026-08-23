@@ -2,7 +2,7 @@ import { find, get, isObject, isString, last, set, split, toPath, trim } from "m
 import { CompElem } from "../CompElem";
 import { DefinitionComponentMap } from "../constants";
 import { directive } from "../directive/index";
-import { addEmitEvent } from "../events/event";
+import { addEmitEvent, getEventBindList } from "../events/event";
 import { OBJECT_VAR_ROOT_PATH_IN_CONTEXT } from "../reactive";
 import { EnterPointType } from "../types";
 import { addUninitializedSubComponentProp, showError } from "../utils";
@@ -91,7 +91,7 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
       showError(`model - property '${rootPath}' is not defined on the instance of ` + renderComponent.tagName)
     }
 
-    let evList: Array<[string, Function, Node, Function?]> | undefined = renderComponent._eventBindList
+    let evList: Array<[string, Function, Node, Function?]> = getEventBindList(renderComponent)
 
     if (!isObject(modelValue) && !trim(modelValue)) modelValue = ''
     let ctor = DefinitionComponentMap[node.tagName.toLowerCase()]

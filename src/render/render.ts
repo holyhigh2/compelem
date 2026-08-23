@@ -25,6 +25,7 @@ import {
   trim
 } from "myfx";
 import { CompElem } from "../CompElem";
+import { bindEvents, getEventBindList } from "../events/event";
 import { ComponentUninitializedWrapperComponentMap, CssTemplateCacheMap, DefinitionComponentMap, DefinitionPropMap, DefinitionTagMap, DirectiveScopeMap, PATH_SEPARATOR, PLACEHOLDER } from "../constants";
 import {
   directiveScopeChecker,
@@ -361,10 +362,7 @@ export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, va
   let currentNode: any
   let textDirectives: any[] = []
   let direcitves: any[] = []
-  let evList: Array<[string, Function, Node, Function?]> | undefined = component._eventBindList
-  if (!evList) {
-    evList = component._eventBindList = []
-  }
+  let evList: Array<[string, Function, Node, Function?]> = getEventBindList(component)
   //遍历dom
   const nodeIterator = document.createNodeIterator(
     rs,
@@ -530,7 +528,7 @@ export function insertSubView(node: Node, point: UpdatePoint, tmplFn: TplFn, tmp
 
   let len = fragment!.childNodes.length
   if (len > 0) {
-    component.__bindEvents()
+    bindEvents(component)
     node.parentNode!.insertBefore(fragment, node);
   }
 }

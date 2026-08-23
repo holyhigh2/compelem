@@ -1,5 +1,6 @@
 import { compact, each, except, filter, findIndex, first, get, groupBy, initial, intersect, isArray, isEmpty, keys, last, map, remove, set, startsWith, test, toArray } from "myfx";
 import { CompElem } from "../CompElem";
+import { bindEvents } from "../events/event";
 import { DirectiveScopeMap } from "../constants";
 import { Collector } from "../reactive";
 import { buildVars, insertSubView, renderTemplate, updateView } from "../render/render";
@@ -261,7 +262,7 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
           each(parentViewsIdMap, (v, pid) => set(n, pid, v))
         })
       })
-      renderComponent.__bindEvents()
+      bindEvents(renderComponent)
       addGroup = groupAddNodes(adds)
 
       addGroup.forEach((v, i) => {

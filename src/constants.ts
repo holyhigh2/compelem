@@ -27,6 +27,7 @@ export const PropTypeMap: Record<string, Constructor<any>> = {
     undefined: Object
 }
 export const DefinitionCompEventMap = new Map<Function, Array<Record<string, any>>>()
+export const DefinitionCompEmitMap = new WeakMap<Function, Set<string>>()
 export const DefinitionTagMap = {} as Record<string, string>;
 export const DefinitionComponentMap = {} as Record<string, Function>;
 export const DefinitionComputedMap = new WeakMap<Function, Record<string, Getter>>()
