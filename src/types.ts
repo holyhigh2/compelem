@@ -159,3 +159,6 @@ export type DefaultProps = Partial<{
     //组件的默认prop
     [key: string]: Record<string, any>
 }>
+
+export type StyleValueObjectType = { value: number | string, important?: boolean }
+export type StyleValueType = string | number | StyleValueObjectType

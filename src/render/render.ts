@@ -25,12 +25,12 @@ import {
   trim
 } from "myfx";
 import { CompElem } from "../CompElem";
-import { bindEvents, getEventBindList } from "../events/event";
 import { ComponentUninitializedWrapperComponentMap, CssTemplateCacheMap, DefinitionComponentMap, DefinitionPropMap, DefinitionTagMap, DirectiveScopeMap, PATH_SEPARATOR, PLACEHOLDER } from "../constants";
 import {
   directiveScopeChecker,
   updateDirective
 } from "../directive/index";
+import { bindEvents, getEventBindList } from "../events/event";
 import { Collector } from "../reactive";
 import { DirectiveInstance, DirectiveUpdateTag, EnterPointType, KeyFn, TplFn, UpdatedSource } from "../types";
 import { addUninitializedSubComponentProp, getSlotComponent, isCompElemNode, showTagError } from "../utils";
@@ -355,7 +355,7 @@ export function createTemplate(
   return container.content;
 }
 export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, vars: any[]): [DocumentFragment, UpdatePoint[]] {
-  const { fragment, updatePointMetas, emptyEvents } = tmplM
+  const { fragment, updatePointMetas, emptyEvents, upmMap, slotNodeMap } = tmplM
   let rs = fragment.cloneNode(true) as DocumentFragment
   let upAry: UpdatePoint[] = []
 
@@ -368,15 +368,6 @@ export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, va
     rs,
     NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT
   );
-  let upmMap: Record<number, UpdatePointMeta[]> = {}
-  let slotNodeMap: Record<number, Node | null> = {}
-  updatePointMetas.forEach((upm, i) => {
-    if (!upmMap[upm.nodeSn]) upmMap[upm.nodeSn] = []
-    upmMap[upm.nodeSn].push(upm)
-    if (upm.slotNodeSn > -1) {
-      slotNodeMap[upm.slotNodeSn] = null
-    }
-  })
   let nodeSn = -1
   let varIndex = 0
   if (process.env.DEV && size(vars) != size(updatePointMetas)) {

@@ -17,6 +17,8 @@ export class TemplateMeta {
     updatePointMetas!: Array<UpdatePointMeta>
     fragment!: DocumentFragment
     emptyEvents: Record<number, string[]>
+    upmMap: Record<number, UpdatePointMeta[]>
+    slotNodeMap: Record<number, Node | null>
 
     constructor(tmpl: Template, component: CompElem<any>, vars?: any[]) {
         let [html, v] = this.parseTemplate(tmpl);
@@ -26,6 +28,15 @@ export class TemplateMeta {
         this.updatePointMetas = []
         this.emptyEvents = {}
         this.fragment = createTemplate(this.updatePointMetas, html, v, component, this.emptyEvents);
+        this.upmMap = {}
+        this.slotNodeMap = {}
+        this.updatePointMetas.forEach((upm, i) => {
+            if (!this.upmMap[upm.nodeSn]) this.upmMap[upm.nodeSn] = []
+            this.upmMap[upm.nodeSn].push(upm)
+            if (upm.slotNodeSn > -1) {
+                this.slotNodeMap[upm.slotNodeSn] = null
+            }
+        })
     }
 
     parseTemplate(

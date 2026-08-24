@@ -1,7 +1,7 @@
-import { compact, each, except, filter, findIndex, first, get, groupBy, initial, intersect, isArray, isEmpty, keys, last, map, remove, set, startsWith, test, toArray } from "myfx";
+import { compact, each, except, filter, first, get, groupBy, initial, intersect, isArray, isEmpty, keys, last, map, remove, set, startsWith, test, toArray } from "myfx";
 import { CompElem } from "../CompElem";
-import { bindEvents } from "../events/event";
 import { DirectiveScopeMap } from "../constants";
+import { bindEvents } from "../events/event";
 import { Collector } from "../reactive";
 import { buildVars, insertSubView, renderTemplate, updateView } from "../render/render";
 import { UpdatePoint } from "../render/UpdatePoint";
@@ -158,6 +158,14 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
 
     let oldSeq = oldKeys as string[]
     let newSeq = newKeys as string[]
+    let oldSeqMap = new Map<string, number>()
+    let newSeqMap = new Map<string, number>()
+    oldSeq.forEach((v, i) => {
+      oldSeqMap.set(v, i)
+    })
+    newSeq.forEach((v, i) => {
+      newSeqMap.set(v, i)
+    })
     let sameKeys = intersect(oldKeys, newKeys)
     let delKeys = except<string | number>(oldKeys, sameKeys)
 
@@ -174,7 +182,7 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
       let i = 0
       for (; i < newSeq.length; i++) {
         const newKey = newSeq[i];
-        let oldI = oldSeq.findIndex(c => c === newKey)
+        let oldI = oldSeqMap.get(newKey) ?? -1
         if (oldI < 0) {
           let prevKey = newSeq[i - 1]
           //add
@@ -243,7 +251,7 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
     let addGroup
     if (adds.length > 0) {
       adds.forEach(add => {
-        let i = findIndex(newKeys, k => k == add.newKey)
+        let i = newSeqMap.get(add.newKey) ?? -1
         let val = newValueAry[i]
         let vars = buildVars(tmplFn.call(renderComponent, val, add.newKey, i))
         let [rs, upAry] = renderTemplate(renderComponent, tmplM, vars)

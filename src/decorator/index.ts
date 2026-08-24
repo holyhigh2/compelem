@@ -89,6 +89,8 @@ export function decorator<T extends Array<any>>(decoClass: Constructor<Decorator
       }
       let dw = new DecoratorWrapper(args, metadata.splice(1), decoClass)
       ary?.push(dw)
+      //提前排序
+      ary?.sort((a, b) => b.priority - a.priority)
       return dw
     };
   }
@@ -111,6 +113,8 @@ export function decoratorWithNoArgs(decoClass: Constructor<Decorator>): (...meta
     }
     let dw = new DecoratorWrapper([], metadata.splice(1), decoClass)
     ary?.push(dw)
+    //提前排序
+    ary?.sort((a, b) => b.priority - a.priority)
     return dw
   }
   return fn;

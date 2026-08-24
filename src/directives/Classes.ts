@@ -1,38 +1,52 @@
-import { compact, concat, each, flatMap, isArray, isMatch, isObject, isString } from "myfx";
-import { CompElem } from "../CompElem";
+import { each, isPlainObject } from "myfx";
 import { directive } from "../directive/index";
 import { EnterPointType } from "../types";
 const ClassLastMap = new WeakMap()
+
+function normalizeClass(val: Record<string, boolean> | string | Array<Record<string, boolean> | string>) {
+  if (typeof val === 'string') {
+    return val.trim();
+  }
+
+  if (isPlainObject(val)) {
+    let result = '';
+    each(val, (v, k) => {
+      if (v)
+        result += (result ? ' ' : '') + k;
+    })
+    return result;
+  }
+
+  if (Array.isArray(val)) {
+    let result = '';
+    each(val, v => {
+      const normalized = normalizeClass(v);
+      if (normalized) {
+        result += (result ? ' ' : '') + normalized;
+      }
+    })
+    return result;
+  }
+
+  return '';
+}
+
 /**
  * 根据变量内容自动插入class，与静态class自动合并
  * @param styles 对象/数组/字符串
  */
 export const classes = directive(function Classes(clazz: Record<string, boolean | string> | Array<string> | string) {
-  return (pointNode: Node, [clazz]: [Record<string, boolean | string> | Array<string> | string], oldArgs: any[] | undefined, { renderComponent }: { renderComponent: CompElem; }) => {
+  return (pointNode: Node, [clazz]: [Record<string, boolean> | Array<string> | string], oldArgs: any[] | undefined) => {
+    const el = pointNode as Element
+    const newClass = normalizeClass(clazz);
+    const oldClass = ClassLastMap.get(el) ?? '';
 
-    let rs: string[] = [];
-    if (isArray(clazz)) {
-      rs = compact(clazz)
-    } else if (isObject(clazz)) {
-      rs = flatMap<any, string, string>(clazz, (v, k) => v ? k : [])
-    } else if (isString(clazz)) {
-      rs = clazz.split(' ')
+    if (oldClass) {
+      el.classList.remove(...oldClass.split(' ').filter(Boolean));
     }
-    if (rs.length < 1 && !oldArgs) return
-
-    let el = pointNode as HTMLElement
-
-    if (ClassLastMap.get(el) && ClassLastMap.get(el).length === rs.length && isMatch(ClassLastMap.get(el), rs)) return
-
-    let lastCls = ClassLastMap.get(el)
-    each(lastCls, (cls: string) => {
-      el.classList.remove(cls)
-    })
-    each(rs, cls => {
-      el.classList.add(cls)
-    })
-
-    lastCls = concat(rs);
-    ClassLastMap.set(el, lastCls)
+    if (newClass) {
+      el.classList.add(...newClass.split(' ').filter(Boolean));
+      ClassLastMap.set(el, newClass)
+    }
   }
 }, [EnterPointType.TAG])

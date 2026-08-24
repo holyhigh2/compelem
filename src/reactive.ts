@@ -18,19 +18,21 @@ export function getterValue(propertyKey: string, context: CompElem) {
   if (Collector.__collecting) {
     Collector.__varPathList.push(propertyKey)
   }
-  if (PROXY_MAP.has(v) || OBJECT_VAR_ROOT_CONTEXT.get(v)) {
+
+  let p = PROXY_MAP.get(v)
+  if (p || OBJECT_VAR_ROOT_CONTEXT.get(v)) {
     let contextList = EXTRA_CONTEXT_OF_VAR.get(v)
     if (!contextList) {
       contextList = new Set()
       EXTRA_CONTEXT_OF_VAR.set(v, contextList)
     }
-    let wVkMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(context)
-    if (!wVkMap) {
-      wVkMap = {}
-      OBJECT_VAR_ROOT_PATH_IN_CONTEXT.set(context, wVkMap)
-    }
-    let rs = PROXY_MAP.get(v) ?? v
+    let rs = p ?? v
     if (OBJECT_VAR_ROOT_CONTEXT.get(rs)?.deref() !== context) {
+      let wVkMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(context)
+      if (!wVkMap) {
+        wVkMap = {}
+        OBJECT_VAR_ROOT_PATH_IN_CONTEXT.set(context, wVkMap)
+      }
       let srcPath = OBJECT_VAR_PATH.get(rs)
       if (srcPath)
         wVkMap[srcPath[0]] = propertyKey
@@ -82,12 +84,14 @@ export function emitModelEvent(propertyKey: string, v: any, context: CompElem) {
 
 function requestWatchUpdate(context: CompElem, newValue: any, oldValue: any, fullPath: string, rootObjNew?: any, rootObjOld?: any) {
   let superComp = _getSuper(context.constructor as any)
+  let rootMap = WatchKeyRootMap.get(context.constructor) ?? WatchKeyRootMap.get(superComp)
+  if (!rootMap) return
+
   let watchKeysDeep = WatchKeysDeepListMap.get(context.constructor) ?? WatchKeysDeepListMap.get(superComp)
   let watchDeepUpdateMap = WatchDeepUpdateMap.get(context.constructor) ?? WatchDeepUpdateMap.get(superComp)!
   let watchUpdateMap = WatchUpdateMap.get(context.constructor) ?? WatchUpdateMap.get(superComp)!
   let onceMap = WatchKeysOnceMap.get(context.constructor) ?? WatchKeysOnceMap.get(superComp)!
 
-  let rootMap = WatchKeyRootMap.get(context.constructor) ?? WatchKeyRootMap.get(superComp)
   let rootKey = fullPath.split('.')[0]
   let candiKeys = rootMap?.get(rootKey)
 
@@ -314,7 +318,6 @@ export function requestUpdate(context: CompElem<any>, nv: any, ov: any, subChain
   notifyUpdate(context, rootObjNew, rootObjOld, subChain, nv, ov)
 }
 
-const QMap = new Map()
 export class Queue {
   static nextSet = new Set<Updater>()
   static nextPending = false;
@@ -325,7 +328,6 @@ export class Queue {
 
     let nq = Array.from(Queue.nextSet)
     Queue.nextSet.clear()
-    QMap.clear()
     nq.forEach(u => u())
     nq = null as any
   }

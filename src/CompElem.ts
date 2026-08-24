@@ -167,6 +167,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   #initiating = false;
   #onSlotChangeHookBindThis: EvHadler
   __thisRef: WeakRef<any>
+  __superComp!: Function
   constructor(...args: any[]) {
     super();
     this.#cid = CompElemSn++
@@ -174,6 +175,8 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     this.__updateTree = []
 
     this.__thisRef = new WeakRef(this)
+
+    this.__superComp = _getSuper(this.constructor as any)
 
     this.#onSlotChangeHookBindThis = this.#onSlotChangeHook.bind(this)
 
@@ -196,7 +199,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     }
 
     /////////////////////////////////////////////////// decorators create
-    let ary: DecoratorWrapper[] = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(_getSuper(this.constructor as any))!
+    let ary: DecoratorWrapper[] = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(this.__superComp)!
     ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => dw.create(this))
 
     this.#updatedD = this.#update.bind(this)
@@ -286,8 +289,8 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
     this.#destroyed = true
 
-    let ary: DecoratorWrapper[] = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(_getSuper(this.constructor as any))!
-    ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
+    let ary: DecoratorWrapper[] = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(this.__superComp)!
+    ary?.forEach(dw => {
       dw.destroy(this)
     })
 
@@ -389,7 +392,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     })
 
     //3. Watch
-    let superComp = _getSuper(this.constructor as any)
+    let superComp = this.__superComp
     let watchKeyMap = WatchKeyRootMap.get(this.constructor) ?? WatchKeyRootMap.get(superComp)
     if (watchKeyMap) {
       this._watchUpdateSetInNextTick = new Set()
@@ -480,8 +483,8 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     })
 
     const that = this
-    let ary: DecoratorWrapper[] = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(_getSuper(this.constructor as any))!
-    ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
+    let ary: DecoratorWrapper[] = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(this.__superComp)!
+    ary?.forEach(dw => {
       dw.beforeMount(this, (key, value) => {
         that.__data_[key] = value
         return that.__data_[key]
@@ -614,7 +617,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     }
 
     let propName = camelCase(attributeName)
-    let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(_getSuper(this.constructor as any))
+    let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(this.__superComp)
     let propDef: PropOption = get(propDefs, propName)
 
     if (isBooleanProp(propDef.type)) {
@@ -650,10 +653,12 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
    */
   _notify(nv: any = undefined, ov: any, chain: string[], subNewValue?: any, subOldValue?: any) {
     let varPath = [];
+    let cur: any = this
     for (let i = 0; i < chain.length; i++) {
       const seg = chain[i];
       varPath.push(seg);
-      let v = get(this, varPath) ?? nv;
+      cur = cur == null ? cur : cur[seg]
+      let v = cur ?? nv;
       let pathStr = _toUpdatePath(varPath);
       this.#updateSources[pathStr] = { value: v, chain: pathStr === PROP_NAME_SLOTS ? [PROP_NAME_SLOTS] : varPath, oldValue: ov, end: varPath.length === chain.length, subNewValue, subOldValue };
     }
@@ -676,8 +681,8 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     if (toBreak) return
 
     //update decorators
-    let ary: DecoratorWrapper[] = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(_getSuper(this.constructor as any))!
-    ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
+    let ary: DecoratorWrapper[] = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(this.__superComp)!
+    ary?.forEach(dw => {
       dw.updated(this, changed)
     })
 
@@ -768,7 +773,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
    * @returns 非props的attr集合
    */
   #initProps() {
-    let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(_getSuper(this.constructor as any))
+    let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(this.__superComp)
     let attrs = this.attributes;
     let tagName = this.tagName;
     let parentProps = merge(this.#props ?? {}, ComponentUninitializedSubComponentPropMap.get(this.wrapperComponent!)?.get(this) ?? {});
@@ -955,7 +960,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     return val;
   }
   #initStates() {
-    let stateDefs = DefinitionStateMap.get(this.constructor) ?? DefinitionStateMap.get(_getSuper(this.constructor as any))
+    let stateDefs = DefinitionStateMap.get(this.constructor) ?? DefinitionStateMap.get(this.__superComp)
     if (stateDefs)
       each<StateOption, string>(stateDefs, (def, key) => {
         let stateDef = stateDefs[key];
@@ -976,7 +981,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
    */
   #propsReady = debounce(this.propsReady, 100)
   updateProps(props: Record<string, any>, force = false) {
-    let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(_getSuper(this.constructor as any))
+    let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(this.__superComp)
     if (!propDefs) return
     if (!this.__inited) {
       assign(this.#props, props)
@@ -1200,7 +1205,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     if (observedAttrs.has(name)) {
       let camelName = camelCase(name)
       if (isNull(newValue)) {
-        let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(_getSuper(this.constructor as any))
+        let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(this.__superComp)
         //使用默认值
         if (propDefs)
           newValue = propDefs[camelName]._defaultValue
