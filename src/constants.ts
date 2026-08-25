@@ -26,6 +26,13 @@ export const PropTypeMap: Record<string, Constructor<any>> = {
     function: Function,
     undefined: Object
 }
+export interface CompiledWatchMeta {
+    rootMap: Map<string, string[]>
+    watchKeysDeep: string[] | undefined
+    watchDeepUpdateMap: Record<string, Set<Function>>
+    watchUpdateMap: Record<string, Set<Function>>
+    onceMap: Map<string, boolean>
+}
 export const DefinitionCompEventMap = new Map<Function, Array<Record<string, any>>>()
 export const DefinitionCompEmitMap = new WeakMap<Function, Set<string>>()
 export const DefinitionTagMap = {} as Record<string, string>;
@@ -36,7 +43,7 @@ export const DefinitionPropMap = new WeakMap<Function, Record<string, PropOption
 export const DefinitionModelMap = new WeakMap<Function, string[]>()
 export const DefinitionDecoratorMap = new Map<Function, DecoratorWrapper[]>()
 export const ObservedAttrsMap = new Map<Function, Set<string>>()
-export const ViewDepMap = new Map<Function, Array<string>>()
+export const ViewDepMap = new Map<Function, Set<string>>()
 
 export const WatchKeysOnceMap = new WeakMap<Function, Map<string, boolean>>()
 export const WatchKeysDeepListMap = new WeakMap<Function, string[]>()
@@ -44,6 +51,7 @@ export const WatchKeyRootMap = new WeakMap<Function, Map<string, string[]>>()
 export const WatchUpdateMap = new WeakMap<Function, Record<string, Set<Function>>>()
 export const WatchDeepUpdateMap = new WeakMap<Function, Record<string, Set<Function>>>()
 export const WatchImmediateListMap = new WeakMap<Function, Record<string, Set<Function>>>()
+export const CompiledWatchMetaMap = new WeakMap<Function, CompiledWatchMeta | null>()
 
 export const StateShallowKeySetMap = new WeakMap<Function, Set<string>>()
 export const PropShallowKeySetMap = new WeakMap<Function, Set<string>>()
@@ -54,6 +62,8 @@ export const CssUpdateDepsMap = new WeakMap<Function, Set<string>>()
 export const CssTemplateCacheMap = new WeakMap<TemplateStringsArray, CssTemplate>()
 export const CssStyleSheetCacheMap = new WeakMap<TemplateStringsArray, CSSStyleSheet>()
 export const CssScopeCacheMap = new WeakMap<Function, Map<string, CSSStyleSheet[]>>()
+export const CssTemplateSheetMap = new WeakMap<CssTemplate, CSSStyleSheet>()
+export const CssVarKeyCacheMap = new WeakMap<Function, Map<string, string>>()
 
 export const DirectiveScopeMap = new Map<Function, string[]>()
 

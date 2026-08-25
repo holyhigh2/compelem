@@ -3,7 +3,6 @@ import {
   camelCase,
   cloneDeep,
   closest,
-  debounce,
   each,
   filter,
   first,
@@ -36,7 +35,8 @@ import {
   trim,
   walkTree
 } from "myfx";
-import { ComponentDynamicCssUpdaterMap, ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, ComputedUpdateDepsMap, CssScopeCacheMap, CssUpdateDepsMap, DATA_KEY, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, HasChangedPropOrStateMap, PropShallowKeySetMap, PropTypeMap, SLOT_NAME_DEFAULT, ViewDepMap, WatchImmediateListMap, WatchKeyRootMap, WatchKeysOnceMap } from "./constants";
+import { getBaseSheets } from "./config";
+import { ComponentDynamicCssUpdaterMap, ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, ComputedUpdateDepsMap, CssScopeCacheMap, CssTemplateSheetMap, CssUpdateDepsMap, DATA_KEY, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, HasChangedPropOrStateMap, PropShallowKeySetMap, PropTypeMap, SLOT_NAME_DEFAULT, ViewDepMap, WatchImmediateListMap, WatchKeyRootMap, WatchKeysOnceMap } from "./constants";
 import { DecoratorWrapper } from "./decorator";
 import { Csscope } from "./decorators/csscope";
 import { _getObservedAttrs } from "./decorators/prop";
@@ -47,13 +47,9 @@ import { CssTemplate } from "./render/CssTemplate";
 import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildVars, buildView, updateSubScopeView, updateView } from "./render/render";
 import { Template } from "./render/Template";
 import { UpdatePoint } from "./render/UpdatePoint";
-import { Constructor, DefaultProps, Getter, PropOption, SlotOptions, StateOption, TplFn, UpdatedSource } from "./types";
-import { _getSuper, _toUpdatePath, getBooleanValue, isBooleanProp, showTagError } from "./utils";
+import { Constructor, Getter, PropOption, SlotOptions, StateOption, TplFn, UpdatedSource } from "./types";
+import { _getSuper, _toUpdatePath, getBooleanValue, getCssVarKey, isBooleanProp, showTagError } from "./utils";
 
-//组件静态样式
-let DefaultCss: CSSStyleSheet[] = []
-let DefaultGlobalProps = {}
-let DefaultComponentProps: Record<string, any> = {}
 let CompElemSn = 0
 const SlotCompMap = new WeakMap()
 const EMPTY_SLOTS = {}
@@ -66,27 +62,6 @@ const PROP_NAME_SLOTS = 'slots'
  * @author holyhigh2
  */
 export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent<T> {
-  //设置全局/组件默认属性
-  static defaults(options: DefaultProps) {
-    DefaultCss = flatMap<string | CSSStyleSheet, CSSStyleSheet>(options.css!, c => {
-      if (isString(c)) {
-        let sheet = new CSSStyleSheet();
-        sheet.replaceSync(c)
-        return sheet
-      } else if (c instanceof CSSStyleSheet) {
-        return c
-      }
-      return []
-    })
-
-    DefaultGlobalProps = options.global!
-    each(options, (v, k) => {
-      if (test(k[0], /[A-Z]/)) {
-        DefaultComponentProps[k] = v
-      }
-    })
-  }
-
   #cid: number
   #slotPropsMap: Record<string, Partial<SlotOptions>> = {}
   __data_: Record<string, any> = {};
@@ -208,12 +183,14 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     if (!this.#shadow) return null
     let cssSheet: CSSStyleSheet | undefined;
     if (sheet instanceof CssTemplate) {
+      cssSheet = CssTemplateSheetMap.get(sheet)
       if (!cssSheet) {
         let cssTxt = sheet.getCssText()
         cssSheet = new CSSStyleSheet();
         try {
           cssSheet.replaceSync(cssTxt)
         } catch (e) { }
+        CssTemplateSheetMap.set(sheet, cssSheet)
       }
     } else if (sheet instanceof CSSStyleSheet) {
       if (this.#shadow.adoptedStyleSheets.includes(sheet)) return sheet
@@ -344,8 +321,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     this.remove()
 
     //data
-    this.#propsReady =
-      this.#renderRoot = this.#renderRoots = this.#shadow =
+    this.#renderRoot = this.#renderRoots = this.#shadow =
       this.#updateSources =
       this.#attrs =
       this.#props =
@@ -447,7 +423,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     Collector.end();
     let viewDeps = Collector.popVarPathList()
     if (!ViewDepMap.has(this.constructor)) {
-      ViewDepMap.set(this.constructor, viewDeps)
+      ViewDepMap.set(this.constructor, new Set(viewDeps))
     }
 
     let fragment: DocumentFragment | undefined
@@ -460,7 +436,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         mode: "open"
       });
 
-      this.#shadow.adoptedStyleSheets = [...DefaultCss, ...(CssScopeCacheMap.get(this.constructor)?.get(Csscope.INNER) ?? [])];
+      this.#shadow.adoptedStyleSheets = getBaseSheets(this.constructor);
       fragment = buildView(tmpl, this)
       if (fragment && size(fragment.children) > 0) {
         this.#renderRoots = filter<HTMLElement>(fragment.children, (n: Node) => n.nodeType === Node.ELEMENT_NODE).map<WeakRef<HTMLElement>>(n => new WeakRef(n))
@@ -513,7 +489,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       }
       let cssStr = ''
       each(cssVarObj, (v, k) => {
-        let cssVarKey = '--' + kebabCase(k).replace(/^-+/, '')
+        let cssVarKey = getCssVarKey(this.constructor, k)
         if (isBlank(v) || isNil(v)) {
           v = 'initial'// invalid value
         }
@@ -716,7 +692,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     if (this._cssUpdateInNextTick) {
       let cssVarObj = this.cssVars
       each(cssVarObj, (v, k) => {
-        let cssVarKey = '--' + kebabCase(k).replace(/^-+/, '')
+        let cssVarKey = getCssVarKey(this.constructor, k)
         if (this._cssVarOldValueMap[cssVarKey] == v) {
           return
         }
@@ -733,7 +709,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     let toUpdateUps = new Set<UpdatePoint>()
     let viewDeps = ViewDepMap.get(this.constructor)
     each(changed, (x, k: string) => {
-      if (!toUpdateView && viewDeps?.includes(k)) {
+      if (!toUpdateView && viewDeps?.has(k)) {
         toUpdateView = true
       }
       if (this.__updateSubViewDeps?.has(k)) {
@@ -974,12 +950,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         delete (this as any)[key]
       });
   }
-  /**
-   * 由外部调用，在初始化及更新时。
-   * @param props 
-   * @param attrs 
-   */
-  #propsReady = debounce(this.propsReady, 100)
   updateProps(props: Record<string, any>, force = false) {
     let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(this.__superComp)
     if (!propDefs) return
@@ -1034,9 +1004,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     need2UpdateAttrs.forEach(([propDef, key, v]) => {
       this.#updateAttribute(propDef, key, v)
     })
-
-    if (this.#props)
-      this.#propsReady(this.#props);
   }
   _initProps(props: Record<string, any>, attrs?: Record<string, any>) {
     this.#props = merge(this.#props || {}, props);
@@ -1291,8 +1258,8 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
    */
   forceUpdate() {
     let viewDeps = ViewDepMap.get(this.constructor)
-    if (viewDeps && size(viewDeps) > 0) {
-      each(viewDeps, (k: string) => {
+    if (viewDeps && viewDeps.size > 0) {
+      viewDeps.forEach((k: string) => {
         this.#updateSources[k] = {
           value: undefined,
           chain: undefined,

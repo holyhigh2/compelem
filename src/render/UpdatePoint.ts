@@ -1,4 +1,6 @@
+import { split } from "myfx";
 import { CompElem } from "../CompElem";
+import { PATH_SEPARATOR } from "../constants";
 import { DomUtil } from "../utils";
 import { UpdatePointMeta } from "./UpdatePointMeta";
 
@@ -10,8 +12,12 @@ export class UpdatePoint {
     //在子视图中的平级key
     key: string
     //表达式对应的vars位置
-    varIndex: number
+    varIndex: any
     value: any
+    //缓存varIndex的路径段（varIndex在子视图移动时会被重赋值，需按值失效）
+    private __indexSegs: string[] | null = null
+    private __segsFor: any
+
     //表达式所在节点，可能是元素/文本
     node: WeakRef<Node>;
     //子视图根元素 map/array
@@ -25,6 +31,14 @@ export class UpdatePoint {
         this.varIndex = varIndex
     }
 
+    getIndexSegs(): string[] {
+        if (this.__segsFor !== this.varIndex) {
+            this.__segsFor = this.varIndex
+            this.__indexSegs = split(String(this.varIndex), PATH_SEPARATOR)
+        }
+        return this.__indexSegs!
+    }
+
     static createFrom(upm: UpdatePointMeta) {
         let newUp = new UpdatePoint(upm.varIndex)
         newUp.metaInfo = upm
@@ -36,12 +50,9 @@ export class UpdatePoint {
         this.__destroyed = true
         let node = this.node
         let children = this.children
-        let parent = this.parent
         //clean up
         this.node = this.value = this.children = this.parent = this.metaInfo = null as any
         if (!node) return
-
-        // contextComponent?._unregDeps(node.deref()!)
 
 
         //sub scopes

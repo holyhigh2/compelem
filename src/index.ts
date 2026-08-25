@@ -40,6 +40,7 @@ export function defineComponents() {
 }
 
 export * from './CompElem';
+export * from './config';
 export * from './types';
 
 export * from './utils';

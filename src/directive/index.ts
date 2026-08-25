@@ -1,4 +1,4 @@
-import { compact, each, except, filter, first, get, groupBy, initial, intersect, isArray, isEmpty, keys, last, map, remove, set, startsWith, test, toArray } from "myfx";
+import { compact, each, except, first, get, groupBy, initial, intersect, isArray, isEmpty, keys, last, map, remove, set, startsWith, test, toArray } from "myfx";
 import { CompElem } from "../CompElem";
 import { DirectiveScopeMap } from "../constants";
 import { bindEvents } from "../events/event";
@@ -139,15 +139,20 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
 
     let oldNodeKeyMap: Record<string, Node[]> = {}
     let oldUpKeyMap: Record<string, UpdatePoint[]> = {}
-    each(oldKeys, (key: string) => {
-      let ary = oldNodeKeyMap[key]
-      if (!ary) {
-        ary = oldNodeKeyMap[key] = []
+
+    let siblings = pointNode.parentElement!.childNodes
+    let keyProp = '__c-' + subViewId
+    for (let si = 0; si < siblings.length; si++) {
+      let sib: any = siblings[si]
+      let sibKey = sib[keyProp]
+      if (sibKey != null) {
+        let ary = oldNodeKeyMap[sibKey]
+        if (!ary) {
+          ary = oldNodeKeyMap[sibKey] = []
+        }
+        ary.push(sib)
       }
-      filter(pointNode.parentElement!.childNodes, (n: Node) => get(n, ['__c-' + subViewId]) == key).forEach(n => {
-        ary.push(n)
-      })
-    })
+    }
     up.children?.forEach(up => {
       if (!oldUpKeyMap[up.key]) {
         oldUpKeyMap[up.key] = [up]
@@ -264,9 +269,11 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
         let addNodes = toArray(rs.childNodes)
         //for afterAdd move
         let ary = oldNodeKeyMap[add.newKey]
-        each(addNodes, (n: Node) => {
+
+        let newKeyStr = add.newKey + ''
+        each(addNodes, (n: any) => {
           ary.push(n)
-          rs.childNodes.forEach(n => set(n, '__c-' + subViewId, add.newKey + ''))
+          set(n, '__c-' + subViewId, newKeyStr)
           each(parentViewsIdMap, (v, pid) => set(n, pid, v))
         })
       })
@@ -330,13 +337,15 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
       up.children = movedUpAry
     }
     //更新rootNodes
-    let rootNodes: Record<string, any> = {}
-    each(newValueAry, (val: any, i: number) => {
-      let newK = newKeys[i]
-      let nodes = oldNodeKeyMap[newK]
-      rootNodes![newK] = nodes.map((n: any) => new WeakRef(n))
-    })
-    up.subViewRootNodes = rootNodes
+    if (moved || delKeys.length > 0 || addGroup) {
+      let rootNodes: Record<string, any> = {}
+      each(newValueAry, (val: any, i: number) => {
+        let newK = newKeys[i]
+        let nodes = oldNodeKeyMap[newK]
+        rootNodes![newK] = nodes.map((n: any) => new WeakRef(n))
+      })
+      up.subViewRootNodes = rootNodes
+    }
     //更新视图
     if (sameKeys.length > 0) {
       let varList: any[] = []

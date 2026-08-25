@@ -229,14 +229,19 @@ export function bindEvents(comp: CompElem<any>) {
   let s = getState(comp)
 
   //1. render & subview
-  each(s.bindList, (v: any) => {
-    let [evName, cbk, node, binded] = v
-    if (binded) return
-    if (!node) return
-    let handler = cbk && (get(globalThis, cbk.name) !== cbk) ? cbk.bind(comp) : cbk
-    registerEvent(comp, evName, handler, node)
-    v[3] = noop
-  })
+  const pending = s.bindList
+  if (pending.length > 0) {
+    s.bindList = []
+    for (let i = 0; i < pending.length; i++) {
+      let v: any = pending[i]
+      let evName = v[0], cbk = v[1], node = v[2]
+      if (!node) continue
+      if (v[3]) continue
+      let handler = cbk && (get(globalThis, cbk.name) !== cbk) ? cbk.bind(comp) : cbk
+      registerEvent(comp, evName, handler, node)
+      v[3] = noop
+    }
+  }
 
   //2. @event
   let events = DefinitionCompEventMap.get(comp.constructor) ?? DefinitionCompEventMap.get(_getSuper(comp.constructor as any))
@@ -379,8 +384,8 @@ function dispatchDelegated(comp: CompElem<any>, e: Event) {
   if (!root) return
   let type = e.type
 
-  let path = e.composedPath()
-  let endIndex = e.composedPath().indexOf(root)
+  const path = e.composedPath()
+  let endIndex = path.indexOf(root)
   if (endIndex < 0)//异常
     return
   let s = getState(comp)

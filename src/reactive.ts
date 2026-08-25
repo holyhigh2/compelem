@@ -5,10 +5,9 @@
 
 import { concat, get, isArray, isFunction, isObject, isSymbol, some, startsWith, toArray } from "myfx";
 import { CompElem } from "./CompElem";
-import { ComputedUpdateDepsMap, CssUpdateDepsMap, DATA_KEY, HasChangedPropOrStateMap, PROP_NAME_SLOTS, PropShallowKeySetMap, StateShallowKeySetMap, WatchDeepUpdateMap, WatchKeyRootMap, WatchKeysDeepListMap, WatchKeysOnceMap, WatchUpdateMap } from "./constants";
+import { CompiledWatchMeta, CompiledWatchMetaMap, ComputedUpdateDepsMap, CssUpdateDepsMap, DATA_KEY, HasChangedPropOrStateMap, PROP_NAME_SLOTS, PropShallowKeySetMap, StateShallowKeySetMap, WatchDeepUpdateMap, WatchKeyRootMap, WatchKeysDeepListMap, WatchKeysOnceMap, WatchUpdateMap } from "./constants";
 import { UpdatePoint } from "./render/UpdatePoint";
 import { Updater } from "./types";
-import { _getSuper } from "./utils";
 
 
 export function getterValue(propertyKey: string, context: CompElem) {
@@ -82,15 +81,27 @@ export function emitModelEvent(propertyKey: string, v: any, context: CompElem) {
   context.emit('update:' + propertyKey, { value: v })
 }
 
-function requestWatchUpdate(context: CompElem, newValue: any, oldValue: any, fullPath: string, rootObjNew?: any, rootObjOld?: any) {
-  let superComp = _getSuper(context.constructor as any)
-  let rootMap = WatchKeyRootMap.get(context.constructor) ?? WatchKeyRootMap.get(superComp)
-  if (!rootMap) return
+function getWatchMeta(ctor: Function): CompiledWatchMeta | null {
+  let meta = CompiledWatchMetaMap.get(ctor)
+  if (meta !== undefined) return meta
+  let sup = Object.getPrototypeOf(ctor)
+  let rootMap = WatchKeyRootMap.get(ctor) ?? WatchKeyRootMap.get(sup)
+  meta = rootMap ? {
+    rootMap,
+    watchKeysDeep: WatchKeysDeepListMap.get(ctor) ?? WatchKeysDeepListMap.get(sup),
+    watchDeepUpdateMap: WatchDeepUpdateMap.get(ctor) ?? WatchDeepUpdateMap.get(sup)!,
+    watchUpdateMap: WatchUpdateMap.get(ctor) ?? WatchUpdateMap.get(sup)!,
+    onceMap: WatchKeysOnceMap.get(ctor) ?? WatchKeysOnceMap.get(sup)!
+  } : null
+  CompiledWatchMetaMap.set(ctor, meta)
+  return meta
+}
 
-  let watchKeysDeep = WatchKeysDeepListMap.get(context.constructor) ?? WatchKeysDeepListMap.get(superComp)
-  let watchDeepUpdateMap = WatchDeepUpdateMap.get(context.constructor) ?? WatchDeepUpdateMap.get(superComp)!
-  let watchUpdateMap = WatchUpdateMap.get(context.constructor) ?? WatchUpdateMap.get(superComp)!
-  let onceMap = WatchKeysOnceMap.get(context.constructor) ?? WatchKeysOnceMap.get(superComp)!
+function requestWatchUpdate(context: CompElem, newValue: any, oldValue: any, fullPath: string, rootObjNew?: any, rootObjOld?: any) {
+  let meta = getWatchMeta(context.constructor as any)
+  if (!meta) return
+
+  let { rootMap, watchKeysDeep, watchDeepUpdateMap, watchUpdateMap, onceMap } = meta
 
   let rootKey = fullPath.split('.')[0]
   let candiKeys = rootMap?.get(rootKey)

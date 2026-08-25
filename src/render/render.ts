@@ -6,7 +6,6 @@ import {
   isArray,
   isBlank,
   isEmpty,
-  isEqual,
   isFunction,
   isObject,
   isString,
@@ -19,13 +18,12 @@ import {
   set,
   size,
   snakeCase,
-  split,
   toArray,
   toString,
   trim
 } from "myfx";
 import { CompElem } from "../CompElem";
-import { ComponentUninitializedWrapperComponentMap, CssTemplateCacheMap, DefinitionComponentMap, DefinitionPropMap, DefinitionTagMap, DirectiveScopeMap, PATH_SEPARATOR, PLACEHOLDER } from "../constants";
+import { ComponentUninitializedWrapperComponentMap, CssTemplateCacheMap, DefinitionComponentMap, DefinitionPropMap, DefinitionTagMap, DirectiveScopeMap, PLACEHOLDER } from "../constants";
 import {
   directiveScopeChecker,
   updateDirective
@@ -540,7 +538,7 @@ export function updateView(vars: any[], renderComponent: CompElem<any>, updatePo
     let node = up.node.deref();
     if (!node) continue
 
-    let indexSegs = split(varIndex, PATH_SEPARATOR)
+    let indexSegs = up.getIndexSegs()
     for (let l = 0; l < indexSegs.length; l++) {
       const seg = indexSegs[l];
       newValue = get(newValue, seg)
@@ -587,7 +585,7 @@ export function updateView(vars: any[], renderComponent: CompElem<any>, updatePo
       }
     } else if (upm.attrName) {
       //特性
-      if (!isEqual(oldValue, newValue)) {
+      if (oldValue != newValue) {
         switch (upm.attrName) {
           case 'value':
             if (node instanceof HTMLInputElement) {
@@ -600,11 +598,10 @@ export function updateView(vars: any[], renderComponent: CompElem<any>, updatePo
       }
     }
     else if (upm.isText) {
-      let textNode = up.node!
       let newTxt = toString(newValue ?? '')
-      let oldTxt = textNode.deref()!.textContent
+      let oldTxt = node.textContent
       if (newTxt !== oldTxt)
-        textNode.deref()!.textContent = newTxt
+        node.textContent = newTxt
     }
     up.value = newValue
   }//endfor

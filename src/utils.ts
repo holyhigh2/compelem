@@ -1,6 +1,6 @@
-import { assign, closest, isBlank, isString, isUndefined, some, toPath } from "myfx";
+import { assign, closest, isBlank, isString, isUndefined, kebabCase, some, toPath } from "myfx";
 import { CompElem } from "./CompElem";
-import { ComponentUninitializedSubComponentPropMap, DefinitionComponentMap } from "./constants";
+import { ComponentUninitializedSubComponentPropMap, CssVarKeyCacheMap, DefinitionComponentMap } from "./constants";
 
 export function showError(msg: string): void {
   console.error(`[CompElem]`, msg);
@@ -18,7 +18,7 @@ export function showTagWarn(tagName: string, msg: string): void {
 }
 //为依赖收集提供标准地址
 export function _toUpdatePath(varPath: string[]) {
-  return toPath(varPath).join("-");
+  return toPath(varPath).join(".");
 }
 
 //获取父类构造
@@ -112,4 +112,18 @@ export function addUninitializedSubComponentProp(wrapperComponent: CompElem, nod
   }
   let p = propMap.get(node) ?? {}
   propMap.set(node, assign(p, props))
+}
+
+export function getCssVarKey(ctor: Function, k: string): string {
+  let m = CssVarKeyCacheMap.get(ctor)
+  if (!m) {
+    m = new Map()
+    CssVarKeyCacheMap.set(ctor, m)
+  }
+  let v = m.get(k)
+  if (v === undefined) {
+    v = '--' + kebabCase(k).replace(/^-+/, '')
+    m.set(k, v)
+  }
+  return v
 }
