@@ -1,13 +1,9 @@
 import {
-  compact,
   each,
-  get,
   isEmpty,
-  isEqual,
+  isNil,
   isUndefined,
-  keys,
-  map,
-  size
+  keys
 } from "myfx";
 import { CompElem } from "../CompElem";
 import { directive } from "../directive/index";
@@ -29,22 +25,28 @@ export const forEach = directive(function ForEach(value: any[] | Record<string, 
   return (pointNode: Node, newArgs: any[], oldArgs: any[] | undefined, { renderComponent, varChain, updatedMap }: { renderComponent: CompElem, varChain: string[], updatedMap: Record<string, UpdatedSource> }) => {
 
     let newAryOrObj = newArgs[0]
-    let oldAry = get(oldArgs, 0)
     if (isEmpty(newAryOrObj) && isUndefined(oldArgs)) return [DirectiveUpdateTag.INIT]
+    const newKeys: string[] = [];
+    const checkSet = new Set<string>();
     let i = 0
-    let newKeys = compact(map(newAryOrObj, (v, k) => keyFn.call(renderComponent, v, k, i++) + ''))
+    each(newAryOrObj, (v, k) => {
+      let key = keyFn(v, k, i++)
+      if (isNil(key)) return
+      const strKey = typeof key === 'string' ? key : String(key)
 
-    //check keys
-    if (newKeys.length != new Set(newKeys).size) {
-      showError(`forEach - duplicate key in '${newKeys}'`)
-      return
-    }
+      if (checkSet.has(strKey)) {
+        showError(`forEach - duplicate key in '${newKeys}'`)
+        return
+      }
+      checkSet.add(strKey)
+      newKeys.push(strKey)
+    })
 
     let oldKeys = LastKeysMap.get(pointNode)
     LastKeysMap.set(pointNode, newKeys)
     if (oldArgs) {
       if (isEmpty(newKeys)) return [DirectiveUpdateTag.REMOVE]
-      if (size(newKeys) === size(oldKeys) && isEqual(newKeys, oldKeys)) return [DirectiveUpdateTag.REFRESH, getVars(newAryOrObj, tmpl, renderComponent)]
+      if (newKeys.length === oldKeys.length && isStrictEqual(newKeys, oldKeys)) return [DirectiveUpdateTag.REFRESH, getVars(newAryOrObj, tmpl, renderComponent)]
     }
 
     let tmplM
@@ -74,4 +76,11 @@ function getVars(newAryOrObj: any, tmplFn: TplFn, renderComponent: CompElem) {
     varList.push(...vars)
   })
   return varList
+}
+function isStrictEqual(a: string[], b: string[]) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }
