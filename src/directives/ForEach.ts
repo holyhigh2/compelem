@@ -46,7 +46,7 @@ export const forEach = directive(function ForEach(value: any[] | Record<string, 
     LastKeysMap.set(pointNode, newKeys)
     if (oldArgs) {
       if (isEmpty(newKeys)) return [DirectiveUpdateTag.REMOVE]
-      if (newKeys.length === oldKeys.length && isStrictEqual(newKeys, oldKeys)) return [DirectiveUpdateTag.REFRESH, getVars(newAryOrObj, tmpl, renderComponent)]
+      if (oldKeys && newKeys.length === oldKeys.length && isStrictEqual(newKeys, oldKeys)) return [DirectiveUpdateTag.REFRESH, getVars(newAryOrObj, tmpl, renderComponent)]
     }
 
     let tmplM
