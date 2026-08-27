@@ -29,6 +29,8 @@ export class UpdatePoint {
 
     constructor(varIndex: number) {
         this.varIndex = varIndex
+        this.__indexSegs = [String(varIndex)]
+        this.__segsFor = varIndex
     }
 
     getIndexSegs(): string[] {

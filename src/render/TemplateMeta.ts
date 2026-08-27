@@ -1,4 +1,4 @@
-import { assign, concat, get, replaceAll } from "myfx";
+import { assign, concat, replaceAll } from "myfx";
 import { CompElem } from "../CompElem";
 import { PLACEHOLDER } from "../constants";
 import { showError } from "../utils";
@@ -49,7 +49,7 @@ export class TemplateMeta {
         let varIndex = 0
         for (let i = 0; i <= l; i++) {
             const str = tmpl.strings[i];
-            let val = get<any>(vars, varIndex, '');
+            let val = varIndex < vars.length ? vars[varIndex] : '';
 
             if (val instanceof Template) {
                 let [h, v] = this.parseTemplate(val)

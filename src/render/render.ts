@@ -72,17 +72,21 @@ export function convertHTML(html: string) {
 }
 
 export function buildVars(tmpl: Template) {
-  let vars = concat(tmpl.vars)
-  let l = tmpl.strings.length - 1;
-  for (let i = 0; i <= l; i++) {
-    let val = get<any>(tmpl.vars, i, '');
-    if (val instanceof Template) {
-      let vs = buildVars(val)
-
-      vars.splice(i, 1, ...vs)
+  const result: any[] = []
+  const stack: Template[] = [tmpl]
+  while (stack.length) {
+    const current = stack.pop()!
+    const sl = current.strings.length - 1
+    for (let i = 0; i < sl; i++) {
+      const val = current.vars[i]
+      if (val instanceof Template) {
+        stack.push(val)
+      } else {
+        result.push(val ?? '')
+      }
     }
   }
-  return vars
+  return result
 }
 
 /**
@@ -124,11 +128,12 @@ export function createTemplate(
       }
 
       let props: Record<string, any> = {};
-      let attrs = map(currentNode.attributes, item => ({ name: item.name, value: item.value }))
+      const attrList = currentNode.attributes
+      const toRemove: string[] = []
 
-      for (let i = 0; i < attrs.length; i++) {
-        const attr = attrs[i];
-        let { name, value } = attr;
+      for (let i = 0; i < attrList.length; i++) {
+        let name = attrList[i].name;
+        let value = attrList[i].value;
         //todo 这里需要修改为 data-slot-xx
         if (name === SLOT_KEY_PROPS) {
           // let slotName = currentNode.getAttribute('name') || 'default'
@@ -161,7 +166,7 @@ export function createTemplate(
             updatePoints.push(po)
             varIndex++;
           }
-          currentNode.removeAttribute(name)
+          toRemove.push(name)
           continue;
         }//endif
         //@event.stop.prevent.debounce
@@ -193,7 +198,7 @@ export function createTemplate(
             evList.push(evName)
           }
 
-          currentNode.removeAttribute(name)
+          toRemove.push(name)
           continue;
         }//endif
         if (name === ATTR_REF) {
@@ -214,7 +219,7 @@ export function createTemplate(
 
             varIndex++;
           }
-          currentNode.removeAttribute(name)
+          toRemove.push(name)
           continue;
         }//endif
         //校验变量必须是表达式
@@ -227,7 +232,7 @@ export function createTemplate(
         //用于兼容其他框架会自动移除属性的场景
         if (last(name) === ATTR_PREFIX_PROP) {
           props[name.substring(0, name.length - 1)] = value;
-          currentNode.removeAttribute(name)
+          toRemove.push(name)
 
           let po = new UpdatePointMeta(varIndex)
           po.attrName = name.substring(0, name.length - 1)
@@ -285,7 +290,7 @@ export function createTemplate(
                 po.attrName = propName
               }
             }
-            currentNode.removeAttribute(name)
+            toRemove.push(name)
           } else {
             po.attrTmpl = value
           }
@@ -294,6 +299,10 @@ export function createTemplate(
           varIndex++;
         }//endif
       }//endfor
+
+      for (let r = 0; r < toRemove.length; r++) {
+        currentNode.removeAttribute(toRemove[r])
+      }
 
     } else {
       let textParts = trim(currentNode.nodeValue).split(EXP_TAG)

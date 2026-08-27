@@ -1,4 +1,4 @@
-import { compact, each, except, first, get, groupBy, initial, intersect, isArray, isEmpty, keys, last, map, remove, set, startsWith, test, toArray } from "myfx";
+import { compact, each, except, first, get, groupBy, initial, isArray, isEmpty, keys, last, map, remove, set, startsWith, test, toArray } from "myfx";
 import { CompElem } from "../CompElem";
 import { DirectiveScopeMap } from "../constants";
 import { bindEvents } from "../events/event";
@@ -171,8 +171,22 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
     newSeq.forEach((v, i) => {
       newSeqMap.set(v, i)
     })
-    let sameKeys = intersect(oldKeys, newKeys)
-    let delKeys = except<string | number>(oldKeys, sameKeys)
+
+    const oldUsed = new Uint8Array(oldSeq.length)
+    const sameKeysArr: string[] = []
+    for (let i = 0; i < newSeq.length; i++) {
+      const idx = oldSeqMap.get(newSeq[i])
+      if (idx !== undefined) {
+        oldUsed[idx] = 1
+        sameKeysArr.push(newSeq[i])
+      }
+    }
+    const delKeysArr: string[] = []
+    for (let i = 0; i < oldSeq.length; i++) {
+      if (!oldUsed[i]) {
+        delKeysArr.push(oldSeq[i])
+      }
+    }
 
     //compare
     let adds: AddPostion[] = [];
@@ -311,7 +325,7 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
     })
 
     //del
-    delKeys.forEach(k => {
+    delKeysArr.forEach(k => {
       oldNodeKeyMap[k].forEach(n => {
         n.parentNode?.removeChild(n)
       })
@@ -321,7 +335,7 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
     })
 
     //移动顺序
-    if (moved || delKeys.length > 0 || addGroup) {
+    if (moved || delKeysArr.length > 0 || addGroup) {
       const upGroup = groupBy<UpdatePoint>(updatePoints, up => up.key)
       let movedUpAry: UpdatePoint[] = []
       let i = 0
@@ -337,7 +351,7 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
       up.children = movedUpAry
     }
     //更新rootNodes
-    if (moved || delKeys.length > 0 || addGroup) {
+    if (moved || delKeysArr.length > 0 || addGroup) {
       let rootNodes: Record<string, any> = {}
       each(newValueAry, (val: any, i: number) => {
         let newK = newKeys[i]
@@ -347,7 +361,7 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
       up.subViewRootNodes = rootNodes
     }
     //更新视图
-    if (sameKeys.length > 0) {
+    if (sameKeysArr.length > 0) {
       let varList: any[] = []
       each(newAryOrObj, (val: any, k: string | number, c, i: number) => {
         let v = val
