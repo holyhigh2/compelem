@@ -3,7 +3,7 @@ import { directive } from "../directive/index";
 import { EnterPointType, StyleValueObjectType, StyleValueType } from "../types";
 
 const KeyCache = new Map();
-const OldKeys = new WeakMap();
+const OldKeys = new WeakMap<Node, Set<string>>();
 
 const LENGTH_PROPS = new Set([
   // size
@@ -103,8 +103,8 @@ export const styles = directive(function Styles(style: Record<string, string> | 
 
     const styleObj = normalizeStyle(newArgs[0]);
 
-    const newKeys = new Set(Object.keys(styles));
-    const oldkeys = OldKeys.get(el)
+    const newKeys = new Set(Object.keys(styleObj));
+    const oldkeys = OldKeys.get(el)!
 
     each(oldkeys, (v: string) => {
       if (!newKeys.has(v)) {
@@ -114,5 +114,6 @@ export const styles = directive(function Styles(style: Record<string, string> | 
     each(styleObj, (v, k: string) => {
       el.style.setProperty(k, v.value + '', v.important ? 'important' : '')
     })
+    OldKeys.set(el, newKeys)
   }
 }, [EnterPointType.TAG])
