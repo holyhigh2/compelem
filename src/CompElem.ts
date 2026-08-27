@@ -1,6 +1,5 @@
 import {
   assign,
-  camelCase,
   cloneDeep,
   closest,
   each,
@@ -30,7 +29,6 @@ import {
   set,
   size,
   some,
-  test,
   toArray,
   trim,
   walkTree
@@ -48,7 +46,7 @@ import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, bui
 import { Template } from "./render/Template";
 import { UpdatePoint } from "./render/UpdatePoint";
 import { Constructor, Getter, PropOption, SlotOptions, StateOption, TplFn, UpdatedSource } from "./types";
-import { _getSuper, _toUpdatePath, getBooleanValue, getCssVarKey, isBooleanProp, showTagError } from "./utils";
+import { _getSuper, _toUpdatePath, camelCaseCached, DomUtil, getBooleanValue, getCssVarKey, isBooleanProp, showTagError, typeNameLower } from "./utils";
 
 let CompElemSn = 0
 const SlotCompMap = new WeakMap()
@@ -132,6 +130,8 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
   #updateViewImmediately = false
   #updateNextImmediatelyQ: Function[]
+  //上次主视图渲染的vars，用于值级变更索引（见updateView）
+  #lastViewVars: any[] | undefined
 
   //////////////////////////////////// styles
   get cssVars(): Record<string, string | number | undefined> {
@@ -294,13 +294,15 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       let pComp = this.#parentComponent.deref()
       pComp && walkTree(pComp.__updateTree, (up) => {
         if (up.__destroyed) return
-        if (up.node?.deref() === this) {
+        if (up.node === this) {
           up.destroy(pComp)
           remove(up.parent ? up.parent.children! : pComp.__updateTree, c => c === up)
         }
       })
     }
     //sub scopes
+    //shadow 树内一次性清理全部嵌套子组件（含无插值覆盖的静态子组件，它们没有对应的更新点）
+    if (this.#shadow) DomUtil.clear(this.#shadow)
     each(this.__updateTree, up => up?.destroy(this))
 
     //slots
@@ -334,6 +336,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       this.#parentComponent =
       this._asyncDirectives =
       this.#wrapperComponent = null as any
+    this.#lastViewVars = null as any
     //unmount
 
     this.destroyed()
@@ -592,7 +595,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       newValue = null
     }
 
-    let propName = camelCase(attributeName)
+    let propName = camelCaseCached(attributeName)
     let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(this.__superComp)
     let propDef: PropOption = get(propDefs, propName)
 
@@ -725,7 +728,11 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     //2. update view
     if (this.#renderRoot?.deref()) {
       if (toUpdateView) {
-        updateView(buildVars(this.render()!), this, this.__updateTree, toUpdateUps, changed);
+        let newVars = buildVars(this.render()!)
+        //缓存上次渲染vars用于值级变更索引（见updateView），跳过值未变更新点的解析开销
+        let oldVars = this.#lastViewVars
+        this.#lastViewVars = newVars
+        updateView(newVars, this, this.__updateTree, toUpdateUps, changed, oldVars);
       }
       if (size(toUpdateUps) > 0) {
         toUpdateUps.forEach(up => {
@@ -759,7 +766,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         name[0] === ATTR_PREFIX_PROP ||
         name[0] === ATTR_PREFIX_BOOLEAN ||
         name === ATTR_REF || name === 'slot') return;
-      let camelName = camelCase(name)
+      let camelName = camelCaseCached(name)
       if (propDefs && !propDefs[camelName]) {
         filterAttrs[name] = value;
       }
@@ -907,7 +914,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       const et = expectTypeAry[i];
       if (
         //base form
-        test(realType, et.name, "i") ||
+        realType === typeNameLower(et) ||
         //object form
         val instanceof et || (Object.prototype.toString.call(val) === Object.prototype.toString.call(et.prototype))
       ) {
@@ -961,7 +968,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     let need2UpdateAttrs: Array<any> = []
     //存在attrs表示已初始化完成
     each(props, (v, k: string) => {
-      let ck = camelCase(k)
+      let ck = camelCaseCached(k)
       let propDef = propDefs[ck]
       if (!propDef) return
       v = this.#propTypeCheck(propDefs, ck, v)
@@ -1170,7 +1177,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     if (!this.__inited) return;
     let observedAttrs = _getObservedAttrs(this.constructor)
     if (observedAttrs.has(name)) {
-      let camelName = camelCase(name)
+      let camelName = camelCaseCached(name)
       if (isNull(newValue)) {
         let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(this.__superComp)
         //使用默认值

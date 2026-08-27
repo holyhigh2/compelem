@@ -1,6 +1,5 @@
 import {
   camelCase,
-  concat,
   each,
   get,
   isArray,
@@ -11,7 +10,6 @@ import {
   isString,
   kebabCase,
   last,
-  map,
   noop,
   range,
   replace,
@@ -31,7 +29,7 @@ import {
 import { bindEvents, getEventBindList } from "../events/event";
 import { Collector } from "../reactive";
 import { DirectiveInstance, DirectiveUpdateTag, EnterPointType, KeyFn, TplFn, UpdatedSource } from "../types";
-import { addUninitializedSubComponentProp, getSlotComponent, isCompElemNode, showTagError } from "../utils";
+import { addUninitializedSubComponentProp, isCompElemNode, showTagError } from "../utils";
 import { CssTemplate } from "./CssTemplate";
 import { Template } from "./Template";
 import { TemplateMeta } from "./TemplateMeta";
@@ -361,20 +359,33 @@ export function createTemplate(
   }
   return container.content;
 }
+//快照收集 fragment 中的元素与文本节点（文档序）
+function collectNodes(root: Node, out: Node[]) {
+  let children = root.childNodes
+  for (let i = 0, l = children.length; i < l; i++) {
+    let n = children[i]
+    let t = n.nodeType
+    if (t === Node.ELEMENT_NODE) {
+      out.push(n)
+      collectNodes(n, out)
+    } else if (t === Node.TEXT_NODE) {
+      out.push(n)
+    }
+  }
+}
+
 export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, vars: any[]): [DocumentFragment, UpdatePoint[]] {
   const { fragment, updatePointMetas, emptyEvents, upmMap, slotNodeMap } = tmplM
   let rs = fragment.cloneNode(true) as DocumentFragment
   let upAry: UpdatePoint[] = []
 
-  let currentNode: any
+  let currentNode: any;
   let textDirectives: any[] = []
   let direcitves: any[] = []
   let evList: Array<[string, Function, Node, Function?]> = getEventBindList(component)
-  //遍历dom
-  const nodeIterator = document.createNodeIterator(
-    rs,
-    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT
-  );
+  //快照遍历
+  const nodes: Node[] = []
+  collectNodes(rs, nodes)
   let nodeSn = -1
   let varIndex = 0
   if (process.env.DEV && size(vars) != size(updatePointMetas)) {
@@ -383,7 +394,8 @@ export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, va
     );
     return [rs, upAry]
   }
-  while ((currentNode = nodeIterator.nextNode())) {
+  for (let ni = 0; ni < nodes.length; ni++) {
+    currentNode = nodes[ni]
     nodeSn++
     if (slotNodeMap[nodeSn] === null) {
       slotNodeMap[nodeSn] = currentNode
@@ -394,17 +406,17 @@ export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, va
         evList.push([evName, noop, currentNode])
       })
     }
-    let props: Record<string, any> | undefined = {};
+    let props: Record<string, any> | undefined;
     const upms = upmMap[nodeSn]
     upms && upms.forEach(upm => {
       let val = vars[varIndex++]
 
       let newUp = UpdatePoint.createFrom(upm)
-      newUp.node = new WeakRef(currentNode)
+      newUp.node = currentNode
       newUp.value = val
 
       if (upm.isProp || upm.isPropPerfix) {
-        props[upm.attrName] = val;
+        (props ?? (props = {}))[upm.attrName] = val;
       } else if (upm.isRef) {
         val.__setRef(new WeakRef(currentNode))
       } else if (upm.isEvent) {
@@ -439,11 +451,11 @@ export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, va
       upAry.push(newUp)
     })
     if (currentNode instanceof HTMLSlotElement) {
-      component._bindSlot(currentNode, currentNode.name || 'default', props)
+      component._bindSlot(currentNode, currentNode.name || 'default', props!)
     } else if (currentNode instanceof HTMLElement) {
       if (isCompElemNode(currentNode)) {
         ComponentUninitializedWrapperComponentMap.set(currentNode, component)
-        addUninitializedSubComponentProp(component, currentNode, props)
+        if (props) addUninitializedSubComponentProp(component, currentNode, props)
       }
     }
   }
@@ -494,12 +506,11 @@ export function insertSubView(node: Node, point: UpdatePoint, tmplFn: TplFn, tmp
     let vars = buildVars(tmplFn.call(component, v, k, i))
     Collector.end(component)
     let [rs, upAry] = renderTemplate(component, tmplM, vars)
-    let roots = toArray(rs.childNodes).map((n: any) => new WeakRef(n))
+    let roots = toArray(rs.childNodes) as Node[]
     if (keyFn) {
       let key = keyFn.call(component, v, k, i) + ''
       roots.forEach(n => {
-        let dom = n.deref()
-        set(dom, '__c-' + subViewId, key)
+        set(n, '__c-' + subViewId, key)
       })
       rootNodes![key] = roots
       upAry.forEach(up => {
@@ -531,9 +542,21 @@ export function insertSubView(node: Node, point: UpdatePoint, tmplFn: TplFn, tmp
   }
 }
 
-export function updateView(vars: any[], renderComponent: CompElem<any>, updatePoints: UpdatePoint[], renderedUps?: Set<UpdatePoint>, changed?: Record<string, UpdatedSource>): void {
-  if (isBlank(vars)) return;
+export function updateView(vars: any[], renderComponent: CompElem<any>, updatePoints: UpdatePoint[], renderedUps?: Set<UpdatePoint>, changed?: Record<string, UpdatedSource>, oldVars?: any[]): void {
+  if (isBlank(vars)) return
   if (!updatePoints) return
+
+  //值级变更索引：与上次渲染值相同的原始类型变量，其更新点可直接跳过（对象/数组含指令实例不跳过，保持就地变更时指令diff的既有语义）
+  let skipSet: Set<number> | undefined
+  if (oldVars && oldVars.length === vars.length) {
+    skipSet = new Set()
+    for (let i = 0; i < vars.length; i++) {
+      const nv = vars[i]
+      if (nv === oldVars[i] && typeof nv !== 'object') {
+        skipSet.add(i)
+      }
+    }
+  }
 
   for (let i = 0; i < updatePoints.length; i++) {
     const up = updatePoints[i];
@@ -542,19 +565,14 @@ export function updateView(vars: any[], renderComponent: CompElem<any>, updatePo
     let upm = up.metaInfo
     if (upm.isPlaceholder || upm.isPropPerfix || upm.isRef || upm.isEvent || upm.isRefAttr || upm.isKey) continue
     if (up.__destroyed) continue
+    if (skipSet?.has(varIndex)) continue
     let oldValue = up.value;
-    let newValue: any = vars;
-    let node = up.node.deref();
+    let node = up.node;
     if (!node) continue
 
-    let indexSegs = up.getIndexSegs()
-    for (let l = 0; l < indexSegs.length; l++) {
-      const seg = indexSegs[l];
-      newValue = get(newValue, seg)
-      if (newValue && newValue.vars && i < indexSegs.length - 1) {
-        newValue = newValue.vars
-      }
-    }
+    let newValue: any
+    //varIndex为子视图平铺后的数字索引，直接下标取值避免通用路径解析开销
+    newValue = vars[varIndex]
 
     //check
     if (!isObject(oldValue) && oldValue === newValue) continue;
@@ -567,7 +585,8 @@ export function updateView(vars: any[], renderComponent: CompElem<any>, updatePo
       let [executor, oldArgs, diFn, varChain] = up.value
 
       if (!isArray(newValue)) continue
-      let slotComponent = getSlotComponent(node!, renderComponent)
+
+      let slotComponent = up.getSlotComponent(renderComponent)
 
       let [, newArgs] = newValue
 
@@ -619,11 +638,11 @@ export function updateView(vars: any[], renderComponent: CompElem<any>, updatePo
 
 export function updateSubScopeView(subScopeUpdatePoint: UpdatePoint, renderComponent: CompElem<any>, tmpl?: Template, updatedMap?: Record<string, UpdatedSource>): void {
   if (!subScopeUpdatePoint || subScopeUpdatePoint.__destroyed) return
-  let node = subScopeUpdatePoint.node.deref()
+  let node = subScopeUpdatePoint.node
 
   const [executor, oldArgs, diFn, varChain] = subScopeUpdatePoint.value
 
-  let slotComponent = getSlotComponent(node!, renderComponent)
+  let slotComponent = subScopeUpdatePoint.getSlotComponent(renderComponent)
   let newArgs
   if (!tmpl) {
     let rs = executor(node!, subScopeUpdatePoint.value[1], oldArgs, { renderComponent, slotComponent, varChain, updatedMap, pointType: get(DirectiveScopeMap.get(diFn), [0], EnterPointType.TEXT) })!

@@ -1,6 +1,5 @@
-import { split } from "myfx";
+import { closest } from "myfx";
 import { CompElem } from "../CompElem";
-import { PATH_SEPARATOR } from "../constants";
 import { DomUtil } from "../utils";
 import { UpdatePointMeta } from "./UpdatePointMeta";
 
@@ -11,34 +10,45 @@ export class UpdatePoint {
     metaInfo: UpdatePointMeta
     //在子视图中的平级key
     key: string
-    //表达式对应的vars位置
-    varIndex: any
+    //表达式对应的vars位置（子视图平铺后的数字索引，UPDATE重排/updateView时重赋值）
+    varIndex: number
     value: any
-    //缓存varIndex的路径段（varIndex在子视图移动时会被重赋值，需按值失效）
-    private __indexSegs: string[] | null = null
-    private __segsFor: any
 
     //表达式所在节点，可能是元素/文本
-    node: WeakRef<Node>;
+    node: Node | null;
     //子视图根元素 map/array
-    subViewRootNodes: Record<string, WeakRef<any>[]> | WeakRef<any>[]
+    subViewRootNodes: Record<string, any[]> | any[]
 
     __destroyed = false
     children: UpdatePoint[] | null
     parent: UpdatePoint | null
 
+    //指令更新热路径缓存
+    private __slotCompResolved = false
+    private __slotComp: CompElem<any> | null = null
+    //所属子视图id（__anchor__，可能为0，用undefined判断未缓存）
+    __subViewId: number | undefined
+    //父级子视图key映射（__c-*属性）
+    __parentViewsIdMap: Record<string, string> | undefined
+
     constructor(varIndex: number) {
         this.varIndex = varIndex
-        this.__indexSegs = [String(varIndex)]
-        this.__segsFor = varIndex
     }
 
-    getIndexSegs(): string[] {
-        if (this.__segsFor !== this.varIndex) {
-            this.__segsFor = this.varIndex
-            this.__indexSegs = split(String(this.varIndex), PATH_SEPARATOR)
+    /**
+     * 获取更新点所属的slot组件（带缓存）
+     */
+    getSlotComponent(renderComponent: CompElem<any>): any {
+        if (!this.__slotCompResolved) {
+            this.__slotCompResolved = true
+            if (this.node) {
+                let documentFragment = closest(this.node, (n: any) => n.host && n.host instanceof CompElem, 'parentNode')
+                if (documentFragment && documentFragment.host !== renderComponent) {
+                    this.__slotComp = documentFragment.host
+                }
+            }
         }
-        return this.__indexSegs!
+        return this.__slotComp
     }
 
     static createFrom(upm: UpdatePointMeta) {
@@ -54,6 +64,9 @@ export class UpdatePoint {
         let children = this.children
         //clean up
         this.node = this.value = this.children = this.parent = this.metaInfo = null as any
+        this.__slotComp = null
+        this.__parentViewsIdMap = undefined
+        this.__subViewId = undefined
         if (!node) return
 
 
@@ -67,10 +80,11 @@ export class UpdatePoint {
             node.destroy()
         }
         if (contextComponent) {
-            DomUtil.clear(node.deref() as Element, contextComponent)
+            //文本/注释节点不可能包含子组件，跳过子树扫描
+            if (node instanceof Element) DomUtil.clear(node)
         }
 
-        (node.deref() as any)?.remove()
+        (node as any)?.remove()
     }
 
     insert(up: UpdatePoint) {

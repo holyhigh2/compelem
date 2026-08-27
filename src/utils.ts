@@ -1,4 +1,4 @@
-import { assign, closest, isBlank, isString, isUndefined, kebabCase, some, toPath } from "myfx";
+import { assign, camelCase, isBlank, isString, isUndefined, kebabCase, some, toPath } from "myfx";
 import { CompElem } from "./CompElem";
 import { ComponentUninitializedSubComponentPropMap, CssVarKeyCacheMap, DefinitionComponentMap } from "./constants";
 
@@ -70,34 +70,25 @@ export const DomUtil = {
     }
   },
   //清除dom内容并释放内存
-  clear(container: Element, comp: CompElem) {
+  clear(container: Element | ShadowRoot | null) {
     if (!container) return
 
-    let nodeIterator = document.createNodeIterator(
-      container, NodeFilter.SHOW_COMMENT
-    );
-    //subscopes
-
-    let currentNode: any;
-    nodeIterator = document.createNodeIterator(
-      container, NodeFilter.SHOW_COMMENT | NodeFilter.SHOW_ELEMENT
-    );
-    while ((currentNode = nodeIterator.nextNode())) {
-      if (container === currentNode) continue
-
-      if (currentNode instanceof Comment) {
-      } else if (currentNode instanceof CompElem) {
-        currentNode.destroy()
-      } else {
+    //先收集后销毁
+    let comps: CompElem[] = []
+    let walk = (parent: Node) => {
+      let children = parent.childNodes
+      for (let i = 0, l = children.length; i < l; i++) {
+        let n = children[i]
+        if (n.nodeType !== Node.ELEMENT_NODE) continue
+        if (n instanceof CompElem) comps.push(n)
+        walk(n)
       }
     }
+    walk(container)
+    for (let i = 0, l = comps.length; i < l; i++) {
+      comps[i].destroy()
+    }
   }
-}
-
-export function getSlotComponent(node: Node, renderComponent: CompElem) {
-  let documentFragment = closest(node!, (n: any) => n.host && n.host instanceof CompElem, 'parentNode')
-  if (documentFragment && documentFragment.host === renderComponent) return undefined
-  return documentFragment ? documentFragment.host : undefined
 }
 
 export function isCompElemNode(node: Element) {
@@ -124,6 +115,28 @@ export function getCssVarKey(ctor: Function, k: string): string {
   if (v === undefined) {
     v = '--' + kebabCase(k).replace(/^-+/, '')
     m.set(k, v)
+  }
+  return v
+}
+
+//camelCase结果缓存
+const CamelCaseCache = new Map<string, string>()
+export function camelCaseCached(name: string): string {
+  let v = CamelCaseCache.get(name)
+  if (v !== undefined) return v
+  if (CamelCaseCache.size > 1024) CamelCaseCache.clear()
+  v = camelCase(name)
+  CamelCaseCache.set(name, v)
+  return v
+}
+
+//构造函数名小写缓存（prop类型检查用，避免每次更新构造正则）
+const TypeNameLowerCache = new WeakMap<Function, string>()
+export function typeNameLower(et: Function): string {
+  let v = TypeNameLowerCache.get(et)
+  if (v === undefined) {
+    v = (et.name || '').toLowerCase()
+    TypeNameLowerCache.set(et, v)
   }
   return v
 }

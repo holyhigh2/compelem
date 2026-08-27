@@ -12,7 +12,7 @@ export class Template {
     strings: Array<string>;
     vars: Array<any>;
     constructor(strings: Array<string>, vars: Array<any>) {
-        this.strings = concat(strings)
+        this.strings = strings as Array<string>
         this.vars = vars
     }
     //解析模板中的key
@@ -53,6 +53,7 @@ export class Template {
    * @param tmpl
    */
     append(tmpl: Template) {
+        this.strings = concat(this.strings)
         let lastStr = last(this.strings);
 
         tmpl.strings.forEach((str, i) => {
@@ -72,9 +73,10 @@ export class Template {
      * @returns 
      */
     insert(position: number, tmpl: Template) {
-        let firstStr = tmpl.strings.shift()
+        this.strings = concat(this.strings)
+        let firstStr = tmpl.strings[0]
         this.strings[position] += firstStr
-        this.strings.splice(position + 1, 0, ...tmpl.strings)
+        this.strings.splice(position + 1, 0, ...tmpl.strings.slice(1))
 
         this.vars.splice(position, 0, ...tmpl.vars)
         return this;

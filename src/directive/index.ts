@@ -1,4 +1,4 @@
-import { compact, each, except, first, get, groupBy, initial, isArray, isEmpty, keys, last, map, remove, set, startsWith, test, toArray } from "myfx";
+import { compact, each, except, first, get, groupBy, initial, isArray, isEmpty, isFunction, keys, last, map, remove, set, startsWith, test, toArray } from "myfx";
 import { CompElem } from "../CompElem";
 import { DirectiveScopeMap } from "../constants";
 import { bindEvents } from "../events/event";
@@ -56,7 +56,14 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
   let [tag, tmplM, newKeys, oldKeys, tmplFn, newAryOrObj] = rs
 
   if (tag === DirectiveUpdateTag.NONE) return
-  if (tag === DirectiveUpdateTag.REFRESH) return
+  if (tag === DirectiveUpdateTag.REFRESH) {
+    //REFRESH：结构/key未变仅值变化，直接应用新varList到子视图更新点
+    //（此前结果被丢弃：仅主视图路径可达时——如整组同key替换——DOM不更新，且子视图路径会重复执行本指令）
+    let r1 = rs[1]
+    let newVars = isFunction(r1) ? buildVars(r1.call(renderComponent, newArgs[0])) : r1
+    if (newVars) updateView(newVars, renderComponent, up.children!, undefined, updatedMap)
+    return true
+  }
 
   let newValueAry = newAryOrObj
   let newValueConverted = false
@@ -65,13 +72,20 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
     newValueConverted = true
   }
 
-  let subViewId = get(pointNode, '__anchor__')
-  let parentViewsIdMap: Record<string, string> = {}
-  each(keys<string>(pointNode), k => {
-    if (k === '__anchor__') return
-    if (!startsWith(k, '__c-')) return
-    parentViewsIdMap[k] = get(pointNode, [k])
-  })
+  //以下两个值在结构初始化（insertSubView标记）后保持不变，缓存到更新点避免每次扫描节点属性
+  let subViewId = up.__subViewId
+  if (subViewId === undefined) {
+    subViewId = up.__subViewId = get(pointNode, '__anchor__')
+  }
+  let parentViewsIdMap = up.__parentViewsIdMap
+  if (parentViewsIdMap === undefined) {
+    parentViewsIdMap = up.__parentViewsIdMap = {}
+    each(keys<string>(pointNode), k => {
+      if (k === '__anchor__') return
+      if (!startsWith(k, '__c-')) return
+      parentViewsIdMap![k] = get(pointNode, [k])
+    })
+  }
   let subViewRootNodes = up.subViewRootNodes
 
   let updatePoints = up.children!
@@ -79,15 +93,14 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
     let dels: any[] = []
     each(subViewRootNodes, (nodeAry, key) => {
       if (isArray(nodeAry)) {
-        each(nodeAry, (weakN) => {
-          let n = weakN.deref() as CharacterData | Element
-          n.remove()
+        each(nodeAry, (n) => {
+          (n as CharacterData | Element).remove()
           if (n instanceof CompElem) {
             n.destroy()
           }
         })
       } else {
-        let n = (nodeAry as WeakRef<any>).deref() as CharacterData | Element
+        let n = nodeAry as CharacterData | Element
         n.remove()
         dels.push(nodeAry)
         if (n instanceof CompElem) {
@@ -113,9 +126,8 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
 
   } else if (tag === DirectiveUpdateTag.REPLACE) {
     //删除旧dom
-    each(subViewRootNodes as WeakRef<any>[], (weakN) => {
-      let n = weakN.deref() as CharacterData | Element
-      n.remove()
+    each(subViewRootNodes as any[], (n) => {
+      (n as CharacterData | Element).remove()
       if (n instanceof CompElem) {
         n.destroy()
       }
@@ -251,10 +263,8 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
           }
           moveGroupNodes(moveGroup, oldNodeKeyMap, oldKeys)
         } else {
-          let lastGroupIndex = last(vals).moveIndex
-          if (Math.abs(vals[vals.length - 2].moveIndex - lastGroupIndex) === 1) {
-            vals = initial(vals)
-          }
+          //注意：不可按「相邻moveIndex」丢弃组——单项反转（如[1,2,3]→[3,2,1]产生两个moveIndex相邻的
+          //单元素组）会被误删导致后半组节点永不移动（实测 sort/下标互换渲染错乱）
           vals.forEach(({ moveGroup }) => {
             if (moveGroup[0].refNew) {
               moveAfterAddGroups.push(moveGroup)
@@ -356,7 +366,7 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
       each(newValueAry, (val: any, i: number) => {
         let newK = newKeys[i]
         let nodes = oldNodeKeyMap[newK]
-        rootNodes![newK] = nodes.map((n: any) => new WeakRef(n))
+        rootNodes![newK] = nodes
       })
       up.subViewRootNodes = rootNodes
     }

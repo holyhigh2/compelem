@@ -268,6 +268,7 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
       extraContext?.forEach(ctxRef => {
         let ctx = ctxRef.deref()
         if (!ctx) return
+        if (ctx === context) return
         if (ctx.isDestroyed) {
           invalidCtxRefs.push(ctxRef)
           return
@@ -275,6 +276,7 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
 
         let rootPathInCtxMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(ctx) ?? {}
         let ctxRootPath = rootPathInCtxMap[subChain[0]]
+        if (ctxRootPath === undefined) return
         let ck = subChain.join('.')
         ck = ck.replace(subChain[0], ctxRootPath)
 
