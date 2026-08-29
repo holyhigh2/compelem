@@ -57,6 +57,7 @@ export const StateShallowKeySetMap = new WeakMap<Function, Set<string>>()
 export const PropShallowKeySetMap = new WeakMap<Function, Set<string>>()
 export const HasChangedPropOrStateMap = new WeakMap<Function, Map<string, Function>>()
 
+export const ComputedMapCache = new WeakMap<Function, Record<string, Getter>>()
 export const ComputedUpdateDepsMap = new WeakMap<Function, Map<string, Set<Function>>>()
 export const CssUpdateDepsMap = new WeakMap<Function, Set<string>>()
 export const CssTemplateCacheMap = new WeakMap<TemplateStringsArray, CssTemplate>()

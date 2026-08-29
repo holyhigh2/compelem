@@ -34,7 +34,7 @@ import {
   walkTree
 } from "myfx";
 import { getBaseSheets } from "./config";
-import { ComponentDynamicCssUpdaterMap, ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, ComputedUpdateDepsMap, CssScopeCacheMap, CssTemplateSheetMap, CssUpdateDepsMap, DATA_KEY, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, HasChangedPropOrStateMap, PropShallowKeySetMap, PropTypeMap, SLOT_NAME_DEFAULT, ViewDepMap, WatchImmediateListMap, WatchKeyRootMap, WatchKeysOnceMap } from "./constants";
+import { ComponentDynamicCssUpdaterMap, ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, ComputedMapCache, ComputedUpdateDepsMap, CssScopeCacheMap, CssTemplateSheetMap, CssUpdateDepsMap, DATA_KEY, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, HasChangedPropOrStateMap, PropShallowKeySetMap, PropTypeMap, SLOT_NAME_DEFAULT, ViewDepMap, WatchImmediateListMap, WatchKeyRootMap, WatchKeysOnceMap } from "./constants";
 import { DecoratorWrapper } from "./decorator";
 import { Csscope } from "./decorators/csscope";
 import { _getObservedAttrs } from "./decorators/prop";
@@ -52,6 +52,7 @@ let CompElemSn = 0
 const SlotCompMap = new WeakMap()
 const EMPTY_SLOTS = {}
 const PROP_NAME_SLOTS = 'slots'
+const EMPTY_PARENT_PROPS: Record<string, any> = {}
 
 /**
  * CompElem基类，意为组件元素。提供了基本内置属性及生命周期等必备接口
@@ -390,7 +391,11 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     }
 
     //4. Computed
-    let computedMap = assign<Record<string, Getter>>({}, DefinitionComputedMap.get(this.constructor), DefinitionComputedMap.get(superComp))
+    let computedMap = ComputedMapCache.get(this.constructor)
+    if (computedMap === undefined) {
+      computedMap = assign<Record<string, Getter>>({}, DefinitionComputedMap.get(this.constructor), DefinitionComputedMap.get(superComp))
+      ComputedMapCache.set(this.constructor, computedMap)
+    }
     if (computedMap) {
       this._computedUpdateSetInNextTick = new Set()
       let depMap = ComputedUpdateDepsMap.get(this.constructor)!
@@ -759,18 +764,25 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(this.__superComp)
     let attrs = this.attributes;
     let tagName = this.tagName;
-    let parentProps = merge(this.#props ?? {}, ComponentUninitializedSubComponentPropMap.get(this.wrapperComponent!)?.get(this) ?? {});
+    let wrapperProps = ComponentUninitializedSubComponentPropMap.get(this.wrapperComponent!)?.get(this) ?? null
+    let parentProps: Record<string, any>
+    if (this.#props == null) {
+      parentProps = wrapperProps ?? EMPTY_PARENT_PROPS
+    } else {
+      parentProps = wrapperProps == null ? this.#props : merge(this.#props, wrapperProps)
+    }
     let filterAttrs: Record<string, string> = {}
-    each(attrs, ({ name, value }) => {
+    for (let i = 0, l = attrs.length; i < l; i++) {
+      let { name, value } = attrs[i] as Attr;
       if (name[0] === ATTR_PREFIX_EVENT ||
         name[0] === ATTR_PREFIX_PROP ||
         name[0] === ATTR_PREFIX_BOOLEAN ||
-        name === ATTR_REF || name === 'slot') return;
+        name === ATTR_REF || name === 'slot') continue;
       let camelName = camelCaseCached(name)
       if (propDefs && !propDefs[camelName]) {
         filterAttrs[name] = value;
       }
-    })
+    }
     this.#attrs = this.#attrs ? assign(this.#attrs, filterAttrs) : filterAttrs;
     let rs: Record<string, any> = {}
     if (!propDefs) return rs;

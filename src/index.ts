@@ -35,7 +35,7 @@ export * from "./directives/When";
 export { createRef, css, h, Template };
 export function defineComponents() {
     each(DefinitionComponentMap, (clz, name) => {
-        customElements.define(name, clz as any)
+        if (!customElements.get(name)) customElements.define(name, clz as any)
     })
 }
 

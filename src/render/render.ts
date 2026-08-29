@@ -13,7 +13,6 @@ import {
   noop,
   range,
   replace,
-  set,
   size,
   snakeCase,
   toArray,
@@ -461,7 +460,7 @@ export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, va
   }
 
   textDirectives.forEach(([currentNode, attrName, slotComponent, executor, args, varChain, newUp]) => {
-    set(currentNode, '__anchor__', SubViewSn++)
+    currentNode['__anchor__'] = SubViewSn++
     Collector.start()
     let tmpl = executor(currentNode, args, undefined, { renderComponent: component, slotComponent, varChain, attrName, pointType: newUp.directiveType })
     Collector.end(component, newUp)
@@ -499,7 +498,8 @@ export function insertSubView(node: Node, point: UpdatePoint, tmplFn: TplFn, tmp
   let upList: any = []
   let rootNodes = keyFn ? {} as Record<string, any> : undefined
   valueAry = valueAry ?? [0]
-  let fragment = document.createDocumentFragment()
+  //延迟初始化
+  let fragment: DocumentFragment | undefined = keyFn ? document.createDocumentFragment() : undefined
   let subViewId = get(node, '__anchor__')
   each(valueAry, (v, k, c, i) => {
     Collector.start()
@@ -510,14 +510,14 @@ export function insertSubView(node: Node, point: UpdatePoint, tmplFn: TplFn, tmp
     if (keyFn) {
       let key = keyFn.call(component, v, k, i) + ''
       roots.forEach(n => {
-        set(n, '__c-' + subViewId, key)
+        ; (n as any)['__c-' + subViewId] = key
       })
       rootNodes![key] = roots
       upAry.forEach(up => {
         up.key = key
       })
       upList.push(...upAry)
-      fragment.append(rs)
+      fragment!.append(rs)
     } else {
       fragment = rs
       point.subViewRootNodes = roots
@@ -535,10 +535,10 @@ export function insertSubView(node: Node, point: UpdatePoint, tmplFn: TplFn, tmp
     })
   }
 
-  let len = fragment!.childNodes.length
+  let len = fragment ? fragment.childNodes.length : 0
   if (len > 0) {
     bindEvents(component)
-    node.parentNode!.insertBefore(fragment, node);
+    node.parentNode!.insertBefore(fragment!, node);
   }
 }
 
