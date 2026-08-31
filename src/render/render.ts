@@ -389,7 +389,7 @@ export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, va
   let varIndex = 0
   if (process.env.DEV && size(vars) != size(updatePointMetas)) {
     showTagError(component.tagName,
-      `Dynamic root elements are not supported in component view, please checker the 'render()' function`
+      `Dynamic root elements are not supported in component view, please check the 'render()' function`
     );
     return [rs, upAry]
   }
