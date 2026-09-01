@@ -40,7 +40,7 @@ function parseValue(sv: StyleValueType): StyleValueObjectType | undefined {
   return rs
 }
 
-function normalizeStyle(val: Record<string, string> | string | Array<Record<string, string> | string>) {
+export function normalizeStyle(val: Record<string, string> | string | Array<Record<string, string> | string>) {
   let rs: Record<string, StyleValueObjectType> = {};
   if (isString(val)) {
     const trimmed = val.trim();

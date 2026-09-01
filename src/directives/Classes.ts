@@ -3,7 +3,7 @@ import { directive } from "../directive/index";
 import { EnterPointType } from "../types";
 const ClassLastMap = new WeakMap<Node, string>()
 
-function normalizeClass(val: Record<string, boolean> | string | Array<Record<string, boolean> | string>) {
+export function normalizeClass(val: Record<string, boolean> | string | Array<Record<string, boolean> | string>) {
   if (typeof val === 'string') {
     return val.trim();
   }
