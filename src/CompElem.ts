@@ -34,7 +34,7 @@ import {
   walkTree
 } from "myfx";
 import { getBaseSheets } from "./config";
-import { ComponentDynamicCssUpdaterMap, ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, ComputedMapCache, ComputedUpdateDepsMap, CssScopeCacheMap, CssTemplateSheetMap, CssUpdateDepsMap, DATA_KEY, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, HasChangedPropOrStateMap, PropShallowKeySetMap, PropTypeMap, SLOT_NAME_DEFAULT, ViewDepMap, WatchImmediateListMap, WatchKeyRootMap, WatchKeysOnceMap } from "./constants";
+import { ComponentDynamicCssUpdaterMap, ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, ComputedMapCache, ComputedUpdateDepsMap, CssScopeCacheMap, CssTemplateSheetMap, CssUpdateDepsMap, DATA_KEY, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, HasChangedPropOrStateMap, PATH_SEPARATOR, PropShallowKeySetMap, PropTypeMap, SLOT_NAME_DEFAULT, ViewDepMap, WatchImmediateListMap, WatchKeyRootMap, WatchKeysOnceMap } from "./constants";
 import { DecoratorWrapper } from "./decorator";
 import { Csscope } from "./decorators/csscope";
 import { _getObservedAttrs } from "./decorators/prop";
@@ -46,7 +46,7 @@ import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, bui
 import { Template } from "./render/Template";
 import { UpdatePoint } from "./render/UpdatePoint";
 import { Constructor, Getter, PropOption, SlotOptions, StateOption, TplFn, UpdatedSource } from "./types";
-import { _getSuper, _toUpdatePath, camelCaseCached, DomUtil, getBooleanValue, getCssVarKey, isBooleanProp, showTagError, typeNameLower } from "./utils";
+import { _getSuper, camelCaseCached, DomUtil, getBooleanValue, getCssVarKey, isBooleanProp, showTagError, typeNameLower } from "./utils";
 
 let CompElemSn = 0
 const SlotCompMap = new WeakMap()
@@ -636,14 +636,15 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
    * @returns
    */
   _notify(nv: any = undefined, ov: any, chain: string[], subNewValue?: any, subOldValue?: any) {
-    let varPath = [];
+    let varPath: string[] = [];
     let cur: any = this
+    let pathStr = ''
     for (let i = 0; i < chain.length; i++) {
       const seg = chain[i];
       varPath.push(seg);
       cur = cur == null ? cur : cur[seg]
       let v = cur ?? nv;
-      let pathStr = _toUpdatePath(varPath);
+      pathStr = i === 0 ? seg : pathStr + PATH_SEPARATOR + seg;
       this.#updateSources[pathStr] = { value: v, chain: pathStr === PROP_NAME_SLOTS ? [PROP_NAME_SLOTS] : varPath, oldValue: ov, end: varPath.length === chain.length, subNewValue, subOldValue };
     }
 
@@ -714,7 +715,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
     //1. filter update
     let toUpdateView = false
-    let toUpdateUps = new Set<UpdatePoint>()
+    let toUpdateUps: Set<UpdatePoint> | undefined
     let viewDeps = ViewDepMap.get(this.constructor)
     each(changed, (x, k: string) => {
       if (!toUpdateView && viewDeps?.has(k)) {
@@ -723,8 +724,9 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       if (this.__updateSubViewDeps?.has(k)) {
         let ups = this.__updateSubViewDeps.get(k)
         if (ups) {
+          if (!toUpdateUps) toUpdateUps = new Set<UpdatePoint>()
           ups.forEach(up => {
-            toUpdateUps.add(up)
+            toUpdateUps!.add(up)
           })
         }
       }
@@ -734,12 +736,19 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     if (this.#renderRoot?.deref()) {
       if (toUpdateView) {
         let newVars = buildVars(this.render()!)
-        //缓存上次渲染vars用于值级变更索引（见updateView），跳过值未变更新点的解析开销
+        //缓存上次渲染vars用于值级变更索引
         let oldVars = this.#lastViewVars
         this.#lastViewVars = newVars
         updateView(newVars, this, this.__updateTree, toUpdateUps, changed, oldVars);
+        //oldVars已消费完毕，截断对象槽位引用，缩短大对象生命周期
+        if (oldVars) {
+          for (let oi = 0; oi < oldVars.length; oi++) {
+            let ov = oldVars[oi]
+            if (ov !== null && typeof ov === 'object') oldVars[oi] = undefined
+          }
+        }
       }
-      if (size(toUpdateUps) > 0) {
+      if (toUpdateUps && toUpdateUps.size > 0) {
         toUpdateUps.forEach(up => {
           updateSubScopeView(up, this, undefined, changed)
         })

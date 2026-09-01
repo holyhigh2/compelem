@@ -8,6 +8,8 @@ export class UpdatePointMeta {
     attrName!: string
     //属性值模板
     attrTmpl!: string
+    //属性值整体即单一插值占位符（如 "⟬Ċ⟭3"），更新时可直接set免replace
+    isPureTmpl: boolean = false
     isText: boolean = false;
     isDirective: boolean = false;
     directiveType!: string

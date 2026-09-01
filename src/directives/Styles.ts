@@ -4,6 +4,8 @@ import { EnterPointType, StyleValueObjectType, StyleValueType } from "../types";
 
 const KeyCache = new Map();
 const OldKeys = new WeakMap<Node, Set<string>>();
+//已应用样式值缓存（值级diff用：跳过未变更项的CSSOM写入）
+const OldValues = new WeakMap<Node, Record<string, string>>();
 
 const LENGTH_PROPS = new Set([
   // size
@@ -105,14 +107,23 @@ export const styles = directive(function Styles(style: Record<string, string> | 
 
     const newKeys = new Set(Object.keys(styleObj));
     const oldkeys = OldKeys.get(el)!
+    let oldVals = OldValues.get(el)
+    if (!oldVals) {
+      oldVals = {}
+      OldValues.set(el, oldVals)
+    }
 
     each(oldkeys, (v: string) => {
       if (!newKeys.has(v)) {
         el.style.removeProperty(v)
+        delete oldVals![v]
       }
     })
     each(styleObj, (v, k: string) => {
+      const s = v.value + '' + (v.important ? ' !important' : '')
+      if (oldVals![k] === s) return
       el.style.setProperty(k, v.value + '', v.important ? 'important' : '')
+      oldVals![k] = s
     })
     OldKeys.set(el, newKeys)
   }

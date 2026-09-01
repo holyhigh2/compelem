@@ -102,7 +102,9 @@ function getVars(newAryOrObj: any, tmplFn: TplFn, renderComponent: CompElem, pro
       cross = detectCrossRead(mark, proxyRoot!, idx)
     }
     varsPerItem.push(vars)
-    varList.push(...vars)
+    for (let vi = 0; vi < vars.length; vi++) {
+      varList.push(vars[vi])
+    }
     idx++
   })
   if (pointNode !== undefined && proxyRoot !== undefined && ctxRoot !== undefined) {
@@ -165,7 +167,10 @@ export const forEach = directive(function ForEach(value: any[] | Record<string, 
               if (!flipped) {
                 let varList: any[] = []
                 for (let i = 0; i < cache.varsPerItem.length; i++) {
-                  varList.push(...cache.varsPerItem[i])
+                  let ivars = cache.varsPerItem[i]
+                  for (let vi = 0; vi < ivars.length; vi++) {
+                    varList.push(ivars[vi])
+                  }
                 }
                 return [DirectiveUpdateTag.REFRESH, varList]
               }

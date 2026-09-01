@@ -1,7 +1,7 @@
 import { each, isPlainObject } from "myfx";
 import { directive } from "../directive/index";
 import { EnterPointType } from "../types";
-const ClassLastMap = new WeakMap()
+const ClassLastMap = new WeakMap<Node, string>()
 
 function normalizeClass(val: Record<string, boolean> | string | Array<Record<string, boolean> | string>) {
   if (typeof val === 'string') {
@@ -41,12 +41,14 @@ export const classes = directive(function Classes(clazz: Record<string, boolean 
     const newClass = normalizeClass(clazz);
     const oldClass = ClassLastMap.get(el) ?? '';
 
+    if (newClass === oldClass) return
+
     if (oldClass) {
       el.classList.remove(...oldClass.split(' ').filter(Boolean));
     }
     if (newClass) {
       el.classList.add(...newClass.split(' ').filter(Boolean));
-      ClassLastMap.set(el, newClass)
     }
+    ClassLastMap.set(el, newClass)
   }
 }, [EnterPointType.TAG])

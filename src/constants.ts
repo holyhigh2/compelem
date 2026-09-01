@@ -73,7 +73,7 @@ export const ComponentUninitializedSubComponentPropMap = new WeakMap<CompElem<an
 export const ComponentUninitializedSlotFunctionMap = new WeakMap<Node, Record<string, TplFn>>()
 export const ComponentUninitializedWrapperComponentMap = new WeakMap<Node, CompElem<any>>()
 
-export const PATH_SEPARATOR = '-'
+export const PATH_SEPARATOR = '.'
 
 export const PROP_NAME_SLOTS = 'slots'
 export const DATA_KEY = '__data_'

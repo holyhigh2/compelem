@@ -38,6 +38,16 @@ const MODI_PARAM_DIVIDER = ":";
 const VFN = () => { }
 export type EvHadler = (ev: Event) => any
 
+const NeedBindCache = new WeakMap<Function, boolean>()
+function needBind(cbk: Function): boolean {
+  let v = NeedBindCache.get(cbk)
+  if (v === undefined) {
+    v = get(globalThis, cbk.name) !== cbk
+    NeedBindCache.set(cbk, v)
+  }
+  return v
+}
+
 /**
  * "click.stop.prevent.debounce:100" → { evName: 'click', parts: [...] }
  */
@@ -237,7 +247,7 @@ export function bindEvents(comp: CompElem<any>) {
       let evName = v[0], cbk = v[1], node = v[2]
       if (!node) continue
       if (v[3]) continue
-      let handler = cbk && (get(globalThis, cbk.name) !== cbk) ? cbk.bind(comp) : cbk
+      let handler = cbk && needBind(cbk) ? cbk.bind(comp) : cbk
       registerEvent(comp, evName, handler, node)
       v[3] = noop
     }
@@ -251,7 +261,7 @@ export function bindEvents(comp: CompElem<any>) {
       if (s.docoEventMap.has(key)) return
       let eventTarget = targetFn ? targetFn(comp) : comp
       let cbk = get(comp, fnName) as Function
-      let handler = cbk && (get(globalThis, cbk.name) !== cbk) ? cbk.bind(comp) : cbk
+      let handler = cbk && needBind(cbk) ? cbk.bind(comp) : cbk
       registerEvent(comp, name, handler, eventTarget)
       s.docoEventMap.set(key, handler)
     })

@@ -9,13 +9,17 @@ import { CompiledWatchMeta, CompiledWatchMetaMap, ComputedUpdateDepsMap, CssUpda
 import { UpdatePoint } from "./render/UpdatePoint";
 import { Updater } from "./types";
 
-
+const CHAR_CODE_UNDERSCORE = 95
 export function getterValue(propertyKey: string, context: CompElem) {
   let thisHost = context
   let v = Reflect.get(thisHost[DATA_KEY], propertyKey)
 
   if (Collector.__collecting) {
     Collector.__varPathList.push(propertyKey)
+  }
+
+  if (v === null || (typeof v !== 'object' && typeof v !== 'function')) {
+    return v
   }
 
   let p = PROXY_MAP.get(v)
@@ -146,15 +150,20 @@ function requestCssUpdate(context: CompElem, fullPath: string) {
     }
   })
 }
-
+const seen = new Set<string>()
 export const Collector = {
   popDirectiveQ() {
-    let rs: string[] = this.__varPathList.reduceRight((acc: string[], p: string) => {
-      if (!acc.includes(p)) {
-        acc.unshift(p);
+    let rs: string[] = []
+
+    let list = this.__varPathList
+    for (let i = 0; i < list.length; i++) {
+      let p = list[i]
+      if (!seen.has(p)) {
+        seen.add(p)
+        rs.push(p)
       }
-      return acc;
-    }, [])
+    }
+    seen.clear()
     return rs;
   },
   start() {
@@ -207,23 +216,25 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
       if (!prop) return undefined;
       const value = Reflect.get(target, prop, receiver);
       if (isSymbol(prop)) return value
+      const isAryTarget = isArray(target)
       if (isFunction(value)) return value
-      if (prop === 'length' && isArray(target)) return value
+      if (prop === 'length' && isAryTarget) return value
       //ignores private props
-      if (prop.substring(0, 2) === '__') return value
+      if (prop.charCodeAt(0) === CHAR_CODE_UNDERSCORE && prop.charCodeAt(1) === CHAR_CODE_UNDERSCORE) return value
+
+      let supPathArr = OBJECT_VAR_PATH.get(receiver)
 
       if (Collector.__collecting) {
-        let supPath = OBJECT_VAR_PATH.has(receiver) ? concat(OBJECT_VAR_PATH.get(receiver)) : []
+        let supPath = supPathArr ? concat(supPathArr) : []
         supPath.push(prop)
-        let propPath = supPath.join('.')
-        Collector.__varPathList.push(propPath)
+        Collector.__varPathList.push(supPath.join('.'))
       }
 
-      if (PROXY_MAP.has(value)) return PROXY_MAP.get(value)
+      if (value !== null && typeof value === 'object' && PROXY_MAP.has(value)) return PROXY_MAP.get(value)
 
       let reactiveVal = value
       if (isObject(value) && !isFunction(value) && !(value instanceof Node) && !Object.isFrozen(value)) {
-        let supPath = OBJECT_VAR_PATH.has(receiver) ? concat(OBJECT_VAR_PATH.get(receiver)) : []
+        let supPath = supPathArr ? concat(supPathArr) : []
 
         reactiveVal = reactive(value, context)
         supPath.push(prop)

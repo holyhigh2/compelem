@@ -41,8 +41,9 @@ function groupAddNodes(adds: Record<string, any>[]) {
 
 export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[], oldArgs: any[], executor: DirectiveExecutor, renderComponent: CompElem, slotComponent: CompElem, varChain: any[], up: UpdatePoint, updatedMap?: Record<string, UpdatedSource>) {
   let rs
-  let pointType = get<any>(DirectiveScopeMap.get(diFn), [0], '')
-  let isTextOrSlot = [EnterPointType.TEXT, EnterPointType.SLOT].includes(pointType)
+  let scopes = DirectiveScopeMap.get(diFn)
+  let pointType = scopes ? scopes[0] : ''
+  let isTextOrSlot = pointType === EnterPointType.TEXT || pointType === EnterPointType.SLOT
   if (isTextOrSlot) {
     Collector.start()
     rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain, updatedMap, pointType })
@@ -376,7 +377,9 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
       each(newAryOrObj, (val: any, k: string | number, c, i: number) => {
         let v = val
         let vars = buildVars(tmplFn.call(renderComponent, v, k, i))
-        varList.push(...vars)
+        for (let vi = 0; vi < vars.length; vi++) {
+          varList.push(vars[vi])
+        }
       })
       updateView(varList, renderComponent, up.children!, undefined, updatedMap)
     }

@@ -290,6 +290,7 @@ export function createTemplate(
             toRemove.push(name)
           } else {
             po.attrTmpl = value
+            po.isPureTmpl = value === PLACEHOLDER + varIndex
           }
 
           updatePoints.push(po)
@@ -513,10 +514,10 @@ export function insertSubView(node: Node, point: UpdatePoint, tmplFn: TplFn, tmp
         ; (n as any)['__c-' + subViewId] = key
       })
       rootNodes![key] = roots
-      upAry.forEach(up => {
-        up.key = key
-      })
-      upList.push(...upAry)
+      for (let ui = 0; ui < upAry.length; ui++) {
+        upAry[ui].key = key
+        upList.push(upAry[ui])
+      }
       fragment!.append(rs)
     } else {
       fragment = rs
@@ -546,14 +547,13 @@ export function updateView(vars: any[], renderComponent: CompElem<any>, updatePo
   if (isBlank(vars)) return
   if (!updatePoints) return
 
-  //值级变更索引：与上次渲染值相同的原始类型变量，其更新点可直接跳过（对象/数组含指令实例不跳过，保持就地变更时指令diff的既有语义）
-  let skipSet: Set<number> | undefined
+  let skipMask: Uint8Array | undefined
   if (oldVars && oldVars.length === vars.length) {
-    skipSet = new Set()
+    skipMask = new Uint8Array(vars.length)
     for (let i = 0; i < vars.length; i++) {
       const nv = vars[i]
       if (nv === oldVars[i] && typeof nv !== 'object') {
-        skipSet.add(i)
+        skipMask[i] = 1
       }
     }
   }
@@ -565,7 +565,7 @@ export function updateView(vars: any[], renderComponent: CompElem<any>, updatePo
     let upm = up.metaInfo
     if (upm.isPlaceholder || upm.isPropPerfix || upm.isRef || upm.isEvent || upm.isRefAttr || upm.isKey) continue
     if (up.__destroyed) continue
-    if (skipSet?.has(varIndex)) continue
+    if (skipMask && skipMask[varIndex]) continue
     let oldValue = up.value;
     let node = up.node;
     if (!node) continue
@@ -614,14 +614,12 @@ export function updateView(vars: any[], renderComponent: CompElem<any>, updatePo
     } else if (upm.attrName) {
       //特性
       if (oldValue != newValue) {
-        switch (upm.attrName) {
-          case 'value':
-            if (node instanceof HTMLInputElement) {
-              node.value = newValue
-              break;
-            }
-          default:
-            (node as HTMLElement).setAttribute(upm.attrName, replace(upm.attrTmpl, EXP_TAG, newValue + ''))
+        if (upm.attrName === 'value' && node instanceof HTMLInputElement) {
+          node.value = newValue
+        } else if (upm.isPureTmpl) {
+          (node as HTMLElement).setAttribute(upm.attrName, newValue + '')
+        } else {
+          (node as HTMLElement).setAttribute(upm.attrName, replace(upm.attrTmpl, EXP_TAG, newValue + ''))
         }
       }
     }

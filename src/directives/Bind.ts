@@ -5,6 +5,7 @@ import { directive } from "../directive/index";
 import { EnterPointType } from "../types";
 import { addUninitializedSubComponentProp, isCompElemNode } from "../utils";
 const Ignores = ['key']
+const LastValsMap = new WeakMap<Node, Record<string, any>>()
 /**
  * 绑定属性到节点上，如果节点是组件会使用in操作符判断是否props
  * @param styles 对象/数组/字符串
@@ -13,8 +14,15 @@ export const bind = directive(function Bind(obj: Record<string, any>) {
   return (pointNode: Node, [obj]: [Record<string, any>], oldArgs: any[] | undefined, { renderComponent }: { renderComponent: CompElem }) => {
     let el = pointNode as HTMLElement
     if (oldArgs) {
+      let oldVals = LastValsMap.get(el)
+      if (!oldVals) {
+        oldVals = {}
+        LastValsMap.set(el, oldVals)
+      }
       each(obj, (v, k: string) => {
+        if (oldVals![k] === v && (v === null || typeof v !== 'object')) return
         el.setAttribute(k, v)
+        oldVals![k] = v
       })
       return;
     }
@@ -25,6 +33,9 @@ export const bind = directive(function Bind(obj: Record<string, any>) {
       // let attrs: Record<string, string> = {}
       let propDefs = DefinitionPropMap.get(el.constructor)
 
+      let oldVals: Record<string, any> = {}
+      LastValsMap.set(el, oldVals)
+
       each(obj, (v, k: string) => {
         if (Ignores.includes(k)) return;
 
@@ -34,14 +45,16 @@ export const bind = directive(function Bind(obj: Record<string, any>) {
           props[k] = v;
         } else {
           el.setAttribute(k, v + '')
-          // attrs[k] = v + '';
+          oldVals[k] = v
         }
       })
       addUninitializedSubComponentProp(renderComponent, el, props)
-      // el._initProps(props, attrs)
     } else {
+      let oldVals: Record<string, any> = {}
+      LastValsMap.set(el, oldVals)
       each(obj, (v, k: string) => {
         el.setAttribute(k, v)
+        oldVals[k] = v
       })
     }
   };
