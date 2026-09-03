@@ -504,6 +504,31 @@ class CustomButton{
 }
 ```
 
+## 全局注入
+### 样式
+对于依赖外部样式表或第三方样式库如 TailwindCSS 可通过`setDefaults`接口进行注入
+```ts
+//main.ts
+import tailwindStyle from "./tailwind.css?inline";
+...
+setDefaults({
+  css: [tailwindStyle]
+});
+```
+然后就可以在组件中直接使用样式名书写
+```ts
+  return h`
+      <button
+        class="
+          inline-flex items-center justify-center
+          font-medium rounded-md" ...>
+          ...
+      </button>
+  `
+```
+
+
 ## 扩展
 - [VSCode](https://marketplace.visualstudio.com/items?itemName=holyhigh2.compelem-vscode) - 为h函数和css片段提供语法加亮/智能提示/诊断等功能
-- [Vite](https://www.npmjs.com/package/vite-plugin-compelem-css) - 用于在导入scss/css文件时直接转换为CssTemplate
+- [Vite-css](https://www.npmjs.com/package/vite-plugin-compelem-css) - 用于在导入scss/css文件时直接转换为CssTemplate
+- [Vite-comments](https://www.npmjs.com/package/vite-plugin-compelem-strip-comments) - 用于支持h``模板中的html注释
