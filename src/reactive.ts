@@ -14,8 +14,8 @@ export function getterValue(propertyKey: string, context: CompElem) {
   let thisHost = context
   let v = Reflect.get(thisHost[DATA_KEY], propertyKey)
 
-  if (Collector.__collecting) {
-    Collector.__varPathList.push(propertyKey)
+  if (collectorCollecting) {
+    collectorVarPathList.push(propertyKey)
   }
 
   if (v === null || (typeof v !== 'object' && typeof v !== 'function')) {
@@ -151,11 +151,14 @@ function requestCssUpdate(context: CompElem, fullPath: string) {
   })
 }
 const seen = new Set<string>()
+let collectorVarPathList = [] as string[]
+let collectorCollecting = false
+let collectorCurrentRenderComponent: CompElem | null = null
 export const Collector = {
   popDirectiveQ() {
     let rs: string[] = []
 
-    let list = this.__varPathList
+    let list = collectorVarPathList
     for (let i = 0; i < list.length; i++) {
       let p = list[i]
       if (!seen.has(p)) {
@@ -166,23 +169,32 @@ export const Collector = {
     seen.clear()
     return rs;
   },
-  start() {
-    this.__collecting = true;
-    this.__varPathList = []
+  start(comp: CompElem<any>) {
+    collectorCollecting = true;
+    collectorVarPathList = []
+    collectorCurrentRenderComponent = comp
   },
   end(renderComponent?: CompElem, up?: UpdatePoint) {
     if (renderComponent && up) {
       renderComponent._regSubViewDeps(Collector.popVarPathList(), up)
     }
-    this.__collecting = false;
+    collectorCollecting = false;
+    collectorCurrentRenderComponent = null
   },
   popVarPathList() {
-    let rs: string[] = Array.from(new Set(this.__varPathList))
-    this.__varPathList = [];
+    let rs: string[] = Array.from(new Set(collectorVarPathList))
+    collectorVarPathList = [];
     return rs;
   },
-  __varPathList: [] as string[],
-  __collecting: false,
+  getVarPathList() {
+    return collectorVarPathList
+  },
+  isCollection() {
+    return collectorCollecting
+  }
+}
+export function getCurrentRenderComponent() {
+  return collectorCurrentRenderComponent
 }
 
 //对象值在不同上下文的根路径
@@ -224,10 +236,10 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
 
       let supPathArr = OBJECT_VAR_PATH.get(receiver)
 
-      if (Collector.__collecting) {
+      if (collectorCollecting) {
         let supPath = supPathArr ? concat(supPathArr) : []
         supPath.push(prop)
-        Collector.__varPathList.push(supPath.join('.'))
+        collectorVarPathList.push(supPath.join('.'))
       }
 
       if (value !== null && typeof value === 'object' && PROXY_MAP.has(value)) return PROXY_MAP.get(value)
@@ -315,8 +327,8 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
   return proxyObject
 }
 
-export function notifyUpdate(context: CompElem, newValue: any, oldValue: any, path: string[], subNewValue?: any, subOldValue?: any) {
-  context._notify(newValue, oldValue, path)
+export function notifyUpdate(context: CompElem<any>, newValue: any, oldValue: any, path: string[], subNewValue?: any, subOldValue?: any) {
+  context._notify(newValue, oldValue, path, subNewValue, subOldValue)
 }
 
 export function appendUpdate(context: CompElem<any>, nv: any, ov: any, path: string[]) {

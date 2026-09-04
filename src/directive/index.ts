@@ -45,7 +45,7 @@ export function updateDirective(diFn: Function, pointNode: Node, newArgs: any[],
   let pointType = scopes ? scopes[0] : ''
   let isTextOrSlot = pointType === EnterPointType.TEXT || pointType === EnterPointType.SLOT
   if (isTextOrSlot) {
-    Collector.start()
+    Collector.start(renderComponent)
     rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain, updatedMap, pointType })
     Collector.end(renderComponent, up)
   } else {

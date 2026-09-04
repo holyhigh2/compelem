@@ -12,7 +12,8 @@
     "disableSizeLimit": true,
     "declaration": true,
     "esModuleInterop": true,
-    "experimentalDecorators": true
+    "experimentalDecorators": true,
+    "types": ["node"]
   },
   "exclude": ["test/*", "dev/*", "node_modules", "**/*.spec.ts"]
 }

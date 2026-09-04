@@ -24,8 +24,8 @@ export function computed(target: any, propertyKey: string, descriptor: PropertyD
   delete target[propertyKey]
   Reflect.defineProperty(target, propertyKey, {
     get() {
-      if (Collector.__collecting) {
-        Collector.__varPathList.push(propertyKey)
+      if (Collector.isCollection()) {
+        Collector.getVarPathList().push(propertyKey)
       }
       let v = Reflect.get(this[DATA_KEY], propertyKey)
       return v

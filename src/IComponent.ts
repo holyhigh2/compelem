@@ -78,11 +78,22 @@ export interface IComponent<T = HTMLElement> {
     arg: Record<string, any>,
     event?: Event
   ): void;
+  /**
+   * 创建下一帧执行的逻辑
+   * @param cbk 
+   */
   nextTick(cbk: () => void): void;
   /**
    * 强制更新视图
    */
   forceUpdate(): void;
+  /**
+   * 请求指定路径更新
+   * @param nv new value
+   * @param ov old value
+   * @param chain path segment
+   */
+  requestUpdate(nv: any, ov: any, chain: string[], subNewValue?: any, subOldValue?: any): void;
   /**
    * 向组件插入样式表，没有shadowDOM的组件调用无效
    * @param sheet 

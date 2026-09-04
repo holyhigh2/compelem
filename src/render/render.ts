@@ -462,7 +462,7 @@ export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, va
 
   textDirectives.forEach(([currentNode, attrName, slotComponent, executor, args, varChain, newUp]) => {
     currentNode['__anchor__'] = SubViewSn++
-    Collector.start()
+    Collector.start(component)
     let tmpl = executor(currentNode, args, undefined, { renderComponent: component, slotComponent, varChain, attrName, pointType: newUp.directiveType })
     Collector.end(component, newUp)
     if (tmpl && tmpl.length > 1) {
@@ -503,7 +503,7 @@ export function insertSubView(node: Node, point: UpdatePoint, tmplFn: TplFn, tmp
   let fragment: DocumentFragment | undefined = keyFn ? document.createDocumentFragment() : undefined
   let subViewId = get(node, '__anchor__')
   each(valueAry, (v, k, c, i) => {
-    Collector.start()
+    Collector.start(component)
     let vars = buildVars(tmplFn.call(component, v, k, i))
     Collector.end(component)
     let [rs, upAry] = renderTemplate(component, tmplM, vars)

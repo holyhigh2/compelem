@@ -8,9 +8,9 @@ import {
 } from "myfx";
 import { CompElem } from "../CompElem";
 import { directive } from "../directive/index";
+import { Collector, OBJECT_VAR_PATH, OBJECT_VAR_ROOT_PATH_IN_CONTEXT } from "../reactive";
 import { buildVars } from "../render/render";
 import { TemplateMeta } from "../render/TemplateMeta";
-import { Collector, OBJECT_VAR_PATH, OBJECT_VAR_ROOT_PATH_IN_CONTEXT } from "../reactive";
 import { DirectiveUpdateTag, EnterPointType, KeyFn, TplFn, UpdatedSource } from "../types";
 import { showError } from "../utils";
 
@@ -75,7 +75,7 @@ function getContextRoots(aryOrObj: any, renderComponent: CompElem): { proxyRoot:
  * 存在时脏项外的渲染结果可能依赖脏项数据，必须禁用/放弃局部更新
  */
 function detectCrossRead(mark: number, root: string, idx: number): boolean {
-  let reads = Collector.__varPathList
+  let reads = Collector.getVarPathList()
   let self = root + '.' + idx
   for (let j = mark; j < reads.length; j++) {
     let p = reads[j]
@@ -93,10 +93,10 @@ function getVars(newAryOrObj: any, tmplFn: TplFn, renderComponent: CompElem, pro
   let varList: any[] = []
   let varsPerItem: any[][] = []
   let cross = false
-  let tracking = proxyRoot !== undefined && Collector.__collecting
+  let tracking = proxyRoot !== undefined && Collector.isCollection()
   let idx = 0
   each(newAryOrObj, (val, k) => {
-    let mark = tracking ? Collector.__varPathList.length : 0
+    let mark = tracking ? Collector.getVarPathList().length : 0
     let vars = buildVars(tmplFn.call(renderComponent, val, k))
     if (tracking && !cross) {
       cross = detectCrossRead(mark, proxyRoot!, idx)
@@ -140,7 +140,6 @@ export const forEach = directive(function ForEach(value: any[] | Record<string, 
         let dirty = parseDirtyIndices(updatedMap, roots.ctxRoot)
         if (dirty) {
           let ary = newAryOrObj as any[]
-          //脏项key校验：key字段被就地修改时回退全量路径（走UPDATE做增删移）
           let keyChanged = false
           for (let n of dirty) {
             if (n >= ary.length) { keyChanged = true; break }
@@ -151,14 +150,13 @@ export const forEach = directive(function ForEach(value: any[] | Record<string, 
           if (!keyChanged) {
             let cache = EachVarsMap.get(pointNode)
             if (cache && cache.keys === oldKeys && !cache.cross && cache.varsPerItem.length === oldKeys.length) {
-              //脏项局部更新：仅重建脏项vars，其余复用缓存
-              let tracking = Collector.__collecting
+              //脏项局部更新
+              let tracking = Collector.isCollection()
               let flipped = false
               for (let n of dirty) {
-                let mark = tracking ? Collector.__varPathList.length : 0
+                let mark = tracking ? Collector.getVarPathList().length : 0
                 cache.varsPerItem[n] = buildVars(tmpl.call(renderComponent, ary[n], n))
                 if (tracking && !cache.cross && detectCrossRead(mark, roots.proxyRoot, n)) {
-                  //重建过程中发现新的跨项依赖：本轮放弃局部结果，回退全量
                   cache.cross = true
                   flipped = true
                   break

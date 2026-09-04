@@ -40,7 +40,7 @@ import { Csscope } from "./decorators/csscope";
 import { _getObservedAttrs } from "./decorators/prop";
 import { bindEvents, emitEvent, EvHadler, matchEmit, registerEvent, releaseEventHandlers } from "./events/event";
 import { IComponent } from "./IComponent";
-import { appendUpdate, Collector, getterValue, OBJECT_VAR_PATH, Queue, requestUpdate, setterValue } from "./reactive";
+import { appendUpdate, Collector, getterValue, notifyUpdate, OBJECT_VAR_PATH, Queue, requestUpdate, setterValue } from "./reactive";
 import { CssTemplate } from "./render/CssTemplate";
 import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildVars, buildView, updateSubScopeView, updateView } from "./render/render";
 import { Template } from "./render/Template";
@@ -405,7 +405,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         each(computedMap, (getter, propKey) => {
           set(getter, 'key', propKey)
 
-          Collector.start();
+          Collector.start(this);
           this[DATA_KEY][propKey] = getter.call(this)
           Collector.end();
           let computedDeps = Collector.popVarPathList()
@@ -426,7 +426,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     }
 
     //5. Render
-    Collector.start();
+    Collector.start(this);
     let tmpl = this.render()
     Collector.end();
     let viewDeps = Collector.popVarPathList()
@@ -484,7 +484,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     this.#mounted = true;
 
     //instance dynamic style
-    Collector.start()
+    Collector.start(this)
     let cssVarObj = this.cssVars
     Collector.end()
 
@@ -653,6 +653,10 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       return
     }
     Queue.pushNext(this.#updatedD)
+  }
+
+  requestUpdate(nv: any, ov: any, chain: string[], subNewValue?: any, subOldValue?: any): void {
+    notifyUpdate(this, nv, ov, chain, subNewValue, subOldValue)
   }
 
   #update() {

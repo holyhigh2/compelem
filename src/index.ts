@@ -2,6 +2,7 @@ import { each } from "myfx";
 import { DefinitionComponentMap } from "./constants";
 import { createRef, css, h } from "./render/render";
 import { Template } from './render/Template';
+export { reactive as createReactiveState, getCurrentRenderComponent } from "./reactive";
 
 //decorators
 export * from "./decorator/Decorator";
