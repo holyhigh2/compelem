@@ -97,7 +97,7 @@ function getVars(newAryOrObj: any, tmplFn: TplFn, renderComponent: CompElem, pro
   let idx = 0
   each(newAryOrObj, (val, k) => {
     let mark = tracking ? Collector.getVarPathList().length : 0
-    let vars = buildVars(tmplFn.call(renderComponent, val, k))
+    let vars = buildVars(renderComponent, tmplFn.call(renderComponent, val, k))
     if (tracking && !cross) {
       cross = detectCrossRead(mark, proxyRoot!, idx)
     }
@@ -155,7 +155,7 @@ export const forEach = directive(function ForEach(value: any[] | Record<string, 
               let flipped = false
               for (let n of dirty) {
                 let mark = tracking ? Collector.getVarPathList().length : 0
-                cache.varsPerItem[n] = buildVars(tmpl.call(renderComponent, ary[n], n))
+                cache.varsPerItem[n] = buildVars(renderComponent, tmpl.call(renderComponent, ary[n], n))
                 if (tracking && !cache.cross && detectCrossRead(mark, roots.proxyRoot, n)) {
                   cache.cross = true
                   flipped = true

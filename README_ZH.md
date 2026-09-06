@@ -285,7 +285,7 @@ export class PageTest extends CompElem {
   - insertStyleSheet(sheet: CssTemplate | CSSStyleSheet): CSSStyleSheet 向组件ShadowDOM插入样式表，仅影响组件实例
   - destroy() 销毁组件
 
-## 组件渲染流程
+## 组件渲染流程 Lifecycle
 
 CompElem 组件既可以在 CompElem 环境内调用，也可以直接在原生环境调用，区别只是原生环境无法像组件传`递类型参数`。流程如下：
 
@@ -420,6 +420,186 @@ return h` <l-tooltip>
 | when    | TEXT/SLOT | 多条件分支，支持 switch/ifelse 两种模式                     | ` ...>${when(condition,{c1:()=>h``,c2:...})}<... `  |
 | slot    | SLOT      | 动态插槽                                                    | ` ...>${slot((args) => h``)}<... `                  |
 | html    | TAG/TEXT/SLOT      | 向指定元素/文本位置插入HTML内容                                                    | `<div a="b" ${html('<b>1</b>')}> ...>${html('<b>1</b>')}<...`                  |
+| transition | TEXT/SLOT | 为内层结构指令的切换添加过渡动画，支持JS钩子。通常使用 `<transition>` 伪标签 | `${transition('fade', ifElse(...), {mode:'out-in'})}` |
+
+## 过渡动画 Transition
+
+`<transition>` 是模板解析期处理的伪标签（不产生真实DOM），用于为**直接子级结构指令**（ifElse/ifTrue/when/forEach）的插入/删除/移动添加过渡动画。动画由CSS声明：
+
+| 类名 | 触发时机 |
+|-------|-------|
+| `{name}-enter-from` | 入场起点样式，下一帧移除 |
+| `{name}-enter-active` | 入场期间，通常声明 `transition`/`animation` |
+| `{name}-enter-to` | 入场终点样式 |
+| `{name}-leave-from` | 离场起点样式 |
+| `{name}-leave-active` | 离场期间；列表场景建议加 `position:absolute` 使位移动画平滑 |
+| `{name}-leave-to` | 离场终点样式，动画结束后才从DOM移除节点 |
+| `{name}-move` | 列表项移动（FLIP），通常声明 `transition: transform` |
+
+```js
+render() {
+  return h`
+    <transition name="fade" mode="out-in">
+      ${ifElse(this.visible, h`<span>A</span>`, h`<span>B</span>`)}
+    </transition>
+
+    <transition name="list">
+      ${forEach(this.items, it => h`<li key=${it.id}>${it.name}</li>`)}
+    </transition>`
+}
+```
+
+```css
+.fade-enter-active, .fade-leave-active { transition: opacity .3s }
+.fade-enter-from, .fade-leave-to { opacity: 0 }
+.list-move { transition: transform .3s }
+.list-leave-active { position: absolute }
+```
+
+支持的属性：
+
+| 属性 | 描述 |
+|-------|-------|
+| name | 必填，动画类名前缀 |
+| mode | `out-in`（旧内容离场完成后新内容入场）/ `in-out`（新内容入场完成后旧内容离场），默认同时进行 |
+| appear | 首次渲染时播放入场动画 |
+| duration | 显式动画时长(ms)，设置后不再自动探测 |
+| `@before-enter` 等钩子 | JS 钩子，值必须为函数引用表达式，见下文 |
+
+钩子属性（`@before-enter` / `@enter` / `@after-enter` / `@enter-cancelled` / `@before-leave` / `@leave` / `@after-leave` / `@leave-cancelled`）：与事件绑定规则一致——**属性名静态，值为函数引用表达式**，组件方法自动绑定 `this`。提供 `@enter`/`@leave` 后结束时机交给 `done` 回调（不再自动探测 CSS 时长）：
+
+```js
+render() {
+  return h`
+    <transition name="fade" appear
+      @before-enter="${this.onBeforeEnter}"
+      @enter="${this.onEnter}"
+      @after-enter="${this.onAfterEnter}"
+    >
+      ${ifTrue(this.visible, () => h`<p class="pane">PANE</p>`)}
+    </transition>`
+}
+
+onEnter(el, done) {
+  animateEl(el).then(done)  // GSAP等JS动画：动画结束后调用done
+}
+```
+
+规则与说明：
+
+- 只过渡 `<transition>` **直接子级**的指令锚点，且仅插入文档后的元素（根为纯文本时不动画）
+- 离场动画期间节点保留在DOM中，`transitionend/animationend`（或显式 duration）后才执行移除与组件销毁；期间再次切换会取消未完成的过渡
+
+
+### 路由切换动画
+
+路由出口若通过结构指令切换路由组件，用 `<transition>` 包裹即可获得路由切换动画。整页级过渡可使用 View Transitions API 封装（不支持时降级为直接执行回调）：
+
+```js
+import { startViewTransition } from 'compelem'
+
+//compelem-router 或任意路由状态切换
+startViewTransition(() => { this.route = nextRoute })
+```
+
+```css
+::view-transition-old(root) { animation: fade-out .3s both }
+::view-transition-new(root) { animation: fade-in .3s both }
+```
+
+`startViewTransition` 在支持 View Transitions API 的浏览器中返回 `ViewTransition.finished`（一个 Promise），不支持时（如 Firefox）返回 `undefined`，因此可安全地 `await` / `.then` 以感知动画结束，调用方无需关心兼容性。
+
+下面是一个「列表 ↔ 详情」主从视图切换的完整组件示例：
+
+```ts
+import { CompElem, Template, forEach, h, ifElse, state, tag, startViewTransition } from 'compelem'
+
+const ARTICLES = [
+  { id: 1, title: 'Alpha', desc: '第一篇文章……' },
+  { id: 2, title: 'Beta',  desc: '第二篇文章……' },
+  { id: 3, title: 'Gamma', desc: '第三篇文章……' },
+]
+
+@tag('vt-demo', true)
+export class VtDemo extends CompElem {
+  @state view: 'list' | 'detail' = 'list'
+  @state currentId = 1
+
+  private goto(next: 'list' | 'detail', id = this.currentId) {
+    // 用 startViewTransition 包裹状态变更：支持时获得整页级过渡，不支持时直接切换
+    startViewTransition(() => {
+      this.currentId = id
+      this.view = next
+    })?.then(() => console.log('transition finished'))
+  }
+
+  render(): Template {
+    return h`
+      <div>
+        ${ifElse(
+          this.view === 'list',
+          () => h`
+            <ul>
+              ${forEach(ARTICLES, (it) => it.id, (it) => h`
+                <li @click="${() => this.goto('detail', it.id)}">${it.title}</li>
+              `)}
+            </ul>`,
+          () => {
+            const item = ARTICLES.find((i) => i.id === this.currentId)!
+            return h`
+              <button @click="${() => this.goto('list')}">← 返回</button>
+              <h2>${item.title}</h2>
+              <p>${item.desc}</p>`
+          },
+        )}
+      </div>`
+  }
+}
+```
+
+> 注意：`::view-transition-old/new(root)` 是文档级伪元素，**必须写在全局 `<style>` 中**（组件 Shadow DOM 内的样式对其无效）。
+
+### 配合 compelem-router 的组件路由动画
+
+配合 [compelem-router](https://www.npmjs.com/package/compelem-router) 时，`outlet()` **直接被 `<transition>` 包裹即可获得组件级路由动画**：
+
+```ts
+import { CompElem, Csscope, Template, css, csscope, h, state, tag } from 'compelem'
+import { RouterMode, createRouter, outlet, useRoute, useRouter } from 'compelem-router'
+
+createRouter({
+  mode: RouterMode.Hash,
+  routes: [
+    { path: '/', component: PageHome },
+    { path: '/about', component: PageAbout },
+  ],
+})
+
+@tag('rt-demo', true)
+export class RtDemo extends CompElem {
+  @csscope(Csscope.INNER)
+  static get css() { /* page-enter-* / page-leave-* 过渡类定义在组件样式中 */ }
+
+  render(): Template {
+    return h`
+      <nav>
+        <l-router-link to="/">首页</l-router-link>
+        <l-router-link to="/about">关于</l-router-link>
+      </nav>
+      <div class="route-box">
+        <transition name="page" mode="out-in">
+          ${outlet()}
+        </transition>
+      </div>
+    `
+  }
+}
+```
+
+要点：
+- 整页级过渡与 router 组合：`push()` 返回 Promise（状态更新 + 重渲染完成后 resolve），VT 回调内直接 `await` 即可：
+  `startViewTransition(async () => { await router.push(target) })`
+
 
 ## 装饰器 Decorator
 
@@ -438,7 +618,7 @@ return h` <l-tooltip>
 ### 继承
   部分指令可由子类继承不会覆盖，包括@state/@prop/@watch/@computed/@emits
 
-## 事件
+## 事件 Event
 在CompElem中有三类不同事件，分别返回原生事件对象或自定义对象
 
 1. 原生事件 —— `<div @click="..."` 在原生元素上可以监听原生事件，监听器回调参数返回原生事件对象

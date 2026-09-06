@@ -1,3 +1,4 @@
+import { TransitionCfg } from "../types";
 /**
  * 视图更新点元数据
  */
@@ -32,6 +33,8 @@ export class UpdatePointMeta {
     //模板DOM中的节点路径
     nodeSn: number = -1
     slotNodeSn: number = -1
+    //<transition>伪标签解析期附着的过渡配置（仅直接子级指令锚点携带）
+    transitionCfg?: TransitionCfg
 
     constructor(varIndex: number) {
         this.varIndex = varIndex

@@ -32,6 +32,9 @@ export * from "./directives/Show";
 export * from "./directives/Slot";
 export * from "./directives/Styles";
 export * from "./directives/When";
+//transition
+export * from "./transition";
+export * from "./viewTransition";
 
 export { createRef, css, h, Template };
 export function defineComponents() {

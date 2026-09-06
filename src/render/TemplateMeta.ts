@@ -19,6 +19,8 @@ export class TemplateMeta {
     emptyEvents: Record<number, string[]>
     upmMap: Record<number, UpdatePointMeta[]>
     slotNodeMap: Record<number, Node | null>
+    //需要跳过的varIndex数组，如<transition>等伪元素
+    skipVarIndexSet: Set<number> | undefined
 
     constructor(tmpl: Template, component: CompElem<any>, vars?: any[]) {
         let [html, v] = this.parseTemplate(tmpl);
@@ -27,7 +29,8 @@ export class TemplateMeta {
         }
         this.updatePointMetas = []
         this.emptyEvents = {}
-        this.fragment = createTemplate(this.updatePointMetas, html, v, component, this.emptyEvents);
+        this.skipVarIndexSet = new Set<number>()
+        this.fragment = createTemplate(this.updatePointMetas, html, v, component, this.emptyEvents, this.skipVarIndexSet);
         this.upmMap = {}
         this.slotNodeMap = {}
         this.updatePointMetas.forEach((upm, i) => {

@@ -739,7 +739,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     //2. update view
     if (this.#renderRoot?.deref()) {
       if (toUpdateView) {
-        let newVars = buildVars(this.render()!)
+        let newVars = buildVars(this, this.render()!)
         //缓存上次渲染vars用于值级变更索引
         let oldVars = this.#lastViewVars
         this.#lastViewVars = newVars

@@ -1,5 +1,6 @@
 import {
   camelCase,
+  compact,
   each,
   get,
   isArray,
@@ -27,7 +28,8 @@ import {
 } from "../directive/index";
 import { bindEvents, getEventBindList } from "../events/event";
 import { Collector } from "../reactive";
-import { DirectiveInstance, DirectiveUpdateTag, EnterPointType, KeyFn, TplFn, UpdatedSource } from "../types";
+import { beginEnter, collectElementRoots, getTransitionCfg, resolveAnchorHooks, settleEnter } from "../transition";
+import { DirectiveInstance, DirectiveUpdateTag, EnterPointType, KeyFn, TplFn, TransitionCfg, TransitionMode, UpdatedSource } from "../types";
 import { addUninitializedSubComponentProp, isCompElemNode, showTagError } from "../utils";
 import { CssTemplate } from "./CssTemplate";
 import { Template } from "./Template";
@@ -68,13 +70,16 @@ export function convertHTML(html: string) {
   return html
 }
 
-export function buildVars(tmpl: Template) {
+export function buildVars(comp: CompElem<any>, tmpl: Template) {
   const result: any[] = []
   const stack: Template[] = [tmpl]
+  const skipSet = TMPL_META_CACHE.get(comp.constructor)?.skipVarIndexSet
   while (stack.length) {
     const current = stack.pop()!
     const sl = current.strings.length - 1
     for (let i = 0; i < sl; i++) {
+      if (skipSet?.has(i)) continue
+
       const val = current.vars[i]
       if (val instanceof Template) {
         stack.push(val)
@@ -86,6 +91,109 @@ export function buildVars(tmpl: Template) {
   return result
 }
 
+const EXP_TOKEN_IDX = new RegExp(`${PLACEHOLDER}(\\d+)`)
+
+/**
+ * 解析<transition>
+ * @param el
+ */
+function parseTransitionTag(el: Element, vars: any[], skipVarIndexSet: Set<number>): TransitionCfg | void {
+  let tName: string | undefined
+  let tMode: TransitionMode | undefined
+  let tAppear: boolean | undefined
+  let tDuration: number | undefined
+  let hooks: Record<string, Function> | undefined
+  each(el.attributes, attr => {
+    let attrVal: any = attr.nodeValue
+    const isExpVal = EXP_TAG.test(attrVal ?? '')
+    if (isExpVal) {
+      const m = EXP_TOKEN_IDX.exec(attr.value.trim())
+      let varIndex = parseInt(m![1])
+      attrVal = vars[varIndex]
+      vars[varIndex] = null
+      skipVarIndexSet.add(varIndex)
+    }
+    let attrName = attr.nodeName
+    if (attrName[0] === ATTR_PREFIX_EVENT) {
+      if (!hooks) {
+        hooks = {}
+      }
+      hooks[attrName.substring(1)] = attrVal
+      return
+    }
+    switch (attrName) {
+      case 'name':
+        if (process.env.DEV && !attrVal) {
+          showTagError('TRANSITION', `'<transition>' requires a 'name' attribute`)
+          return
+        }
+        tName = attrVal!
+        break;
+      case 'mode':
+        tMode = attrVal as TransitionMode
+        break;
+      case 'appear':
+        tAppear = attrVal === 'true' || attrVal === ''
+        break;
+      case 'duration':
+        if (attrVal) {
+          const d = parseFloat(attrVal)
+          if (!isNaN(d) && d >= 0) {
+            tDuration = d
+          } else if (process.env.DEV) {
+            showTagError('TRANSITION', `'<transition duration>' must be a non-negative number(ms), got '${attrVal}'`)
+          }
+        }
+        break;
+    }
+  })
+
+  if (process.env.DEV) {
+    if (!toArray(el.childNodes).some((c: any) => c.nodeType === Node.TEXT_NODE && (c.nodeValue || '').includes(PLACEHOLDER))) {
+      showTagError('TRANSITION', `'<transition>' must contain a structural directive (ifElse/ifTrue/when/forEach) as direct child`)
+    }
+  }
+
+  return tName
+    ? { name: tName, mode: tMode, appear: tAppear, duration: tDuration, hooks } : undefined
+}
+
+/**
+ * 剥离所有<transition>伪标签并收集过渡配置锚点
+ *
+ * @param root 模板fragment
+ * @param anchorMap 锚点映射：直接子级含占位符的Text节点 -> 过渡配置
+ * @param vars 动态属性，仅在编译期获取
+ * @param skipVarIndexSet 需要跳过的vars索引集合，仅在编译期获取
+ */
+function unwrapTransitionTags(
+  root: DocumentFragment,
+  anchorMap: Map<Text, TransitionCfg>,
+  vars: any[],
+  skipVarIndexSet: Set<number>
+) {
+  const tEls = root.querySelectorAll('transition')
+  //正序遍历：嵌套时先解外层，其"直接子级"判定须基于解包前的原始子节点，
+  //否则内层解包后提升的文本节点会被外层误当作自己的指令锚点
+  for (let i = 0; i < tEls.length; i++) {
+    const el = tEls[i]
+    const cfg = parseTransitionTag(el, vars, skipVarIndexSet)
+    if (cfg) {
+      toArray(el.childNodes).forEach((c: any) => {
+        if (c.nodeType === Node.TEXT_NODE && (c.nodeValue || '').includes(PLACEHOLDER)) {
+          anchorMap.set(c as Text, cfg)
+        }
+      })
+    }
+    const parent = el.parentNode
+    if (parent) {
+      //节点身份在insertBefore后保持，anchorMap的Text键在后续遍历中依然命中
+      toArray(el.childNodes).forEach((c: any) => parent.insertBefore(c, el))
+    }
+    el.remove()
+  }
+}
+
 /**
  * 构建模板DOM
  * @param html
@@ -95,10 +203,18 @@ export function createTemplate(
   html: string,
   vars: any[],
   renderComponent: CompElem,
-  emptyEvents: Record<number, string[]>
+  emptyEvents: Record<number, string[]>,
+  skipVarIndexSet: Set<number>
 ): DocumentFragment {
   const container = document.createElement("template");
   container.innerHTML = html
+
+  //剔除<transition>
+  const transitionAnchorMap = new Map<Text, TransitionCfg>()
+  if (html.includes('<transition')) {
+    unwrapTransitionTags(container.content, transitionAnchorMap, vars, skipVarIndexSet)
+    vars = compact(vars)
+  }
 
   //遍历dom
   const nodeIterator = document.createNodeIterator(
@@ -113,7 +229,6 @@ export function createTemplate(
   let slotNodeSn = -1
   while ((currentNode = nodeIterator.nextNode())) {
     nodeSn++
-
     if (slotComponent && !slotComponent.contains(currentNode)) {
       slotComponent = undefined;
       slotNodeSn = -1
@@ -335,6 +450,9 @@ export function createTemplate(
           if (slotComponent) {
             po.slotNodeSn = slotNodeSn
           }
+          //动画执行节点必须是指令或路由点
+          const tCfg = transitionAnchorMap.get(currentNode as Text)
+          if (tCfg) po.transitionCfg = tCfg
 
           let [, , diFn] = val as DirectiveInstance
           directiveScopeChecker(diFn, pType, renderComponent.tagName)
@@ -378,6 +496,10 @@ export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, va
   const { fragment, updatePointMetas, emptyEvents, upmMap, slotNodeMap } = tmplM
   let rs = fragment.cloneNode(true) as DocumentFragment
   let upAry: UpdatePoint[] = []
+
+  if (tmplM.skipVarIndexSet?.size) {
+    vars = vars.filter((_, i) => !tmplM.skipVarIndexSet?.has(i))
+  }
 
   let currentNode: any;
   let textDirectives: any[] = []
@@ -432,7 +554,8 @@ export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, va
           let slotComponent = slotNodeMap[upm.slotNodeSn] as CompElem<HTMLElement>
           let [executor, args, , varChain] = val as DirectiveInstance
           textDirectives.push([currentNode, attrName, slotComponent, executor, args, varChain, newUp])
-        } else {
+        } else if (!upm.isPlaceholder) {
+          //<transition>钩子marker仅占vars槽位，禁止首次渲染时把函数写成文本
           currentNode.textContent = val
         }
       } else if (upm.isDirective) {
@@ -465,9 +588,16 @@ export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, va
     Collector.start(component)
     let tmpl = executor(currentNode, args, undefined, { renderComponent: component, slotComponent, varChain, attrName, pointType: newUp.directiveType })
     Collector.end(component, newUp)
-    if (tmpl && tmpl.length > 1) {
+    if (tmpl && tmpl.length > 6) {
+      //transition()包装指令附加的过渡配置（固定第7位，undefined表示清除）
+      newUp.__transition = tmpl[6]
+    }
+    if (tmpl && tmpl.length > 1 && tmpl[1] && tmpl[2]) {
       let [, tmplFn, tmplM, newAry, keyFn] = tmpl
-      insertSubView(currentNode, newUp, tmplFn, tmplM, component, newAry, keyFn)
+      //首次渲染仅在显式声明appear时播放入场动画（钩子表达式同步解析，appear入场钩子生效）
+      resolveAnchorHooks(newUp, vars, component)
+      const initCfg = getTransitionCfg(newUp)
+      insertSubView(currentNode, newUp, tmplFn, tmplM, component, newAry, keyFn, initCfg?.appear ? initCfg : undefined)
     }
   })
   direcitves.forEach(([currentNode, attrName, slotComponent, executor, args, varChain, pointType]) => {
@@ -484,7 +614,7 @@ export function buildView(
 
   if (TMPL_META_CACHE.has(component.constructor)) {
     tmplM = TMPL_META_CACHE.get(component.constructor)!
-    vars = buildVars(tmpl)
+    vars = buildVars(component, tmpl)
   } else {
     tmplM = new TemplateMeta(tmpl, component, vars)
     TMPL_META_CACHE.set(component.constructor, tmplM)
@@ -495,7 +625,7 @@ export function buildView(
 
   return rs
 }
-export function insertSubView(node: Node, point: UpdatePoint, tmplFn: TplFn, tmplM: TemplateMeta, component: CompElem<any>, valueAry?: any[], keyFn?: KeyFn) {
+export function insertSubView(node: Node, point: UpdatePoint, tmplFn: TplFn, tmplM: TemplateMeta, component: CompElem<any>, valueAry?: any[], keyFn?: KeyFn, enterCfg?: TransitionCfg, onEnterDone?: () => void) {
   let upList: any = []
   let rootNodes = keyFn ? {} as Record<string, any> : undefined
   valueAry = valueAry ?? [0]
@@ -504,7 +634,7 @@ export function insertSubView(node: Node, point: UpdatePoint, tmplFn: TplFn, tmp
   let subViewId = get(node, '__anchor__')
   each(valueAry, (v, k, c, i) => {
     Collector.start(component)
-    let vars = buildVars(tmplFn.call(component, v, k, i))
+    let vars = buildVars(component, tmplFn.call(component, v, k, i))
     Collector.end(component)
     let [rs, upAry] = renderTemplate(component, tmplM, vars)
     let roots = toArray(rs.childNodes) as Node[]
@@ -538,8 +668,17 @@ export function insertSubView(node: Node, point: UpdatePoint, tmplFn: TplFn, tmp
 
   let len = fragment ? fragment.childNodes.length : 0
   if (len > 0) {
+    if (enterCfg) {
+      //入场类必须在插入前打好：插入后再加类会以插入态为过渡起点，产生幻影过渡导致入场不可见
+      beginEnter(component, collectElementRoots(point.subViewRootNodes), enterCfg)
+    }
     bindEvents(component)
     node.parentNode!.insertBefore(fragment!, node);
+  }
+  if (enterCfg) {
+    settleEnter(component, collectElementRoots(point.subViewRootNodes), enterCfg, onEnterDone)
+  } else {
+    onEnterDone?.()
   }
 }
 
@@ -647,7 +786,7 @@ export function updateSubScopeView(subScopeUpdatePoint: UpdatePoint, renderCompo
     if (!rs) return
     if (rs[0] !== DirectiveUpdateTag.REFRESH) return
     if (isFunction(rs[1])) {
-      newArgs = buildVars(rs[1].call(renderComponent, subScopeUpdatePoint.value[1][0]))
+      newArgs = buildVars(renderComponent, rs[1].call(renderComponent, subScopeUpdatePoint.value[1][0]))
     } else {
       newArgs = rs[1]
     }

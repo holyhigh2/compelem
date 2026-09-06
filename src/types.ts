@@ -151,6 +151,44 @@ export enum DirectiveUpdateTag {
     INIT = 'INIT'//首次渲染
 }
 
+//////////////////////////////////////////////////// transition
+/**
+ * 新旧内容交替模式
+ * - default：离场与入场同时进行
+ * - out-in：旧内容离场完成后新内容再入场
+ * - in-out：新内容入场完成后旧内容再离场
+ */
+export type TransitionMode = 'default' | 'out-in' | 'in-out'
+
+/**
+ * transition指令选项
+ */
+export type TransitionOptions = Record<string, Function> & {
+    /**
+     * 新旧内容交替模式，默认default
+     */
+    mode?: TransitionMode,
+    /**
+     * 首次渲染时是否播放入场动画，默认false
+     */
+    appear?: boolean,
+    /**
+     * 显式动画时长(ms)，设置后不再自动探测transition/animation时长
+     */
+    duration?: number
+}
+
+/**
+ * 解析后的过渡动画配置
+ */
+export type TransitionCfg = {
+    name: string,
+    mode?: TransitionMode,
+    appear?: boolean,
+    duration?: number,
+    hooks?: Record<string, Function>,
+}
+
 export type DefaultProps = Partial<{
     //全局默认样式
     css: Array<string | CSSStyleSheet>,
