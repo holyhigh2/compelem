@@ -57,6 +57,8 @@ export function getterValue(propertyKey: string, context: CompElem) {
 }
 export function setterValue(propertyKey: string, v: any, context: CompElem) {
   let thisHost = context
+  // 已销毁组件的响应式写入直接忽略
+  if (thisHost.isDestroyed) return
   if (!thisHost.__inited) {
     Reflect.set(thisHost[DATA_KEY], propertyKey, v);
     return

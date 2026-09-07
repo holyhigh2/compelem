@@ -72,22 +72,20 @@ export function convertHTML(html: string) {
 
 export function buildVars(comp: CompElem<any>, tmpl: Template) {
   const result: any[] = []
-  const stack: Template[] = [tmpl]
   const skipSet = TMPL_META_CACHE.get(comp.constructor)?.skipVarIndexSet
-  while (stack.length) {
-    const current = stack.pop()!
-    const sl = current.strings.length - 1
+  const walk = (t: Template): void => {
+    const sl = t.strings.length - 1
     for (let i = 0; i < sl; i++) {
       if (skipSet?.has(i)) continue
-
-      const val = current.vars[i]
+      const val = t.vars[i]
       if (val instanceof Template) {
-        stack.push(val)
+        walk(val)
       } else {
         result.push(val ?? '')
       }
     }
   }
+  walk(tmpl)
   return result
 }
 
