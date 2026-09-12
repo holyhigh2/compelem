@@ -291,23 +291,23 @@ CompElem 组件既可以在 CompElem 环境内调用，也可以直接在原生�
 
 > 创建流程
 
-| 功能                                                         |     | 生命周期    |
-| ------------------------------------------------------------ | --- | ----------- |
-| 1. 创建组件实例，完成类属性默认值设置（prop/state/...)       |     |             |
-| 2. 初始化类全局样式（仅一次）及 实例样式(产生 styles 数组)   |     |             |
-| 3. 创建 shadowRoot 并挂载组件样式                            |     |  |
-| 4. 执行装饰器 create 回调                                      |     |    constructor         |
-| 5. 绑定 parentComponent                                               |     |    |
-| 6. 验证及初始化 props |     |  propsReady |
-| 7. 初始化 states |     |   |
-| 8. @computed                       |     |             |
-| 9. @watch(immediate)                       |     |             |
-| 10. 渲染 render 及依赖绑定                                    |     | render      |
-| 11. 绑定 renderRoot 及 renderRoots                                            |     |             |
-| 12. 初始化插槽 slots                                            |     |     |
-| 13. 执行装饰器 beforeMount 回调 ，如 @query                                     |     |    beforeMount      |
-| 14. 初始化动态 css                                                   |     |     mounted        |
-| 15. 执行装饰器 mounted 回调                                |     |             |
+| 功能                                                         |  生命周期    |
+| ------------------------------------------------------------ | ----------- |
+| 1. 创建组件实例，完成类属性默认值设置（prop/state/...)       |              |
+| 2. 初始化类全局样式（仅一次）及 实例样式(产生 styles 数组)   |                 |
+| 3. 创建 shadowRoot 并挂载组件样式                            |      |
+| 4. 执行装饰器 create 回调                                      |        constructor         |
+| 5. 绑定 parentComponent                                                   |    |
+| 6. 验证及初始化 props |      propsReady |
+| 7. 初始化 states |       |
+| 8. @computed                       |                 |
+| 9. @watch(immediate)                       |                 |
+| 10. 渲染 render 及依赖绑定                                    |     render      |
+| 11. 绑定 renderRoot 及 renderRoots                                            |                 |
+| 12. 初始化插槽 slots                                            |         |
+| 13. 执行装饰器 beforeMount 回调 ，如 @query                                         |    beforeMount      |
+| 14. 初始化动态 css                                                   |         mounted        |
+| 15. 执行装饰器 mounted 回调                                |                 |
 
 > 更新流程【普通】
 
@@ -420,7 +420,6 @@ return h` <l-tooltip>
 | when    | TEXT/SLOT | 多条件分支，支持 switch/ifelse 两种模式                     | ` ...>${when(condition,{c1:()=>h``,c2:...})}<... `  |
 | slot    | SLOT      | 动态插槽                                                    | ` ...>${slot((args) => h``)}<... `                  |
 | html    | TAG/TEXT/SLOT      | 向指定元素/文本位置插入HTML内容                                                    | `<div a="b" ${html('<b>1</b>')}> ...>${html('<b>1</b>')}<...`                  |
-| transition | TEXT/SLOT | 为内层结构指令的切换添加过渡动画，支持JS钩子。通常使用 `<transition>` 伪标签 | `${transition('fade', ifElse(...), {mode:'out-in'})}` |
 
 ## 过渡动画 Transition
 

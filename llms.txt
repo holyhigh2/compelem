@@ -1,0 +1,92 @@
+# compelem
+
+> 现代化、响应式、轻量的 WebComponent 开发库，基于 Class + 装饰器构建。TypeScript 编写，零运行时依赖。
+
+## 核心概念
+
+- **CompElem 基类**: 所有组件的基类，提供生命周期、响应式系统和 Shadow DOM 支持
+- **装饰器系统**: @tag、@prop、@state、@computed、@watch、@emits 等声明式装饰器
+- **模板系统**: h 模板标签函数，支持属性前缀（@事件、.prop、?布尔、*求值）
+- **内置指令**: forEach、ifTrue、ifElse、when、show、model、bind、classes、styles、slot、html
+
+## 快速开始
+
+```ts
+import { CompElem, tag, prop, state, h, forEach, ifElse } from "compelem";
+
+@tag("my-counter")
+export class MyCounter extends CompElem {
+  @prop({ type: Number, model: true }) value = 0;
+  @state count = 0;
+
+  render() {
+    return h`<div>
+      <span>${this.value}: ${this.count}</span>
+      <button @click="${() => this.count++}">+1</button>
+      ${ifElse(this.count > 5, () => h`<b>big</b>`, () => h`<i>small</i>`)}
+    </div>`;
+  }
+}
+```
+
+## 装饰器 API
+
+| 装饰器 | 说明 |
+|---|---|
+| `@tag(name, immediate?)` | 注册组件标签名 |
+| `@prop(options?)` | 外部传入属性，组件内不可直接赋值 |
+| `@state` | 组件内部响应状态 |
+| `@computed` | 缓存计算属性（用于非静态 getter） |
+| `@watch(source, options?)` | 监视 prop/state 变化 |
+| `@emits(...names)` | 声明组件事件（必须先声明才能 emit） |
+| `@csscope(...scopes)` | 样式作用域（用于 static getter） |
+| `@event(name, target?)` | 绑定非视图事件 |
+| `@debounced(wait, immediate?)` | 方法防抖 |
+| `@throttled(wait)` | 方法节流 |
+
+## 内置指令
+
+| 指令 | 位置 | 说明 |
+|---|---|---|
+| `forEach(list, keyFn, tmpl)` | TEXT/SLOT | 循环渲染 |
+| `ifTrue(cond, tmpl)` | TEXT/SLOT | 条件渲染（true 时） |
+| `ifElse(cond, ifTmpl, elseTmpl)` | TEXT/SLOT | 条件渲染（二分支） |
+| `when(value, cases)` | TEXT/SLOT | 多条件分支 |
+| `show(visible)` | TAG | 显示/隐藏 |
+| `model(value, updateProp?)` | TAG | 双向绑定 |
+| `bind(obj)` | TAG | 绑定属性/特性 |
+| `classes(cls)` | TAG | 绑定样式类 |
+| `styles(style)` | TAG | 绑定样式 |
+| `slot(tmpl, name?)` | SLOT | 动态插槽 |
+| `html(str)` | TAG/TEXT/SLOT | 插入原始 HTML |
+
+## 模板语法
+
+```ts
+h`<div @click="${handler}" .value="${prop}" ?disabled="${bool}" *attr="${val}">...</div>`
+```
+
+- `@` = 事件绑定
+- `.` = 组件 prop
+- `?` = 布尔特性切换
+- `*` = 求值后设置（支持 `:camel/:kebab/:snake` 格式转换）
+
+## 生命周期
+
+`propsReady()` → `render()` → `beforeMount()` → `mounted()` → `shouldUpdate()` → `beforeDestroyed()` → `destroyed()`
+
+## 重要约束
+
+- **条件/循环表达式必须使用指令**：不能使用原始三元表达式或 if/else，必须使用 ifTrue/ifElse/when/forEach
+- **prop 不可在组件内赋值**：修改请使用 model: true 或 emit('update:xxx', ...)
+- **组件事件必须先声明**：使用 @emits 声明后才能 emit
+- **model 指令仅支持静态路径**
+- **@prop 字段名必须小写字母开头**；无默认值必须显式 type
+- **render() 返回 null 的组件没有 Shadow DOM**
+
+## 资源
+
+- [GitHub 仓库](https://github.com/holyhigh2/compelem)
+- [npm 包](https://www.npmjs.com/package/compelem)
+- [完整文档](https://github.com/holyhigh2/compelem/blob/main/README.md)
+- [示例代码](https://github.com/holyhigh2/compelem/tree/main/test)
