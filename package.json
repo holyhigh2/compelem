@@ -1,10 +1,42 @@
 {
   "name": "compelem",
-  "version": "0.28.1",
+  "version": "0.28.2",
   "description": "A modern, reactive, fast, lightweight and flexible lib for building web components",
-  "main": "index.js",
-  "module": "index.js",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
   "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.esm.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs.js"
+      },
+      "development": {
+        "import": {
+          "types": "./dist-dev/index.d.ts",
+          "default": "./dist-dev/index.esm.js"
+        },
+        "require": {
+          "types": "./dist-dev/index.d.cts",
+          "default": "./dist-dev/index.cjs.js"
+        }
+      },
+      "production": {
+        "import": {
+          "types": "./dist/index.d.ts",
+          "default": "./dist/index.esm.js"
+        },
+        "require": {
+          "types": "./dist/index.d.cts",
+          "default": "./dist/index.cjs.js"
+        }
+      }
+    }
+  },
   "author": "holyhigh2",
   "license": "MIT",
   "repository": {
@@ -17,11 +49,19 @@
     "webcomponent",
     "reactive"
   ],
+  "files": [
+    "dist/",
+    "dist-dev/",
+    "llms.txt",
+    "README.md",
+    "LICENSE",
+    ".agents/"
+  ],
   "scripts": {
     "lint": "eslint src/**",
-    "prod": "rollup --config",
-    "dev": "rollup --config rollup.config.dev.js",
-    "test": "rollup --config rollup.config.test.js --watch"
+    "build": "rollup --config",
+    "test": "rollup --config rollup.config.test.js --watch",
+    "pack": "npm pack"
   },
   "devDependencies": {
     "@babel/preset-typescript": "^7.26.0",
@@ -36,12 +76,11 @@
     "autoprefixer": "^10.4.19",
     "eslint": "9.19.0",
     "eslint-config-prettier": "^10.0.1",
-    "myfx": "^1.15.11",
+    "myfx": "^1.15.12",
     "postcss": "^8.4.38",
     "prettier": "^2.8.3",
     "rollup-plugin-banner2": "1.2.2",
     "rollup-plugin-clear": "2.0.7",
-    "rollup-plugin-copy": "3.4.0",
     "rollup-plugin-livereload": "^2.0.5",
     "rollup-plugin-scss": "^3.0.0",
     "rollup-plugin-serve": "^2.0.1",

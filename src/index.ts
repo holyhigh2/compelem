@@ -1,8 +1,12 @@
 import { each } from "myfx";
 import { DefinitionComponentMap } from "./constants";
+import { installCompElemDevtools } from "./devtools";
 import { createRef, css, h } from "./render/render";
 import { Template } from './render/Template';
 export { reactive as createReactiveState, getCurrentRenderComponent } from "./reactive";
+
+// DevTools 接入点：模块加载期即挂载（扩展据此判断核心库是否已加载）
+installCompElemDevtools();
 
 //decorators
 export * from "./decorator/Decorator";

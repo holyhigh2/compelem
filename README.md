@@ -1,5 +1,20 @@
-![Logo](./assets/logo.png)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./assets/logo-dark.svg">
+    <img src="./assets/logo.svg" alt="compelem" width="120" height="120">
+  </picture>
+</p>
 
+<h1 align="center">compelem</h1>
+
+<p align="center">
+  <em>Component + Element · A Web Components MVVM library</em>
+</p>
+<p align="center">
+  <img src="https://img.shields.io/npm/v/compelem" alt="npm">
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="license">
+  <img src="https://img.shields.io/badge/TypeScript-ready-3178C6" alt="ts">
+</p>
 一个现代化、响应式、快速、轻量的WebComponent开发库。为开发者提供丰富、灵活、可扩展的声明式接口
 
 ## 概览  
@@ -710,4 +725,5 @@ setDefaults({
 ## 扩展
 - [VSCode](https://marketplace.visualstudio.com/items?itemName=holyhigh2.compelem-vscode) - 为h函数和css片段提供语法加亮/智能提示/诊断等功能
 - [Vite-css](https://www.npmjs.com/package/vite-plugin-compelem-css) - 用于在导入scss/css文件时直接转换为CssTemplate
+- [Vite-scss](https://www.npmjs.com/package/vite-plugin-compelem-scss) - 用于在css``模板中支持scss语法
 - [Vite-comments](https://www.npmjs.com/package/vite-plugin-compelem-strip-comments) - 用于支持h``模板中的html注释

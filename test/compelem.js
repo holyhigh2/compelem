@@ -1,4 +1,5 @@
-/* compelem 0.26.4 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
+/* compelem 0.28.2 @holyhigh2 git+https://github.com/holyhigh2/compelem.git */
+(function(l, r) { if (!l || l.getElementById('livereloadscript')) return; r = l.createElement('script'); r.async = 1; r.src = '//' + (self.location.host || 'localhost').split(':')[0] + ':35729/livereload.js?snipver=1'; r.id = 'livereloadscript'; l.getElementsByTagName('head')[0].appendChild(r) })(self.document);
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
     typeof define === 'function' && define.amd ? define(['exports'], factory) :
@@ -33,7 +34,7 @@
     };
 
     /**
-       * myfx v1.15.10
+       * myfx v1.15.12
        * A modular utility library with more utils, higher performance and simpler declarations ...
        * https://github.com/holyhigh2/myfx
        * (c) 2021-2026 @holyhigh2 may be freely distributed under the MIT license
@@ -410,44 +411,54 @@
      * @param startIndex 遍历起始索引
      */
     function each(collection, callback, startIndex = 0) {
-        let values;
-        let keys;
-        if (isString(collection) || isArrayLike(collection)) {
-            let size = collection.length;
+        if (collection == null)
+            return;
+        // 快速路径：数组
+        if (Array.isArray(collection)) {
+            const size = collection.length;
             for (let i = startIndex; i < size; i++) {
-                const r = callback(collection[i], i, collection, i);
-                if (r === false)
+                if (callback(collection[i], i, collection, i) === false)
                     return;
             }
+            return;
         }
-        else if (isSet(collection)) {
-            let size = collection.size;
-            values = collection.values();
+        // 快速路径：字符串
+        if (typeof collection === 'string') {
+            const size = collection.length;
             for (let i = startIndex; i < size; i++) {
-                const r = callback(values.next().value, i, collection, i);
-                if (r === false)
+                if (callback(collection[i], i, collection, i) === false)
                     return;
             }
+            return;
         }
-        else if (isMap(collection)) {
-            let size = collection.size;
-            keys = collection.keys();
-            values = collection.values();
+        // Set
+        if (collection instanceof Set) {
+            const size = collection.size;
+            const values = collection.values();
             for (let i = startIndex; i < size; i++) {
-                const r = callback(values.next().value, keys.next().value, collection, i);
-                if (r === false)
+                if (callback(values.next().value, i, collection, i) === false)
                     return;
             }
+            return;
         }
-        else if (isObject(collection)) {
-            keys = Object.keys(collection);
-            let size = keys.length;
+        // Map
+        if (collection instanceof Map) {
+            const size = collection.size;
+            const keys = collection.keys();
+            const values = collection.values();
             for (let i = startIndex; i < size; i++) {
-                const k = keys[i];
-                const r = callback(collection[k], k, collection, i);
-                if (r === false)
+                if (callback(values.next().value, keys.next().value, collection, i) === false)
                     return;
             }
+            return;
+        }
+        // ArrayLike / Object
+        const keys = Object.keys(collection);
+        const size = keys.length;
+        for (let i = startIndex; i < size; i++) {
+            const k = keys[i];
+            if (callback(collection[k], k, collection, i) === false)
+                return;
         }
     }
 
@@ -524,21 +535,23 @@
             for (let i = 0; i < ary.length; i++) {
                 const v = ary[i];
                 const id = comparator ? comparator(v) : v;
-                if (!kvMap.get(id)) {
+                let entry = kvMap.get(id);
+                if (!entry) {
                     // 防止组内重复
-                    kvMap.set(id, { i: 0, v: v });
+                    entry = { i: 0, v: v };
+                    kvMap.set(id, entry);
                 }
-                if (kvMap.get(id) && !localMap.get(id)) {
-                    kvMap.get(id).i++;
+                if (!localMap.get(id)) {
+                    entry.i++;
                     // 相同id本组内不再匹配
                     localMap.set(id, true);
                 }
             }
         }
         const rs = [];
-        each(kvMap, (v) => {
-            if (v.i < len) {
-                rs.push(v.v);
+        kvMap.forEach((entry) => {
+            if (entry.i < len) {
+                rs.push(entry.v);
             }
         });
         return rs;
@@ -974,6 +987,7 @@
         return rs;
     }
 
+    const MAX_DEPTH$2 = 100;
     /**
      * 按照指定的嵌套深度递归遍历数组，并将所有元素与子数组中的元素合并为一个新数组返回
      *
@@ -994,10 +1008,35 @@
     function flat(array, depth = 1) {
         if (depth < 1)
             return toArray(array);
-        const rs = toArray(array).reduce((acc, val) => {
-            return acc.concat((Array.isArray(val) || isSet(val)) && depth > 0 ? flat(val, depth - 1) : val);
-        }, []);
-        return rs;
+        const safeDepth = Math.min(depth, MAX_DEPTH$2);
+        const inputArr = toArray(array);
+        const result = [];
+        // 反向压栈以保持原始顺序（LIFO）
+        const stack = [];
+        for (let i = inputArr.length - 1; i >= 0; i--) {
+            stack.push({ arr: [inputArr[i]], depth: safeDepth });
+        }
+        while (stack.length > 0) {
+            const { arr, depth: currentDepth } = stack.pop();
+            for (let i = 0; i < arr.length; i++) {
+                const val = arr[i];
+                if (Array.isArray(val) || isSet(val)) {
+                    if (currentDepth > 0) {
+                        const childArr = toArray(val);
+                        for (let j = childArr.length - 1; j >= 0; j--) {
+                            stack.push({ arr: [childArr[j]], depth: currentDepth - 1 });
+                        }
+                    }
+                    else {
+                        result.push(val);
+                    }
+                }
+                else {
+                    result.push(val);
+                }
+            }
+        }
+        return result;
     }
 
     /**
@@ -1125,8 +1164,9 @@
             for (let i = 0; i < ary.length; i++) {
                 const v = ary[i];
                 const id = comparator ? comparator(v) : v;
-                if (kvMap.get(id) && !localMap.get(id)) {
-                    kvMap.get(id).i++;
+                const entry = kvMap.get(id);
+                if (entry && !localMap.get(id)) {
+                    entry.i++;
                     // 相同id本组内不再匹配
                     localMap.set(id, true);
                     // 匹配次数加1
@@ -1138,9 +1178,9 @@
             }
         }
         const rs = [];
-        each(kvMap, (v) => {
-            if (v.i === len) {
-                rs.push(v.v);
+        kvMap.forEach((entry) => {
+            if (entry.i === len) {
+                rs.push(entry.v);
             }
         });
         return rs;
@@ -3457,42 +3497,63 @@
      * 创建一个包含指定函数逻辑的防抖函数并返回。在防抖函数执行后的下一次调用会在 `wait` 间隔结束后执行，如果等待期间调用函数则会重置wait时间。
      * 对于一些需要等待过程停止后执行的场景非常有用，如输入结束时的查询、窗口resize后的计算等等
      *
+     * 返回的防抖函数额外带有 `cancel()`，用于丢弃尚未执行的排队调用。
+     * 典型场景：宿主（组件/组件库）卸载时清除已排队的回调，避免回调迟到执行时访问已销毁的实例。
+     *
      * @example
      * //2
      * let log = _.debounce(console.log);
      * console.log(log(1),log(2))
      *
+     * @example
+     * //取消排队中的调用
+     * let save = _.debounce(doSave, 300)
+     * save(data)
+     * save.cancel()   //doSave 不会被触发
+     *
      * @param fn 需要调用的函数
      * @param wait 抖动间隔，ms
      * @param immediate 立即执行一次，默认false
-     * @returns 包装后的函数
+     * @returns 包装后的防抖函数（含 `cancel()`）
      * @since 1.4.0
      */
     function debounce(fn, wait, immediate = false) {
-        let proxy = fn;
         let timer = null;
         let firstCalled = false;
-        if (immediate) {
-            return (function (...args) {
-                if (!firstCalled) {
-                    proxy.apply(this, args);
-                    firstCalled = true;
-                    return;
-                }
-                clearTimeout(timer);
-                timer = setTimeout(() => {
-                    proxy.apply(this, args);
-                }, wait);
-            });
+        //最后一次调用的 this/args。原实现靠每次调用的闭包捕获，但 clearTimeout 只会留下
+        //最后一次的闭包；改为显式暂存后语义等价，且 cancel 时能一并释放。
+        let lastThis = null;
+        let lastArgs = null;
+        //统一的调用入口：先取出并清空暂存参数，再执行，保证 cancel/重复取消都是安全的
+        function invoke() {
+            timer = null;
+            if (lastArgs === null)
+                return;
+            let args = lastArgs;
+            let self = lastThis;
+            lastArgs = lastThis = null;
+            fn.apply(self, args);
         }
-        else {
-            return (function (...args) {
+        const debounced = function (...args) {
+            lastThis = this;
+            lastArgs = args;
+            //immediate 仅在首次调用时立即执行一次，后续调用一律走防抖
+            if (immediate && !firstCalled) {
+                invoke();
+                firstCalled = true;
+                return;
+            }
+            clearTimeout(timer);
+            timer = setTimeout(invoke, wait);
+        };
+        debounced.cancel = function () {
+            if (timer !== null) {
                 clearTimeout(timer);
-                timer = setTimeout(() => {
-                    proxy.apply(this, args);
-                }, wait);
-            });
-        }
+                timer = null;
+            }
+            lastThis = lastArgs = null;
+        };
+        return debounced;
     }
 
     /**
@@ -3860,6 +3921,7 @@
         return v instanceof RegExp || Object.prototype.toString.call(v) === '[object RegExp]';
     }
 
+    const MAX_DEPTH$1 = 128;
     /**
      * 同<code>isEqual</code>，但支持自定义比较器。如果未指定比较器则使用内置逻辑处理
      * 内置逻辑:
@@ -3874,10 +3936,15 @@
      * @param a
      * @param b
      * @param [comparator] 比较器，参数(v1,v2)，返回true表示匹配。如果返回undefined使用对应内置比较器处理
+     * @param _depth 内部递归深度计数器
      * @returns
      * @since 1.0.0
      */
-    function isEqualWith(a, b, comparator) {
+    function isEqualWith(a, b, comparator, _depth = 0) {
+        // 防止深度递归导致栈溢出
+        if (_depth > MAX_DEPTH$1) {
+            return true;
+        }
         let cptor = comparator;
         if (!isObject(a) || !isObject(b)) {
             return (cptor || eq$1)(a, b);
@@ -3890,16 +3957,37 @@
         if (isRegExp(a) && isRegExp(b))
             return cptor ? cptor(a, b) : a.toString() === b.toString();
         if (isElement(a) && isElement(b)) {
-            let ea = `${a.tagName.toLowerCase()}${a.id ? '#' + a.id : ''}` + Array.from(a.classList.values()).reduce((acc, v) => acc + '.' + v, '');
-            let eb = `${b.tagName.toLowerCase()}${b.id ? '#' + b.id : ''}` + Array.from(b.classList.values()).reduce((acc, v) => acc + '.' + v, '');
-            return cptor ? cptor(a, b) : ea === eb;
+            // 检查tagName是否存在（Node.js环境中可能不存在）
+            // 在Node.js中isElement可能对普通对象返回true，需要额外检查
+            if (a.tagName && b.tagName) {
+                const tagA = a.tagName.toLowerCase();
+                const tagB = b.tagName.toLowerCase();
+                if (tagA !== tagB)
+                    return false;
+                if (a.id !== b.id)
+                    return false;
+                // 优化classList比较
+                const classListA = a.classList;
+                const classListB = b.classList;
+                if (classListA && classListB) {
+                    if (classListA.length !== classListB.length)
+                        return false;
+                    for (let i = 0; i < classListA.length; i++) {
+                        if (classListA[i] !== classListB[i])
+                            return false;
+                    }
+                }
+                return cptor ? cptor(a, b) : true;
+            }
+            // 如果没有tagName属性（非DOM环境），继续使用常规对象比较逻辑
         }
         if (isFunction(a) && isFunction(b))
             return cptor ? cptor(a, b) : a.name === b.name;
+        const nextDepth = _depth + 1;
         for (let i = keys.length; i--;) {
             const k = keys[i];
             const v1 = a[k], v2 = b[k];
-            if (!isEqualWith(v1, v2, cptor)) {
+            if (!isEqualWith(v1, v2, cptor, nextDepth)) {
                 return false;
             }
         }
@@ -4717,7 +4805,7 @@
             }
             // 合并
             if (isScientific) {
-                suffix = 'e' + exponent;
+                suffix = 'E' + exponent;
             }
             let rs = (isNeg ? '' : sym) + iStr + dStr + suffix;
             return (endsPart[0] || '') + rs + (endsPart[1] || '');
@@ -6559,7 +6647,7 @@
                     // 获取最近信息
                     const recInfo = takeRight(fullStack, 5);
                     const tipInfo = map(recInfo, "source").join("") + rs[0];
-                    let tipIndicator = map(rs[0], () => "^").join("");
+                    let tipIndicator = "^".repeat(rs[0].length);
                     const tipLineStartIndex = lastIndexOf(substring(str, 0, rs.index), "\n") + 1;
                     tipIndicator = padStart(tipIndicator, rs.index - tipLineStartIndex + tipIndicator.length, " ");
                     console.error("...", tipInfo + "\n" + tipIndicator + "\n", error);
@@ -6813,6 +6901,7 @@
         return t;
     }
 
+    const MAX_DEPTH = 128;
     /**
      * 以给定节点为根遍历所有子孙节点。深度优先
      * @example
@@ -6871,12 +6960,14 @@
             if (rs === -1)
                 continue;
             if (!isEmpty(node[childrenKey])) {
-                let nextChain = [node];
-                if (parentNode) {
-                    nextChain = chain.concat(nextChain);
-                }
-                const rs = _walkTree(node[childrenKey], callback, options, node, nextChain);
-                if (rs === false)
+                // 限制最大递归深度
+                if (chain.length >= MAX_DEPTH)
+                    continue;
+                // 使用push/pop代替concat，避免创建新数组
+                chain.push(node);
+                const childRs = _walkTree(node[childrenKey], callback, options, node, chain);
+                chain.pop();
+                if (childRs === false)
                     return;
             }
         }
@@ -7382,7 +7473,7 @@
         isElement() { return get(FuncChain.prototype, '_isElement').call(this, ...arguments); }
         isEmpty() { return get(FuncChain.prototype, '_isEmpty').call(this, ...arguments); }
         isEqual(b) { return get(FuncChain.prototype, '_isEqual').call(this, ...arguments); }
-        isEqualWith(b, comparator) { return get(FuncChain.prototype, '_isEqualWith').call(this, ...arguments); }
+        isEqualWith(b, comparator, _depth = 0) { return get(FuncChain.prototype, '_isEqualWith').call(this, ...arguments); }
         isError() { return get(FuncChain.prototype, '_isError').call(this, ...arguments); }
         isFinite() { return get(FuncChain.prototype, '_isFinite').call(this, ...arguments); }
         isFunction() { return get(FuncChain.prototype, '_isFunction').call(this, ...arguments); }
@@ -7684,7 +7775,7 @@
     /* eslint-disable require-jsdoc */
     /* eslint-disable no-invalid-this */
     /* eslint-disable max-len */
-    const VERSION = "1.15.10"; //#ver
+    const VERSION = "1.15.12"; //#ver
     /**
     * 显式开启myfx的函数链，返回一个包裹了参数v的myfx链式对象。函数链可以链接Myfx提供的所有函数，如
      <p>
@@ -7808,7 +7899,6 @@
         undefined: Object
     };
     const DefinitionCompEventMap = new Map();
-    //组件可 emit 事件声明（@emits 装饰器写入，含通配符如 'update:*'）
     const DefinitionCompEmitMap = new WeakMap();
     const DefinitionTagMap = {};
     const DefinitionComponentMap = {};
@@ -7825,23 +7915,242 @@
     const WatchUpdateMap = new WeakMap();
     const WatchDeepUpdateMap = new WeakMap();
     const WatchImmediateListMap = new WeakMap();
+    const CompiledWatchMetaMap = new WeakMap();
     const StateShallowKeySetMap = new WeakMap();
     const PropShallowKeySetMap = new WeakMap();
     const HasChangedPropOrStateMap = new WeakMap();
+    const ComputedMapCache = new WeakMap();
     const ComputedUpdateDepsMap = new WeakMap();
     const CssUpdateDepsMap = new WeakMap();
     const CssTemplateCacheMap = new WeakMap();
     const CssStyleSheetCacheMap = new WeakMap();
     const CssScopeCacheMap = new WeakMap();
+    const CssTemplateSheetMap = new WeakMap();
+    const CssVarKeyCacheMap = new WeakMap();
     const DirectiveScopeMap = new Map();
     const ComponentDynamicCssUpdaterMap = new WeakMap();
     const ComponentUninitializedSubComponentPropMap = new WeakMap();
     const ComponentUninitializedSlotFunctionMap = new WeakMap();
     const ComponentUninitializedWrapperComponentMap = new WeakMap();
-    const PATH_SEPARATOR = '-';
+    const PATH_SEPARATOR = '.';
     const PROP_NAME_SLOTS$1 = 'slots';
     const DATA_KEY = '__data_';
     const PLACEHOLDER = "⟬Ċ⟭";
+
+    function superOf(ctor) {
+        try {
+            return Object.getPrototypeOf(ctor);
+        }
+        catch (e) {
+            return undefined;
+        }
+    }
+    // 沿继承链收集所有命中值（子类在前）
+    function allOnChain(ctor, read) {
+        const out = [];
+        let c = ctor;
+        const guard = 32;
+        for (let i = 0; i < guard && c; i++) {
+            if (c === Function.prototype)
+                break;
+            let v;
+            try {
+                v = read(c);
+            }
+            catch (e) {
+                v = undefined;
+            }
+            if (v)
+                out.push(v);
+            c = superOf(c);
+        }
+        return out;
+    }
+    function unique(list) {
+        const seen = new Set();
+        const out = [];
+        for (let i = 0; i < list.length; i++) {
+            if (!seen.has(list[i])) {
+                seen.add(list[i]);
+                out.push(list[i]);
+            }
+        }
+        return out;
+    }
+    function computedKeys(ctor) {
+        const fromCache = allOnChain(ctor, c => ComputedMapCache.get(c));
+        const fromDef = fromCache.length ? [] : allOnChain(ctor, c => DefinitionComputedMap.get(c));
+        const keys = [];
+        fromCache.concat(fromDef).forEach(m => {
+            Object.keys(m).forEach(k => keys.push(k));
+        });
+        return unique(keys);
+    }
+    // ComputedUpdateDepsMap 是「数据路径 -> computed getter 集合」的正向索引，
+    // 反推即得到「computed 键 -> 依赖路径」。getter 上的 key 由 CompElem 首次实例化时写入。
+    function computedDeps(ctor) {
+        const out = {};
+        allOnChain(ctor, c => ComputedUpdateDepsMap.get(c)).forEach(depMap => {
+            depMap.forEach((getters, dep) => {
+                getters.forEach((g) => {
+                    const k = g && g.key;
+                    if (typeof k !== "string")
+                        return;
+                    (out[k] || (out[k] = [])).push(dep);
+                });
+            });
+        });
+        Object.keys(out).forEach(k => { out[k] = unique(out[k]); });
+        return out;
+    }
+    function watchKeys(ctor) {
+        const out = [];
+        allOnChain(ctor, c => WatchKeyRootMap.get(c)).forEach(rootMap => {
+            rootMap.forEach(list => {
+                for (let i = 0; i < list.length; i++)
+                    out.push(list[i]);
+            });
+        });
+        return unique(out);
+    }
+    function viewDeps(ctor) {
+        const out = [];
+        allOnChain(ctor, c => ViewDepMap.get(c)).forEach(set => {
+            set.forEach(p => out.push(p));
+        });
+        return unique(out);
+    }
+    function cssDeps(ctor) {
+        const out = [];
+        allOnChain(ctor, c => CssUpdateDepsMap.get(c)).forEach(set => {
+            set.forEach(p => out.push(p));
+        });
+        return unique(out);
+    }
+    function propKeys(ctor) {
+        const out = [];
+        allOnChain(ctor, c => DefinitionPropMap.get(c)).forEach(m => {
+            Object.keys(m).forEach(k => out.push(k));
+        });
+        return unique(out);
+    }
+    function stateKeys(ctor) {
+        const out = [];
+        allOnChain(ctor, c => DefinitionStateMap.get(c)).forEach(m => {
+            Object.keys(m).forEach(k => out.push(k));
+        });
+        return unique(out);
+    }
+    const CORE_META = {
+        version: 1,
+        computedKeys,
+        computedDeps,
+        watchKeys,
+        viewDeps,
+        cssDeps,
+        propKeys,
+        stateKeys,
+    };
+    // ---------------- 页面标记与「未安装扩展」提示 ----------------
+    /** 扩展 content script 在 document_start 写的标记，格式 `<状态>:<版本>` */
+    const DEVTOOLS_MARK = "data-compelem-devtools";
+    /** 库侧反向标记：扩展据此判断「本页用了 compelem」，用于按需注入与图标点亮 */
+    const LIB_MARK = "data-compelem";
+    const HINT_URL = "https://github.com/holyhigh2/compelem-devtools";
+    function docEl() {
+        try {
+            const g = globalThis;
+            return g && g.document ? g.document.documentElement : null;
+        }
+        catch (e) {
+            return null;
+        }
+    }
+    /**
+     * 扩展是否已安装。
+     * 浏览器没有「查询扩展是否安装」的 API，只能靠扩展自己打标 —— 这与 Vue DevTools
+     * 依赖 __VUE_DEVTOOLS_GLOBAL_HOOK__ 是同一思路。标记由 content script 在
+     * document_start 同步写入，早于任何页面脚本，因此模块加载期即可读到。
+     * bridge 兜底是为了兼容旧版本扩展（不打标但会挂 window.__COMPELEM_DEVTOOLS__）。
+     */
+    function devtoolsInstalled() {
+        try {
+            const de = docEl();
+            if (de && de.getAttribute(DEVTOOLS_MARK))
+                return true;
+            return !!globalThis.__COMPELEM_DEVTOOLS__;
+        }
+        catch (e) {
+            return true; // 判定不了就当已装，宁可不提示也不误报
+        }
+    }
+    /** 页面打标：供扩展探测「本页使用了 compelem」 */
+    function stampPage() {
+        try {
+            const de = docEl();
+            if (de && !de.hasAttribute(LIB_MARK)) {
+                de.setAttribute(LIB_MARK, String(CORE_META.version));
+            }
+        }
+        catch (e) {
+            /* noop */
+        }
+    }
+    let hintScheduled = false;
+    /**
+     * 仅开发构建生效：`true` 在生产构建被 rollup 替换为 false，
+     * 整段被 terser 消除；生产构建另有 drop_console 兜底。与 Vue DevTools 行为一致。
+     */
+    function notifyDevtoolsMissing() {
+        if (hintScheduled)
+            return;
+        hintScheduled = true;
+        try {
+            const g = globalThis;
+            if (!g || typeof g.document === "undefined")
+                return;
+            if (g.__COMPELEM_DEVTOOLS_NO_HINT__)
+                return;
+            if (devtoolsInstalled())
+                return;
+            // 宏任务兜底：给迟到的 content script 一次机会（document_start 时
+            // documentElement 尚未建立的极端场景会退到 readystatechange 打标）
+            setTimeout(function () {
+                if (devtoolsInstalled())
+                    return;
+                const c = g.console;
+                if (!c)
+                    return;
+                const out = c.info ? c.info : c.log;
+                out.call(c, "%c Compelem %c 本页使用了开发版 compelem，但未检测到 Compelem DevTools 扩展。\n" +
+                    "安装后可获得组件树、状态检查、依赖分析与更新追踪：\n" +
+                    HINT_URL, "background:#4C6EF5;color:#fff;padding:2px 6px;border-radius:3px 0 0 3px;font-weight:bold", "color:#4C6EF5");
+            }, 0);
+        }
+        catch (e) {
+            /* noop */
+        }
+    }
+    /**
+     * 在模块加载期调用：把核心库元数据挂到 __COMPELEM_ECOSYSTEM__.core。
+     * 与 store / router / i18n 共用同一命名空间，但 core 不参与 provider 探测。
+     */
+    function installCompElemDevtools() {
+        try {
+            const g = globalThis;
+            if (!g)
+                return undefined;
+            const ns = g.__COMPELEM_ECOSYSTEM__ || (g.__COMPELEM_ECOSYSTEM__ = {});
+            if (!ns.core)
+                ns.core = CORE_META;
+            stampPage();
+            notifyDevtoolsMissing();
+            return ns.core;
+        }
+        catch (e) {
+            return undefined;
+        }
+    }
 
     /**
      * Css模板
@@ -7878,10 +8187,6 @@
     }
     function showTagError(tagName, msg) {
         console.error(`[CompElem <${tagName}>]`, msg);
-    }
-    //为依赖收集提供标准地址
-    function _toUpdatePath(varPath) {
-        return toPath(varPath).join("-");
     }
     //获取父类构造
     function _getSuper(cls) {
@@ -7932,30 +8237,28 @@
             }
         },
         //清除dom内容并释放内存
-        clear(container, comp) {
+        clear(container) {
             if (!container)
                 return;
-            let nodeIterator = document.createNodeIterator(container, NodeFilter.SHOW_COMMENT);
-            //subscopes
-            let currentNode;
-            nodeIterator = document.createNodeIterator(container, NodeFilter.SHOW_COMMENT | NodeFilter.SHOW_ELEMENT);
-            while ((currentNode = nodeIterator.nextNode())) {
-                if (container === currentNode)
-                    continue;
-                if (currentNode instanceof Comment) ;
-                else if (currentNode instanceof CompElem) {
-                    currentNode.destroy();
+            //先收集后销毁
+            let comps = [];
+            let walk = (parent) => {
+                let children = parent.childNodes;
+                for (let i = 0, l = children.length; i < l; i++) {
+                    let n = children[i];
+                    if (n.nodeType !== Node.ELEMENT_NODE)
+                        continue;
+                    if (n instanceof CompElem)
+                        comps.push(n);
+                    walk(n);
                 }
-                else ;
+            };
+            walk(container);
+            for (let i = 0, l = comps.length; i < l; i++) {
+                comps[i].destroy();
             }
         }
     };
-    function getSlotComponent(node, renderComponent) {
-        let documentFragment = closest(node, (n) => n.host && n.host instanceof CompElem, 'parentNode');
-        if (documentFragment && documentFragment.host === renderComponent)
-            return undefined;
-        return documentFragment ? documentFragment.host : undefined;
-    }
     function isCompElemNode(node) {
         return !!DefinitionComponentMap[node.tagName?.toLowerCase()];
     }
@@ -7967,6 +8270,41 @@
         }
         let p = propMap.get(node) ?? {};
         propMap.set(node, assign(p, props));
+    }
+    function getCssVarKey(ctor, k) {
+        let m = CssVarKeyCacheMap.get(ctor);
+        if (!m) {
+            m = new Map();
+            CssVarKeyCacheMap.set(ctor, m);
+        }
+        let v = m.get(k);
+        if (v === undefined) {
+            v = '--' + kebabCase(k).replace(/^-+/, '');
+            m.set(k, v);
+        }
+        return v;
+    }
+    //camelCase结果缓存
+    const CamelCaseCache = new Map();
+    function camelCaseCached(name) {
+        let v = CamelCaseCache.get(name);
+        if (v !== undefined)
+            return v;
+        if (CamelCaseCache.size > 1024)
+            CamelCaseCache.clear();
+        v = camelCase(name);
+        CamelCaseCache.set(name, v);
+        return v;
+    }
+    //构造函数名小写缓存（prop类型检查用，避免每次更新构造正则）
+    const TypeNameLowerCache = new WeakMap();
+    function typeNameLower(et) {
+        let v = TypeNameLowerCache.get(et);
+        if (v === undefined) {
+            v = (et.name || '').toLowerCase();
+            TypeNameLowerCache.set(et, v);
+        }
+        return v;
     }
 
     /**
@@ -8032,29 +8370,47 @@
         };
     }
 
+    //全局/组件默认属性
+    let DefaultCss = [];
+    const BaseSheetsCacheMap = new Map();
+    function getBaseSheets(ctor) {
+        let sheets = BaseSheetsCacheMap.get(ctor);
+        if (!sheets) {
+            sheets = [...getDefaultCss(), ...(CssScopeCacheMap.get(ctor)?.get(Csscope.INNER) ?? [])];
+            BaseSheetsCacheMap.set(ctor, sheets);
+        }
+        return sheets;
+    }
+    const getDefaultCss = () => DefaultCss;
+
     /**
      * 用于提供全局state状态管理
      * @author holyhigh2
      */
+    const CHAR_CODE_UNDERSCORE = 95;
     function getterValue(propertyKey, context) {
         let thisHost = context;
         let v = Reflect.get(thisHost[DATA_KEY], propertyKey);
-        if (Collector.__collecting) {
-            Collector.__varPathList.push(propertyKey);
+        if (collectorCollecting) {
+            collectorVarPathList.push(propertyKey);
         }
-        if (PROXY_MAP.has(v) || OBJECT_VAR_ROOT_CONTEXT.get(v)) {
+        if (v === null || (typeof v !== 'object' && typeof v !== 'function')) {
+            return v;
+        }
+        let p = PROXY_MAP.get(v);
+        if (p || OBJECT_VAR_ROOT_CONTEXT.get(v)) {
             let contextList = EXTRA_CONTEXT_OF_VAR.get(v);
             if (!contextList) {
                 contextList = new Set();
                 EXTRA_CONTEXT_OF_VAR.set(v, contextList);
             }
-            let wVkMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(context);
-            if (!wVkMap) {
-                wVkMap = {};
-                OBJECT_VAR_ROOT_PATH_IN_CONTEXT.set(context, wVkMap);
-            }
-            let rs = PROXY_MAP.get(v) ?? v;
+            let rs = p ?? v;
             if (OBJECT_VAR_ROOT_CONTEXT.get(rs)?.deref() !== context) {
+                let wVkMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(context);
+                if (!wVkMap) {
+                    wVkMap = {};
+                    OBJECT_VAR_ROOT_PATH_IN_CONTEXT.set(context, wVkMap);
+                }
                 let srcPath = OBJECT_VAR_PATH.get(rs);
                 if (srcPath)
                     wVkMap[srcPath[0]] = propertyKey;
@@ -8075,6 +8431,9 @@
     }
     function setterValue(propertyKey, v, context) {
         let thisHost = context;
+        // 已销毁组件的响应式写入直接忽略
+        if (thisHost.isDestroyed)
+            return;
         if (!thisHost.__inited) {
             Reflect.set(thisHost[DATA_KEY], propertyKey, v);
             return;
@@ -8102,13 +8461,27 @@
     function emitModelEvent(propertyKey, v, context) {
         context.emit('update:' + propertyKey, { value: v });
     }
+    function getWatchMeta(ctor) {
+        let meta = CompiledWatchMetaMap.get(ctor);
+        if (meta !== undefined)
+            return meta;
+        let sup = Object.getPrototypeOf(ctor);
+        let rootMap = WatchKeyRootMap.get(ctor) ?? WatchKeyRootMap.get(sup);
+        meta = rootMap ? {
+            rootMap,
+            watchKeysDeep: WatchKeysDeepListMap.get(ctor) ?? WatchKeysDeepListMap.get(sup),
+            watchDeepUpdateMap: WatchDeepUpdateMap.get(ctor) ?? WatchDeepUpdateMap.get(sup),
+            watchUpdateMap: WatchUpdateMap.get(ctor) ?? WatchUpdateMap.get(sup),
+            onceMap: WatchKeysOnceMap.get(ctor) ?? WatchKeysOnceMap.get(sup)
+        } : null;
+        CompiledWatchMetaMap.set(ctor, meta);
+        return meta;
+    }
     function requestWatchUpdate(context, newValue, oldValue, fullPath, rootObjNew, rootObjOld) {
-        let superComp = _getSuper(context.constructor);
-        let watchKeysDeep = WatchKeysDeepListMap.get(context.constructor) ?? WatchKeysDeepListMap.get(superComp);
-        let watchDeepUpdateMap = WatchDeepUpdateMap.get(context.constructor) ?? WatchDeepUpdateMap.get(superComp);
-        let watchUpdateMap = WatchUpdateMap.get(context.constructor) ?? WatchUpdateMap.get(superComp);
-        let onceMap = WatchKeysOnceMap.get(context.constructor) ?? WatchKeysOnceMap.get(superComp);
-        let rootMap = WatchKeyRootMap.get(context.constructor) ?? WatchKeyRootMap.get(superComp);
+        let meta = getWatchMeta(context.constructor);
+        if (!meta)
+            return;
+        let { rootMap, watchKeysDeep, watchDeepUpdateMap, watchUpdateMap, onceMap } = meta;
         let rootKey = fullPath.split('.')[0];
         let candiKeys = rootMap?.get(rootKey);
         candiKeys?.forEach(wk => {
@@ -8151,33 +8524,44 @@
             }
         });
     }
+    const seen = new Set();
+    let collectorVarPathList = [];
+    let collectorCollecting = false;
     const Collector = {
         popDirectiveQ() {
-            let rs = this.__varPathList.reduceRight((acc, p) => {
-                if (!acc.includes(p)) {
-                    acc.unshift(p);
+            let rs = [];
+            let list = collectorVarPathList;
+            for (let i = 0; i < list.length; i++) {
+                let p = list[i];
+                if (!seen.has(p)) {
+                    seen.add(p);
+                    rs.push(p);
                 }
-                return acc;
-            }, []);
+            }
+            seen.clear();
             return rs;
         },
-        start() {
-            this.__collecting = true;
-            this.__varPathList = [];
+        start(comp) {
+            collectorCollecting = true;
+            collectorVarPathList = [];
         },
         end(renderComponent, up) {
             if (renderComponent && up) {
                 renderComponent._regSubViewDeps(Collector.popVarPathList(), up);
             }
-            this.__collecting = false;
+            collectorCollecting = false;
         },
         popVarPathList() {
-            let rs = Array.from(new Set(this.__varPathList));
-            this.__varPathList = [];
+            let rs = Array.from(new Set(collectorVarPathList));
+            collectorVarPathList = [];
             return rs;
         },
-        __varPathList: [],
-        __collecting: false,
+        getVarPathList() {
+            return collectorVarPathList;
+        },
+        isCollection() {
+            return collectorCollecting;
+        }
     };
     //对象值在不同上下文的根路径
     const OBJECT_VAR_ROOT_PATH_IN_CONTEXT = new WeakMap();
@@ -8211,24 +8595,25 @@
                 const value = Reflect.get(target, prop, receiver);
                 if (isSymbol(prop))
                     return value;
+                const isAryTarget = isArray(target);
                 if (isFunction(value))
                     return value;
-                if (prop === 'length' && isArray(target))
+                if (prop === 'length' && isAryTarget)
                     return value;
                 //ignores private props
-                if (prop.substring(0, 2) === '__')
+                if (prop.charCodeAt(0) === CHAR_CODE_UNDERSCORE && prop.charCodeAt(1) === CHAR_CODE_UNDERSCORE)
                     return value;
-                if (Collector.__collecting) {
-                    let supPath = OBJECT_VAR_PATH.has(receiver) ? concat(OBJECT_VAR_PATH.get(receiver)) : [];
+                let supPathArr = OBJECT_VAR_PATH.get(receiver);
+                if (collectorCollecting) {
+                    let supPath = supPathArr ? concat(supPathArr) : [];
                     supPath.push(prop);
-                    let propPath = supPath.join('.');
-                    Collector.__varPathList.push(propPath);
+                    collectorVarPathList.push(supPath.join('.'));
                 }
-                if (PROXY_MAP.has(value))
+                if (value !== null && typeof value === 'object' && PROXY_MAP.has(value))
                     return PROXY_MAP.get(value);
                 let reactiveVal = value;
                 if (isObject(value) && !isFunction(value) && !(value instanceof Node) && !Object.isFrozen(value)) {
-                    let supPath = OBJECT_VAR_PATH.has(receiver) ? concat(OBJECT_VAR_PATH.get(receiver)) : [];
+                    let supPath = supPathArr ? concat(supPathArr) : [];
                     reactiveVal = reactive(value, context);
                     supPath.push(prop);
                     OBJECT_VAR_PATH.set(reactiveVal, supPath);
@@ -8269,12 +8654,16 @@
                     let ctx = ctxRef.deref();
                     if (!ctx)
                         return;
+                    if (ctx === context)
+                        return;
                     if (ctx.isDestroyed) {
                         invalidCtxRefs.push(ctxRef);
                         return;
                     }
                     let rootPathInCtxMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(ctx) ?? {};
                     let ctxRootPath = rootPathInCtxMap[subChain[0]];
+                    if (ctxRootPath === undefined)
+                        return;
                     let ck = subChain.join('.');
                     ck = ck.replace(subChain[0], ctxRootPath);
                     requestUpdate(ctx, nv, ov, ck.split('.'), rootObjNew, rootObjOld);
@@ -8297,7 +8686,7 @@
         return proxyObject;
     }
     function notifyUpdate(context, newValue, oldValue, path, subNewValue, subOldValue) {
-        context._notify(newValue, oldValue, path);
+        context._notify(newValue, oldValue, path, subNewValue, subOldValue);
     }
     function appendUpdate(context, nv, ov, path) {
         let k = path.join('.');
@@ -8317,9 +8706,8 @@
         requestComputedUpdate(context, k);
         //check css
         requestCssUpdate(context, k);
-        notifyUpdate(context, rootObjNew, rootObjOld, subChain);
+        notifyUpdate(context, rootObjNew, rootObjOld, subChain, nv, ov);
     }
-    const QMap = new Map();
     class Queue {
         static nextSet = new Set();
         static nextPending = false;
@@ -8328,7 +8716,6 @@
             Queue.nextPending = false;
             let nq = Array.from(Queue.nextSet);
             Queue.nextSet.clear();
-            QMap.clear();
             nq.forEach(u => u());
             nq = null;
         }
@@ -8466,27 +8853,36 @@
     const AllOutsideClickEls = [];
     const AllOutsideDblClickEls = [];
     const ResizeTargetInitSet = new WeakSet();
-    const resizeObserver = new ResizeObserver((entries) => {
-        for (const entry of entries) {
-            const contentBoxSize = Array.isArray(entry.contentBoxSize)
-                ? entry.contentBoxSize[0]
-                : entry.contentBoxSize;
-            const borderBoxSize = Array.isArray(entry.borderBoxSize)
-                ? entry.borderBoxSize[0]
-                : entry.borderBoxSize;
-            if (!ResizeTargetInitSet.has(entry.target)) {
-                ResizeTargetInitSet.add(entry.target);
-                continue;
+    //兼容 SSR/测试环境
+    const resizeObserver = typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                const contentBoxSize = Array.isArray(entry.contentBoxSize)
+                    ? entry.contentBoxSize[0]
+                    : entry.contentBoxSize;
+                const borderBoxSize = Array.isArray(entry.borderBoxSize)
+                    ? entry.borderBoxSize[0]
+                    : entry.borderBoxSize;
+                if (!ResizeTargetInitSet.has(entry.target)) {
+                    ResizeTargetInitSet.add(entry.target);
+                    continue;
+                }
+                let cbks = AllResizeEls.get(entry.target);
+                if (cbks) {
+                    cbks.forEach(cbk => {
+                        cbk({ target: entry.target, contentBoxSize, borderBoxSize, type: 'resize' });
+                    });
+                }
             }
-            let cbks = AllResizeEls.get(entry.target);
-            if (cbks) {
-                cbks.forEach(cbk => {
-                    cbk({ target: entry.target, contentBoxSize, borderBoxSize, type: 'resize' });
-                });
-            }
-        }
-    });
+        })
+        : undefined;
     function addResize(node, cbk, component, isOnce) {
+        if (!resizeObserver) {
+            {
+                showError(`ResizeObserver is not defined`);
+            }
+            return;
+        }
         let cbks = AllResizeEls.get(node);
         if (!cbks) {
             cbks = [];
@@ -8527,46 +8923,54 @@
         MutationType["Char"] = "char";
     })(MutationType || (MutationType = {}));
     const AllMutationEls = new WeakMap;
-    const mutationObserver = new MutationObserver(mutations => {
-        for (let i = 0; i < mutations.length; i++) {
-            const mutation = mutations[i];
-            let map = AllMutationEls.get(mutation.target);
-            if (!map)
-                return;
-            let detail = {
-                target: mutation.target
-            };
-            let cbk = null;
-            switch (mutation.type) {
-                case 'subtree':
-                    detail.type = MutationType.Tree;
-                    cbk = map[MutationType.Tree];
-                    break;
-                case "childList":
-                    detail.type = MutationType.Child;
-                    detail.addedNodes = mutation.addedNodes;
-                    detail.removedNodes = mutation.removedNodes;
-                    cbk = map[MutationType.Child];
-                    break;
-                case "attributes":
-                    detail.type = MutationType.Attr;
-                    detail.attributeName = mutation.attributeName;
-                    detail.oldValue = mutation.oldValue;
-                    cbk = map[MutationType.Attr];
-                    break;
-                case "characterData":
-                    detail.type = MutationType.Char;
-                    detail.oldValue = mutation.oldValue;
-                    cbk = map[MutationType.Char];
-                    break;
+    const mutationObserver = typeof MutationObserver !== "undefined"
+        ? new MutationObserver(mutations => {
+            for (let i = 0; i < mutations.length; i++) {
+                const mutation = mutations[i];
+                let map = AllMutationEls.get(mutation.target);
+                if (!map)
+                    return;
+                let detail = {
+                    target: mutation.target
+                };
+                let cbk = null;
+                switch (mutation.type) {
+                    case 'subtree':
+                        detail.type = MutationType.Tree;
+                        cbk = map[MutationType.Tree];
+                        break;
+                    case "childList":
+                        detail.type = MutationType.Child;
+                        detail.addedNodes = mutation.addedNodes;
+                        detail.removedNodes = mutation.removedNodes;
+                        cbk = map[MutationType.Child];
+                        break;
+                    case "attributes":
+                        detail.type = MutationType.Attr;
+                        detail.attributeName = mutation.attributeName;
+                        detail.oldValue = mutation.oldValue;
+                        cbk = map[MutationType.Attr];
+                        break;
+                    case "characterData":
+                        detail.type = MutationType.Char;
+                        detail.oldValue = mutation.oldValue;
+                        cbk = map[MutationType.Char];
+                        break;
+                }
+                if (cbk) {
+                    detail.type = 'mutate';
+                    cbk(detail);
+                }
             }
-            if (cbk) {
-                detail.type = 'mutate';
-                cbk(detail);
-            }
-        }
-    });
+        })
+        : undefined;
     function addMutation(node, cbk, parts, component) {
+        if (!mutationObserver) {
+            {
+                showError(`MutationObserver is not defined`);
+            }
+            return;
+        }
         let child = includes(parts, 'child');
         let attr = includes(parts, 'attr');
         let char = includes(parts, 'char');
@@ -8602,31 +9006,34 @@
             }
         };
     }
-    ///////////////////////////////////////////////// outside
-    document.addEventListener('mousedown', e => {
-        let t = get(e.composedPath(), 0, e.target);
-        AllOutsideDownEls.forEach(([node, cbk]) => {
-            if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
-                cbk({ type: 'outside', target: node, modifier: 'mousedown', event: e });
-            }
-        });
-    }, false);
-    document.addEventListener('click', e => {
-        let t = get(e.composedPath(), 0, e.target);
-        AllOutsideClickEls.forEach(([node, cbk]) => {
-            if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
-                cbk({ type: 'outside', target: node, modifier: 'click', event: e });
-            }
-        });
-    }, false);
-    document.addEventListener('dblclick', e => {
-        let t = get(e.composedPath(), 0, e.target);
-        AllOutsideDblClickEls.forEach(([node, cbk]) => {
-            if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
-                cbk({ type: 'outside', target: node, modifier: 'dblclick', event: e });
-            }
-        });
-    }, false);
+    /////////////////////////////////////// outside
+    //兼容 SSR/测试
+    if (typeof document !== "undefined") {
+        document.addEventListener('mousedown', e => {
+            let t = get(e.composedPath(), 0, e.target);
+            AllOutsideDownEls.forEach(([node, cbk]) => {
+                if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
+                    cbk({ type: 'outside', target: node, modifier: 'mousedown', event: e });
+                }
+            });
+        }, false);
+        document.addEventListener('click', e => {
+            let t = get(e.composedPath(), 0, e.target);
+            AllOutsideClickEls.forEach(([node, cbk]) => {
+                if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
+                    cbk({ type: 'outside', target: node, modifier: 'click', event: e });
+                }
+            });
+        }, false);
+        document.addEventListener('dblclick', e => {
+            let t = get(e.composedPath(), 0, e.target);
+            AllOutsideDblClickEls.forEach(([node, cbk]) => {
+                if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
+                    cbk({ type: 'outside', target: node, modifier: 'dblclick', event: e });
+                }
+            });
+        }, false);
+    }
     function addOutsideMouseDown(node, cbk, component) {
         AllOutsideDownEls.push([node, cbk]);
         //record
@@ -8698,11 +9105,19 @@
      * 原生通用 stop/prevent/self 可组合
      * 鼠标 left/right/middle 不可组合
      * 键盘 ctrl/alt/shift/meta 可组合 esc/letters... 不可组合,多个key并列式表示可选
-     * 组件 native 监听组件元素原生事件
      *
      * 部分修饰符支持参数，使用冒号传参如：throttle:100 / debounce:100
      *************************************************************/
     const VFN = () => { };
+    const NeedBindCache = new WeakMap();
+    function needBind(cbk) {
+        let v = NeedBindCache.get(cbk);
+        if (v === undefined) {
+            v = get(globalThis, cbk.name) !== cbk;
+            NeedBindCache.set(cbk, v);
+        }
+        return v;
+    }
     /**
      * "click.stop.prevent.debounce:100" → { evName: 'click', parts: [...] }
      */
@@ -8752,7 +9167,6 @@
                     return;
             }
             else if (e instanceof KeyboardEvent) {
-                //使用副本，避免污染 parts（委托模式下 parts 为持久引用）
                 let ks = parts.slice();
                 if (remove(ks, p => p == MODI_EV_KEYBOARD_COMBO_CTRL)[0] && !e.ctrlKey)
                     return;
@@ -8773,10 +9187,6 @@
         let once = parts.includes(MODI_EV_ONCE) || false;
         return { handler, options: { capture, once, passive } };
     }
-    /**
-     * 完整修饰符包装：流程控制（debounce/throttle/once）+ 监听器修饰符
-     * 委托（registerDelegation）与独立监听（registerElementEvent）共用
-     */
     function applyEventModifiers(cbk, parts, delegated = false) {
         let c = wrapControlFn(cbk, parts);
         return wrapListener(c, parts, delegated);
@@ -8791,25 +9201,16 @@
         }
         evMap[evName] = c;
     }
-    //冒泡事件（BUBBLE）     —— renderRoot 上 bubble 委托
-    const BUBBLE_EVENTS = new Set([
-        'click', 'dblclick', 'mousedown', 'mouseup', 'mousemove', 'mouseover', 'mouseout',
-        'input', 'change', 'submit', 'keydown', 'keyup', 'keypress',
-        'focusin', 'focusout', 'touchstart', 'touchend', 'touchmove',
-        'pointerdown', 'pointerup', 'pointermove', 'pointerover', 'pointerout',
-        'contextmenu', 'wheel', 'select', 'dragstart', 'drag', 'dragend', 'dragenter',
-        'dragleave', 'dragover', 'drop', 'paste', 'cut', 'copy', 'compositionstart',
-        'compositionend', 'compositionupdate', 'auxclick', 'gotpointercapture', 'lostpointercapture'
-    ]);
-    //捕获事件（CAPTURE）    —— renderRoot 上 capture 委托（不冒泡但有捕获阶段）
+    //捕获事件（CAPTURE）
+    //wheel 同 focus/blur：WheelEvent.bubbles 恒为 false，但存在捕获阶段，故归入捕获委托
     const CAPTURE_EVENTS = new Set([
-        'focus', 'blur', 'visibilitychange'
+        'focus', 'blur', 'visibilitychange', 'wheel'
     ]);
-    //特殊传播（NO_DELEGATE）：无传播语义，既不冒泡也无法被祖先捕获，必须直接绑定
+    //特殊传播（NO_DELEGATE）
     const NO_DELEGATE_EVENTS = new Set([
         'mouseenter', 'mouseleave', 'pointerenter', 'pointerleave'
     ]);
-    //元素事件（ELEMENT）：资源/媒体/滚动等，一律独立直接绑定，不走任何委托
+    //元素事件（ELEMENT）
     const ELEMENT_EVENTS = new Set([
         //资源加载类（重名、早发、无传播）
         'load', 'error', 'abort',
@@ -8823,7 +9224,7 @@
         'animationstart', 'animationend', 'animationcancel', 'animationiteration',
         //元素级滚动（高频、无冒泡、passive 需精细控制）
         'scroll',
-        //slot 元素特有（无传播）
+        //slot 元素特有
         'slotchange'
     ]);
     const ComponentEventStateMap = new WeakMap();
@@ -8844,13 +9245,13 @@
         return s;
     }
     /**
-     * 获取/惰性创建实例的事件注册队列（render.ts / Model.ts 使用）
+     * 获取事件注册队列
      */
     function getEventBindList(comp) {
         return getState(comp).bindList;
     }
     /**
-     * 创建 AbortController（无 renderRoot 组件同样需要，仅用于直接监听）
+     * 创建 AbortController
      */
     function initEventHandlers(comp) {
         let s = getState(comp);
@@ -8858,24 +9259,25 @@
             s.abortController = new AbortController();
         }
     }
-    /**
-     * 统一绑定入口：遍历 bindList 与 @event 装饰器注册表
-     * 由 setup 末尾与动态子视图插入（insertSubView）调用
-     */
     function bindEvents(comp) {
         let s = getState(comp);
-        //1. 模板/指令事件
-        each(s.bindList, (v) => {
-            let [evName, cbk, node, binded] = v;
-            if (binded)
-                return;
-            if (!node)
-                return;
-            let handler = cbk && (get(globalThis, cbk.name) !== cbk) ? cbk.bind(comp) : cbk;
-            registerEvent(comp, evName, handler, node);
-            v[3] = noop; //绑定标记（signal 统一释放，无需真实 unbinder）
-        });
-        //2. @event 装饰器事件（目标可为 window/document/host）
+        //1. render & subview
+        const pending = s.bindList;
+        if (pending.length > 0) {
+            s.bindList = [];
+            for (let i = 0; i < pending.length; i++) {
+                let v = pending[i];
+                let evName = v[0], cbk = v[1], node = v[2];
+                if (!node)
+                    continue;
+                if (v[3])
+                    continue;
+                let handler = cbk && needBind(cbk) ? cbk.bind(comp) : cbk;
+                registerEvent(comp, evName, handler, node);
+                v[3] = noop;
+            }
+        }
+        //2. @event
         let events = DefinitionCompEventMap.get(comp.constructor) ?? DefinitionCompEventMap.get(_getSuper(comp.constructor));
         if (events && size(events) > 0) {
             each(events, ({ name, targetFn, fnName }) => {
@@ -8884,7 +9286,7 @@
                     return;
                 let eventTarget = targetFn ? targetFn(comp) : comp;
                 let cbk = get(comp, fnName);
-                let handler = cbk && (get(globalThis, cbk.name) !== cbk) ? cbk.bind(comp) : cbk;
+                let handler = cbk && needBind(cbk) ? cbk.bind(comp) : cbk;
                 registerEvent(comp, name, handler, eventTarget);
                 s.docoEventMap.set(key, handler);
             });
@@ -8909,6 +9311,12 @@
         }
         return false;
     }
+    function emitEvent(comp, evSrc, evName, arg) {
+        let evMap = comp._subComponentEventMap.get(evSrc);
+        let evFn = get(evMap, evName);
+        if (isFunction(evFn))
+            evFn.call(comp, arg);
+    }
     /**
      * 统一注册入口（组件事件不代理 / 扩展事件全局 / 委托或独立监听）
      * @param fullName 事件全名，含修饰符，如 "click.stop.prevent"
@@ -8921,23 +9329,9 @@
         if (node instanceof Element) {
             let ctor = DefinitionComponentMap[node.tagName?.toLowerCase()];
             if (ctor) {
-                //绑定在组件自身 host 上的事件默认 native（直接 DOM 监听自身）
-                let tagName = node.tagName.toLowerCase();
-                if (node === comp && !parts.includes('native'))
-                    parts.push('native');
-                if (!parts.includes('native') && !parts.includes('emit')) {
-                    //未声明 emits 且为标准 DOM 事件 → 自动 native（避免每次手写 .native）
-                    let declared = matchEmit(ctor, evName);
-                    let isStd = BUBBLE_EVENTS.has(evName) || CAPTURE_EVENTS.has(evName)
-                        || ELEMENT_EVENTS.has(evName) || NO_DELEGATE_EVENTS.has(evName);
-                    if (!declared && isStd)
-                        parts.push('native');
-                }
-                if (!parts.includes('native')) {
+                let declared = matchEmit(ctor, evName);
+                if (declared) {
                     addEmitEvent(node, comp, evName, wrapControlFn(cbk, parts));
-                    if (!matchEmit(ctor, evName)) {
-                        console.warn(`[CompElem] <${tagName}> 未声明事件 '${evName}'（可用 @emits 声明，或加 .emit/.native 修饰符）`);
-                    }
                     return;
                 }
             }
@@ -8962,9 +9356,6 @@
             registerElementEvent(comp, evName, cbk, parts, node);
         }
     }
-    /**
-     * 节点是否位于 renderRoot 树内（无 shadowDOM 组件返回 false，不委托）
-     */
     function isInRenderTree(comp, node) {
         if (!(node instanceof Element))
             return false;
@@ -8973,9 +9364,6 @@
             return false;
         return node === root || root.contains(node);
     }
-    /**
-     * 委托注册：写入注册表，懒挂载 root 监听
-     */
     function registerDelegation(comp, evName, cbk, parts, node, capture) {
         if (!ensureDelegationListener(comp, evName, capture)) {
             //防御降级（正常流程 isInRenderTree 已保证可委托）
@@ -8998,7 +9386,7 @@
     }
     /**
      * 懒挂载委托监听：首次注册某事件类型时在 renderRoot 上挂载
-     * @returns 挂载成功（无 renderRoot 返回 false）
+     * @returns 挂载成功
      */
     function ensureDelegationListener(comp, evName, capture) {
         let root = comp.renderRoot;
@@ -9013,10 +9401,6 @@
         s.delegationKeySet.add(key);
         return true;
     }
-    /**
-     * 独立监听：目标节点直接绑定
-     * 适用：元素事件 / 特殊传播事件 / 无 shadowDOM 组件 / 不在渲染树内的装饰器目标
-     */
     function registerElementEvent(comp, evName, cbk, parts, node) {
         initEventHandlers(comp);
         let { handler, options } = applyEventModifiers(cbk, parts);
@@ -9027,51 +9411,39 @@
             signal: getState(comp).abortController.signal
         });
     }
-    /**
-     * 委托分发器：沿 e.target → renderRoot 路径触发所有命中注册者
-     * （与原生冒泡一致：目标先触发，祖先后触发；stop 阻止传播出组件边界）
-     */
     function dispatchDelegated(comp, e) {
         let root = comp.renderRoot;
         if (!root)
             return;
         let type = e.type;
-        //收集 target → root 路径上的元素
-        let els = [];
-        let node = e.target;
-        while (node) {
-            if (node instanceof Element)
-                els.push(node);
-            if (node === root)
-                break;
-            node = node.parentNode ?? (node instanceof ShadowRoot ? node.host : null);
-        }
+        const path = e.composedPath();
+        let endIndex = path.indexOf(root);
+        if (endIndex < 0) //异常
+            return;
         let s = getState(comp);
-        //从 target 向上触发所有命中注册者
-        for (let cur of els) {
-            let entries = s.handlerMap.get(cur)?.get(type);
-            if (!entries || entries.length < 1)
+        outer: for (let pi = 0; pi <= endIndex; pi++) {
+            const el = path[pi];
+            if (!(el instanceof HTMLElement))
+                continue;
+            let entries = s.handlerMap.get(el)?.get(type);
+            if (isEmpty(entries))
                 continue;
             for (let i = 0; i < entries.length; i++) {
                 let entry = entries[i];
-                //委托 self：事件须源自注册节点自身
-                if (entry.parts.includes('self') && e.target !== cur)
+                if (entry.parts.includes('self') && e.target !== el)
                     continue;
-                //once：命中后移除条目防重入
                 if (entry.parts.includes('once')) {
                     entries.splice(i, 1);
                     i--;
                     if (entries.length < 1)
-                        s.handlerMap.get(cur)?.delete(type);
+                        s.handlerMap.get(el)?.delete(type);
                 }
                 entry.handler(e);
+                if (entry.parts.includes('stop'))
+                    break outer;
             }
         }
     }
-    /**
-     * 释放：abort 全部 signal 监听 + 扩展事件全局注册 + 清空注册表
-     * 由 destroy 调用
-     */
     function releaseEventHandlers(comp) {
         let s = getState(comp);
         s.abortController?.abort();
@@ -9087,12 +9459,11 @@
         s.bindList.length = 0;
     }
 
-    //组件静态样式
-    let DefaultCss = [];
     let CompElemSn = 0;
     const SlotCompMap = new WeakMap();
     const EMPTY_SLOTS = {};
     const PROP_NAME_SLOTS = 'slots';
+    const EMPTY_PARENT_PROPS = {};
     /**
      * CompElem基类，意为组件元素。提供了基本内置属性及生命周期等必备接口
      * 每个组件都需要继承自该类
@@ -9100,24 +9471,6 @@
      * @author holyhigh2
      */
     class CompElem extends HTMLElement {
-        //设置全局/组件默认属性
-        static defaults(options) {
-            DefaultCss = flatMap(options.css, c => {
-                if (isString(c)) {
-                    let sheet = new CSSStyleSheet();
-                    sheet.replaceSync(c);
-                    return sheet;
-                }
-                else if (c instanceof CSSStyleSheet) {
-                    return c;
-                }
-                return [];
-            });
-            options.global;
-            each(options, (v, k) => {
-                if (test(k[0], /[A-Z]/)) ;
-            });
-        }
         #cid;
         #slotPropsMap = {};
         __data_ = {};
@@ -9181,6 +9534,8 @@
         #mounted = false;
         #updateViewImmediately = false;
         #updateNextImmediatelyQ;
+        //上次主视图渲染的vars，用于值级变更索引（见updateView）
+        #lastViewVars;
         //////////////////////////////////// styles
         get cssVars() {
             return {};
@@ -9189,11 +9544,13 @@
         #initiating = false;
         #onSlotChangeHookBindThis;
         __thisRef;
+        __superComp;
         constructor(...args) {
             super();
             this.#cid = CompElemSn++;
             this.__updateTree = [];
             this.__thisRef = new WeakRef(this);
+            this.__superComp = _getSuper(this.constructor);
             this.#onSlotChangeHookBindThis = this.#onSlotChangeHook.bind(this);
             //init props via constructor
             if (size(args) === 1) {
@@ -9212,7 +9569,7 @@
                 });
             }
             /////////////////////////////////////////////////// decorators create
-            let ary = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(_getSuper(this.constructor));
+            let ary = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(this.__superComp);
             ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => dw.create(this));
             this.#updatedD = this.#update.bind(this);
         }
@@ -9221,6 +9578,7 @@
                 return null;
             let cssSheet;
             if (sheet instanceof CssTemplate) {
+                cssSheet = CssTemplateSheetMap.get(sheet);
                 if (!cssSheet) {
                     let cssTxt = sheet.getCssText();
                     cssSheet = new CSSStyleSheet();
@@ -9228,6 +9586,7 @@
                         cssSheet.replaceSync(cssTxt);
                     }
                     catch (e) { }
+                    CssTemplateSheetMap.set(sheet, cssSheet);
                 }
             }
             else if (sheet instanceof CSSStyleSheet) {
@@ -9292,12 +9651,12 @@
             if (this.#destroyed)
                 return;
             this.#destroyed = true;
-            let ary = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(_getSuper(this.constructor));
-            ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
+            let ary = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(this.__superComp);
+            ary?.forEach(dw => {
                 dw.destroy(this);
             });
             this.beforeDestroyed();
-            //events（signal 一次性释放 + 扩展事件全局注册清理）
+            //events
             releaseEventHandlers(this);
             //styles
             ComponentDynamicCssUpdaterMap.get(this)?.clear();
@@ -9314,13 +9673,16 @@
                 pComp && walkTree(pComp.__updateTree, (up) => {
                     if (up.__destroyed)
                         return;
-                    if (up.node?.deref() === this) {
+                    if (up.node === this) {
                         up.destroy(pComp);
                         remove(up.parent ? up.parent.children : pComp.__updateTree, c => c === up);
                     }
                 });
             }
             //sub scopes
+            //shadow 树内一次性清理全部嵌套子组件（含无插值覆盖的静态子组件，它们没有对应的更新点）
+            if (this.#shadow)
+                DomUtil.clear(this.#shadow);
             each(this.__updateTree, up => up?.destroy(this));
             //slots
             each(this.#slotsEl, (slotEl) => {
@@ -9338,20 +9700,20 @@
                 this.#slotNodes = this.#slotsEl = this.#updateSlots = this.#slotPropsMap = this.__data_.slots = null;
             this.remove();
             //data
-            this.#propsReady =
-                this.#renderRoot = this.#renderRoots = this.#shadow =
-                    this.#updateSources =
-                        this.#attrs =
-                            this.#props =
-                                this.#renderRoot =
-                                    this.#renderRoots =
-                                        this.#slotHooks =
-                                            this.#updatedD =
-                                                this.__data_ =
-                                                    this.__updateTree =
-                                                        this.#parentComponent =
-                                                            this._asyncDirectives =
-                                                                this.#wrapperComponent = null;
+            this.#renderRoot = this.#renderRoots = this.#shadow =
+                this.#updateSources =
+                    this.#attrs =
+                        this.#props =
+                            this.#renderRoot =
+                                this.#renderRoots =
+                                    this.#slotHooks =
+                                        this.#updatedD =
+                                            this.__data_ =
+                                                this.__updateTree =
+                                                    this.#parentComponent =
+                                                        this._asyncDirectives =
+                                                            this.#wrapperComponent = null;
+            this.#lastViewVars = null;
             //unmount
             this.destroyed();
         }
@@ -9381,7 +9743,7 @@
                 value: true
             });
             //3. Watch
-            let superComp = _getSuper(this.constructor);
+            let superComp = this.__superComp;
             let watchKeyMap = WatchKeyRootMap.get(this.constructor) ?? WatchKeyRootMap.get(superComp);
             if (watchKeyMap) {
                 this._watchUpdateSetInNextTick = new Set();
@@ -9399,7 +9761,11 @@
                 });
             }
             //4. Computed
-            let computedMap = assign({}, DefinitionComputedMap.get(this.constructor), DefinitionComputedMap.get(superComp));
+            let computedMap = ComputedMapCache.get(this.constructor);
+            if (computedMap === undefined) {
+                computedMap = assign({}, DefinitionComputedMap.get(this.constructor), DefinitionComputedMap.get(superComp));
+                ComputedMapCache.set(this.constructor, computedMap);
+            }
             if (computedMap) {
                 this._computedUpdateSetInNextTick = new Set();
                 let depMap = ComputedUpdateDepsMap.get(this.constructor);
@@ -9408,7 +9774,7 @@
                     ComputedUpdateDepsMap.set(this.constructor, depMap);
                     each(computedMap, (getter, propKey) => {
                         set(getter, 'key', propKey);
-                        Collector.start();
+                        Collector.start(this);
                         this[DATA_KEY][propKey] = getter.call(this);
                         Collector.end();
                         let computedDeps = Collector.popVarPathList();
@@ -9429,12 +9795,12 @@
                 }
             }
             //5. Render
-            Collector.start();
+            Collector.start(this);
             let tmpl = this.render();
             Collector.end();
             let viewDeps = Collector.popVarPathList();
             if (!ViewDepMap.has(this.constructor)) {
-                ViewDepMap.set(this.constructor, viewDeps);
+                ViewDepMap.set(this.constructor, new Set(viewDeps));
             }
             let fragment;
             if (tmpl === null) {
@@ -9446,7 +9812,7 @@
                 this.#shadow = this.attachShadow({
                     mode: "open"
                 });
-                this.#shadow.adoptedStyleSheets = [...DefaultCss, ...(CssScopeCacheMap.get(this.constructor)?.get(Csscope.INNER) ?? [])];
+                this.#shadow.adoptedStyleSheets = getBaseSheets(this.constructor);
                 fragment = buildView(tmpl, this);
                 if (fragment && size(fragment.children) > 0) {
                     this.#renderRoots = filter(fragment.children, (n) => n.nodeType === Node.ELEMENT_NODE).map(n => new WeakRef(n));
@@ -9466,8 +9832,8 @@
                 this.#updateSlot(k);
             });
             const that = this;
-            let ary = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(_getSuper(this.constructor));
-            ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
+            let ary = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(this.__superComp);
+            ary?.forEach(dw => {
                 dw.beforeMount(this, (key, value) => {
                     that.__data_[key] = value;
                     return that.__data_[key];
@@ -9480,7 +9846,7 @@
             }
             this.#mounted = true;
             //instance dynamic style
-            Collector.start();
+            Collector.start(this);
             let cssVarObj = this.cssVars;
             Collector.end();
             if (!isEmpty(cssVarObj)) {
@@ -9492,7 +9858,7 @@
                 }
                 let cssStr = '';
                 each(cssVarObj, (v, k) => {
-                    let cssVarKey = '--' + kebabCase(k).replace(/^-+/, '');
+                    let cssVarKey = getCssVarKey(this.constructor, k);
                     if (isBlank(v) || isNil(v)) {
                         v = 'initial'; // invalid value
                     }
@@ -9585,8 +9951,8 @@
             if (newValue === 'undefined') {
                 newValue = null;
             }
-            let propName = camelCase(attributeName);
-            let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(_getSuper(this.constructor));
+            let propName = camelCaseCached(attributeName);
+            let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(this.__superComp);
             let propDef = get(propDefs, propName);
             if (isBooleanProp(propDef.type)) {
                 let v = isNull(newValue) ? false : getBooleanValue(newValue);
@@ -9620,11 +9986,14 @@
          */
         _notify(nv = undefined, ov, chain, subNewValue, subOldValue) {
             let varPath = [];
+            let cur = this;
+            let pathStr = '';
             for (let i = 0; i < chain.length; i++) {
                 const seg = chain[i];
                 varPath.push(seg);
-                let v = get(this, varPath) ?? nv;
-                let pathStr = _toUpdatePath(varPath);
+                cur = cur == null ? cur : cur[seg];
+                let v = cur ?? nv;
+                pathStr = i === 0 ? seg : pathStr + PATH_SEPARATOR + seg;
                 this.#updateSources[pathStr] = { value: v, chain: pathStr === PROP_NAME_SLOTS ? [PROP_NAME_SLOTS] : varPath, oldValue: ov, end: varPath.length === chain.length, subNewValue, subOldValue };
             }
             if (!this.isMounted) {
@@ -9632,6 +10001,9 @@
                 return;
             }
             Queue.pushNext(this.#updatedD);
+        }
+        requestUpdate(nv, ov, chain, subNewValue, subOldValue) {
+            notifyUpdate(this, nv, ov, chain, subNewValue, subOldValue);
         }
         #update() {
             if (size(this.#updateSources) < 1)
@@ -9644,8 +10016,8 @@
             if (toBreak)
                 return;
             //update decorators
-            let ary = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(_getSuper(this.constructor));
-            ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => {
+            let ary = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(this.__superComp);
+            ary?.forEach(dw => {
                 dw.updated(this, changed);
             });
             //update watch
@@ -9678,7 +10050,7 @@
             if (this._cssUpdateInNextTick) {
                 let cssVarObj = this.cssVars;
                 each(cssVarObj, (v, k) => {
-                    let cssVarKey = '--' + kebabCase(k).replace(/^-+/, '');
+                    let cssVarKey = getCssVarKey(this.constructor, k);
                     if (this._cssVarOldValueMap[cssVarKey] == v) {
                         return;
                     }
@@ -9691,15 +10063,17 @@
             }
             //1. filter update
             let toUpdateView = false;
-            let toUpdateUps = new Set();
+            let toUpdateUps;
             let viewDeps = ViewDepMap.get(this.constructor);
             each(changed, (x, k) => {
-                if (!toUpdateView && viewDeps?.includes(k)) {
+                if (!toUpdateView && viewDeps?.has(k)) {
                     toUpdateView = true;
                 }
                 if (this.__updateSubViewDeps?.has(k)) {
                     let ups = this.__updateSubViewDeps.get(k);
                     if (ups) {
+                        if (!toUpdateUps)
+                            toUpdateUps = new Set();
                         ups.forEach(up => {
                             toUpdateUps.add(up);
                         });
@@ -9709,9 +10083,21 @@
             //2. update view
             if (this.#renderRoot?.deref()) {
                 if (toUpdateView) {
-                    updateView(buildVars(this.render()), this, this.__updateTree, toUpdateUps, changed);
+                    let newVars = buildVars(this, this.render());
+                    //缓存上次渲染vars用于值级变更索引
+                    let oldVars = this.#lastViewVars;
+                    this.#lastViewVars = newVars;
+                    updateView(newVars, this, this.__updateTree, toUpdateUps, changed, oldVars);
+                    //oldVars已消费完毕，截断对象槽位引用，缩短大对象生命周期
+                    if (oldVars) {
+                        for (let oi = 0; oi < oldVars.length; oi++) {
+                            let ov = oldVars[oi];
+                            if (ov !== null && typeof ov === 'object')
+                                oldVars[oi] = undefined;
+                        }
+                    }
                 }
-                if (size(toUpdateUps) > 0) {
+                if (toUpdateUps && toUpdateUps.size > 0) {
                     toUpdateUps.forEach(up => {
                         updateSubScopeView(up, this, undefined, changed);
                     });
@@ -9730,22 +10116,30 @@
          * @returns 非props的attr集合
          */
         #initProps() {
-            let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(_getSuper(this.constructor));
+            let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(this.__superComp);
             let attrs = this.attributes;
             let tagName = this.tagName;
-            let parentProps = merge(this.#props ?? {}, ComponentUninitializedSubComponentPropMap.get(this.wrapperComponent)?.get(this) ?? {});
+            let wrapperProps = ComponentUninitializedSubComponentPropMap.get(this.wrapperComponent)?.get(this) ?? null;
+            let parentProps;
+            if (this.#props == null) {
+                parentProps = wrapperProps ?? EMPTY_PARENT_PROPS;
+            }
+            else {
+                parentProps = wrapperProps == null ? this.#props : merge(this.#props, wrapperProps);
+            }
             let filterAttrs = {};
-            each(attrs, ({ name, value }) => {
+            for (let i = 0, l = attrs.length; i < l; i++) {
+                let { name, value } = attrs[i];
                 if (name[0] === ATTR_PREFIX_EVENT ||
                     name[0] === ATTR_PREFIX_PROP ||
                     name[0] === ATTR_PREFIX_BOOLEAN ||
                     name === ATTR_REF || name === 'slot')
-                    return;
-                let camelName = camelCase(name);
+                    continue;
+                let camelName = camelCaseCached(name);
                 if (propDefs && !propDefs[camelName]) {
                     filterAttrs[name] = value;
                 }
-            });
+            }
             this.#attrs = this.#attrs ? assign(this.#attrs, filterAttrs) : filterAttrs;
             let rs = {};
             if (!propDefs)
@@ -9890,7 +10284,7 @@
                 const et = expectTypeAry[i];
                 if (
                 //base form
-                test(realType, et.name, "i") ||
+                realType === typeNameLower(et) ||
                     //object form
                     val instanceof et || (Object.prototype.toString.call(val) === Object.prototype.toString.call(et.prototype))) {
                     matched = true;
@@ -9908,7 +10302,7 @@
             return val;
         }
         #initStates() {
-            let stateDefs = DefinitionStateMap.get(this.constructor) ?? DefinitionStateMap.get(_getSuper(this.constructor));
+            let stateDefs = DefinitionStateMap.get(this.constructor) ?? DefinitionStateMap.get(this.__superComp);
             if (stateDefs)
                 each(stateDefs, (def, key) => {
                     let stateDef = stateDefs[key];
@@ -9921,14 +10315,8 @@
                     delete this[key];
                 });
         }
-        /**
-         * 由外部调用，在初始化及更新时。
-         * @param props
-         * @param attrs
-         */
-        #propsReady = debounce(this.propsReady, 100);
         updateProps(props, force = false) {
-            let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(_getSuper(this.constructor));
+            let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(this.__superComp);
             if (!propDefs)
                 return;
             if (!this.__inited) {
@@ -9938,7 +10326,7 @@
             let need2UpdateAttrs = [];
             //存在attrs表示已初始化完成
             each(props, (v, k) => {
-                let ck = camelCase(k);
+                let ck = camelCaseCached(k);
                 let propDef = propDefs[ck];
                 if (!propDef)
                     return;
@@ -9980,8 +10368,6 @@
             need2UpdateAttrs.forEach(([propDef, key, v]) => {
                 this.#updateAttribute(propDef, key, v);
             });
-            if (this.#props)
-                this.#propsReady(this.#props);
         }
         _initProps(props, attrs) {
             this.#props = merge(this.#props || {}, props);
@@ -10010,7 +10396,7 @@
                 SlotCompMap.set(slot, this);
             }
             let evName = 'slotchange';
-            //slotchange 为元素事件（无传播），统一走事件模块独立绑定 + signal
+            //slotchange
             registerEvent(this, evName, this.#onSlotChangeHookBindThis, slot);
             //3. 保存参数
             if (!isEmpty(props)) {
@@ -10143,9 +10529,9 @@
                 return;
             let observedAttrs = _getObservedAttrs(this.constructor);
             if (observedAttrs.has(name)) {
-                let camelName = camelCase(name);
+                let camelName = camelCaseCached(name);
                 if (isNull(newValue)) {
-                    let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(_getSuper(this.constructor));
+                    let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(this.__superComp);
                     //使用默认值
                     if (propDefs)
                         newValue = propDefs[camelName]._defaultValue;
@@ -10180,9 +10566,9 @@
                 arg.event = event;
             }
             arg.target = this;
-            //DEV 校验：emit 未声明事件时警告（emit-native 模式跳过）
             if (!has(this.#attrs, 'emit-native') && !matchEmit(this.constructor, evName)) {
-                console.warn(`[CompElem <${this.tagName}>] emit('${evName}') 未在 @emits 中声明`);
+                showTagError(this.tagName, `'${evName}' was not declared in @emits`);
+                return;
             }
             if (has(this.#attrs, 'emit-native')) {
                 this.dispatchEvent(new CustomEvent(evName, {
@@ -10194,14 +10580,11 @@
             }
             else {
                 let evSrc = get(this, '__c_emit_event_');
-                this.wrapperComponent?._callEmitEvent(evSrc, evName, arg);
+                if (!this.wrapperComponent) {
+                    return;
+                }
+                emitEvent(this.wrapperComponent, evSrc, evName, arg);
             }
-        }
-        _callEmitEvent(evSrc, evName, arg) {
-            let evMap = this._subComponentEventMap.get(evSrc);
-            let evFn = get(evMap, evName);
-            if (isFunction(evFn))
-                evFn.call(this, arg);
         }
         /**
          * 下一帧执行
@@ -10222,8 +10605,8 @@
          */
         forceUpdate() {
             let viewDeps = ViewDepMap.get(this.constructor);
-            if (viewDeps && size(viewDeps) > 0) {
-                each(viewDeps, (k) => {
+            if (viewDeps && viewDeps.size > 0) {
+                viewDeps.forEach((k) => {
                     this.#updateSources[k] = {
                         value: undefined,
                         chain: undefined,
@@ -10239,6 +10622,364 @@
             }
             this.#update();
         }
+    }
+
+    /**
+     * 过渡动画运行时
+     *
+     * CSS 类名协议：
+     * - 入场：`${name}-enter-from` + `${name}-enter-active` → 下一帧换 `${name}-enter-to`
+     * - 离场：`${name}-leave-from` + `${name}-leave-active` → 下一帧换 `${name}-leave-to`
+     * - 列表位移：`${name}-move`
+     * 动画由用户CSS声明，结束时自动探测 transition/animation 时长（或使用显式duration）。
+     */
+    function nextFrame(cb) {
+        requestAnimationFrame(() => requestAnimationFrame(cb));
+    }
+    function toMs(s) {
+        return Number(s.slice(0, -1).replace(',', '.')) * 1000;
+    }
+    function getTimeout(delays, durations) {
+        while (delays.length < durations.length) {
+            delays = delays.concat(delays);
+        }
+        let max = 0;
+        durations.forEach((d, i) => {
+            max = Math.max(max, toMs(d) + toMs(delays[i] ?? '0s'));
+        });
+        return max;
+    }
+    /**
+     * 读取元素计算样式，判断使用transition还是animation并计算总时长
+     */
+    function getTransitionInfo(el) {
+        const styles = getComputedStyle(el);
+        const style = (k) => (styles[k] || '').split(', ');
+        const tDelays = style('transitionDelay');
+        const tDurations = style('transitionDuration');
+        const tTimeout = getTimeout(tDelays, tDurations);
+        if (tTimeout > 0) {
+            return { endEvent: 'transitionend', timeout: tTimeout, propCount: tDurations.length };
+        }
+        const aDelays = style('animationDelay');
+        const aDurations = style('animationDuration');
+        const aTimeout = getTimeout(aDelays, aDurations);
+        if (aTimeout > 0) {
+            return { endEvent: 'animationend', timeout: aTimeout, propCount: aDurations.length };
+        }
+        return null;
+    }
+    /**
+     * 等待元素过渡/动画结束（事件监听 + 超时兜底）。
+     * 显式duration存在时直接使用定时器。
+     */
+    function waitTransitionEnd(el, cfg, done) {
+        if (cfg.duration != null) {
+            setTimeout(done, cfg.duration);
+            return;
+        }
+        const info = getTransitionInfo(el);
+        if (!info) {
+            done();
+            return;
+        }
+        let ended = 0;
+        let finished = false;
+        const finish = () => {
+            if (finished)
+                return;
+            finished = true;
+            clearTimeout(tid);
+            el.removeEventListener(info.endEvent, onEnd);
+            done();
+        };
+        const onEnd = (e) => {
+            if (e.target === el && ++ended >= info.propCount)
+                finish();
+        };
+        const tid = setTimeout(finish, info.timeout + 1);
+        el.addEventListener(info.endEvent, onEnd);
+    }
+    /**
+     * 对一组元素按类名协议执行入场/离场时序。
+     * 返回取消函数：清理类名并触发cancelled钩子，但不调用done（由中断方接管后续）。
+     */
+    function runTransition(component, els, kind, cfg, done) {
+        if (!els.length) {
+            done();
+            return () => { };
+        }
+        const base = `${cfg.name}-${kind}`;
+        const hooks = cfg.hooks ?? {};
+        const onBefore = kind === 'enter' ? hooks['before-enter'] : hooks['before-leave'];
+        const onDuring = kind === 'enter' ? hooks['enter'] : hooks['leave'];
+        const onAfter = kind === 'enter' ? hooks['after-enter'] : hooks['after-leave'];
+        const onCancelled = kind === 'enter' ? hooks['enter-cancelled'] : hooks['leave-cancelled'];
+        let finished = false;
+        let pending = els.length;
+        const settle = (el) => {
+            if (finished)
+                return;
+            el.classList.remove(`${base}-active`, `${base}-to`);
+            onAfter?.call(component, el);
+            if (--pending === 0) {
+                finished = true;
+                done();
+            }
+        };
+        each(els, el => onBefore?.call(component, el));
+        each(els, el => {
+            el.classList.add(`${base}-from`, `${base}-active`);
+        });
+        nextFrame(() => {
+            if (finished)
+                return;
+            each(els, el => {
+                el.classList.remove(`${base}-from`);
+                el.classList.add(`${base}-to`);
+            });
+            each(els, el => {
+                if (onDuring) {
+                    //用户钩子接管结束时机
+                    onDuring.call(component, el, () => settle(el));
+                }
+                else {
+                    waitTransitionEnd(el, cfg, () => settle(el));
+                }
+            });
+        });
+        return function cancel() {
+            if (finished)
+                return;
+            finished = true;
+            each(els, el => {
+                el.classList.remove(`${base}-from`, `${base}-active`, `${base}-to`);
+                onCancelled?.call(component, el);
+            });
+        };
+    }
+    //////////////////////////////////////////////////// 子视图节点收集
+    /**
+     * 收集子视图根节点（数组/按key记录两种形态）
+     */
+    function collectRootNodes(subViewRootNodes, out) {
+        if (!subViewRootNodes)
+            return;
+        if (Array.isArray(subViewRootNodes)) {
+            each(subViewRootNodes, (n) => out.push(n));
+        }
+        else {
+            each(subViewRootNodes, (nodeAry) => {
+                if (Array.isArray(nodeAry)) {
+                    each(nodeAry, (n) => out.push(n));
+                }
+                else {
+                    out.push(nodeAry);
+                }
+            });
+        }
+    }
+    /**
+     * 读取更新点上的过渡配置：
+     * - `<transition>` 伪标签：附着在模板元数据上（解析期），钩子表达式经 resolveAnchorHooks 解析后存于 __resolvedTransition
+     * - transition() 指令：每次更新附着在更新点上（钩子为实函数，无需解析）
+     */
+    function getTransitionCfg(up) {
+        return up.__transition ?? up.__resolvedTransition ?? up.metaInfo?.transitionCfg;
+    }
+    /**
+     * 解析<transition>伪标签钩子引用：按锚点vars槽位偏移从当前vars取函数并绑定组件实例。
+     * 结果写入 up.__resolvedTransition（每次更新重算）。
+     * ⚠️ 必须返回/写入拷贝：metaInfo.transitionCfg 属于模板级共享元数据，不可原地注入运行时函数。
+     */
+    function resolveAnchorHooks(up, vars, component) {
+        const cfg = up.metaInfo?.transitionCfg;
+        if (!cfg?.hooks)
+            return;
+        const anchorIdx = up.varIndex;
+        if (anchorIdx == null || anchorIdx < 0)
+            return;
+        up.__resolvedTransition = { ...cfg, hooks: cfg?.hooks };
+    }
+    //////////////////////////////////////////////////// 入场
+    /**
+     * 收集子视图根元素
+     */
+    function collectElementRoots(subViewRootNodes) {
+        const nodes = [];
+        collectRootNodes(subViewRootNodes, nodes);
+        return nodes.filter(n => n instanceof Element);
+    }
+    /**
+     * 入场第一阶段：必须在元素插入文档【之前】调用。
+     * 提前打好 enter-from/enter-active，使元素的首个计算样式即为入场起点；
+     * 若插入后才加类，浏览器会以插入态（如opacity:1）为过渡起点产生幻影过渡，入场动画不可见。
+     */
+    function beginEnter(component, els, cfg) {
+        if (!els.length)
+            return;
+        const base = `${cfg.name}-enter`;
+        each(els, el => cfg.hooks?.onBeforeEnter?.call(component, el));
+        each(els, el => el.classList.add(`${base}-from`, `${base}-active`));
+    }
+    /**
+     * 入场第二阶段：元素插入文档后调用——下一帧移除enter-from换enter-to并等待过渡结束。
+     * 返回取消函数（清理类名并触发onEnterCancelled，不调用done）。
+     */
+    function settleEnter(component, els, cfg, done) {
+        if (!els.length) {
+            done?.();
+            return () => { };
+        }
+        const base = `${cfg.name}-enter`;
+        const hooks = cfg.hooks;
+        let finished = false;
+        let pending = els.length;
+        const settle = (el) => {
+            if (finished)
+                return;
+            el.classList.remove(`${base}-active`, `${base}-to`);
+            hooks?.onAfterEnter?.call(component, el);
+            if (--pending === 0) {
+                finished = true;
+                done?.();
+            }
+        };
+        nextFrame(() => {
+            if (finished)
+                return;
+            each(els, el => {
+                el.classList.remove(`${base}-from`);
+                el.classList.add(`${base}-to`);
+            });
+            each(els, el => {
+                if (hooks?.onEnter) {
+                    //用户钩子接管结束时机
+                    hooks.onEnter.call(component, el, () => settle(el));
+                }
+                else {
+                    waitTransitionEnd(el, cfg, () => settle(el));
+                }
+            });
+        });
+        return function cancel() {
+            if (finished)
+                return;
+            finished = true;
+            each(els, el => {
+                el.classList.remove(`${base}-from`, `${base}-active`, `${base}-to`);
+                hooks?.onEnterCancelled?.call(component, el);
+            });
+        };
+    }
+    const PendingLeaveMap = new WeakMap();
+    function commitRemove(nodes, ups, component) {
+        each(nodes, (n) => {
+            n.remove();
+            if (n instanceof CompElem) {
+                n.destroy();
+            }
+        });
+        each(ups, up => up.destroy(component));
+    }
+    /**
+     * 立即结束锚点上进行中的离场动画并完成移除。
+     * 用于 REMOVE/REPLACE 开始前清理旧离场批次：中断过渡、立即移除节点与更新点，
+     * 且不触发该批次挂起的 onAfter（如out-in模式下已被取代的延迟插入）。
+     */
+    function forceFinishLeave(up) {
+        const pending = PendingLeaveMap.get(up);
+        if (!pending)
+            return;
+        PendingLeaveMap.delete(up);
+        pending.cancel();
+        pending.commit();
+    }
+    /**
+     * 延迟离场移除：对元素打 leave 类，过渡结束后才执行真正的节点移除与更新点销毁。
+     * 无配置或无可动画元素时立即移除（与原行为一致）。
+     */
+    function removeNodesAnimated(up, nodes, ups, component, cfg, opts) {
+        const els = nodes.filter(n => n instanceof Element);
+        if (!cfg || els.length === 0) {
+            commitRemove(nodes, ups, component);
+            opts?.onAfter?.();
+            return;
+        }
+        if (opts?.forceFinish !== false) {
+            forceFinishLeave(up);
+        }
+        //入场中途离场：清理可能残留的enter类，避免enter-from的初始样式干扰离场可见性
+        each(els, el => {
+            el.classList.remove(`${cfg.name}-enter-from`, `${cfg.name}-enter-active`, `${cfg.name}-enter-to`);
+        });
+        let committed = false;
+        const entry = {
+            cancel: () => { },
+            commit: () => {
+                if (committed)
+                    return;
+                committed = true;
+                if (PendingLeaveMap.get(up) === entry)
+                    PendingLeaveMap.delete(up);
+                commitRemove(nodes, ups, component);
+            }
+        };
+        entry.cancel = runTransition(component, els, 'leave', cfg, () => {
+            entry.commit();
+            opts?.onAfter?.();
+        });
+        PendingLeaveMap.set(up, entry);
+    }
+    //////////////////////////////////////////////////// 列表位移（FLIP）
+    /**
+     * FLIP回放列表位移：从First位置到当前Last位置的反向transform过渡。
+     * leaving中的元素不在回放范围内。
+     */
+    function playMove(flipRects, nodeMap, leavingEls, cfg) {
+        const moveClass = `${cfg.name}-move`;
+        const items = [];
+        const visit = (n) => {
+            if (!(n instanceof Element))
+                return;
+            if (leavingEls.has(n))
+                return;
+            const first = flipRects.get(n);
+            if (!first)
+                return;
+            const lastRect = n.getBoundingClientRect();
+            const dx = first.left - lastRect.left;
+            const dy = first.top - lastRect.top;
+            if (!dx && !dy)
+                return;
+            const st = n.style;
+            items.push({ el: n, prev: st.transform });
+            n.classList.add(moveClass);
+            st.transitionDuration = '0s';
+            st.transform = `translate(${dx}px, ${dy}px)`;
+        };
+        if (Array.isArray(nodeMap)) {
+            each(nodeMap, visit);
+        }
+        else {
+            each(nodeMap, (nodes) => {
+                if (Array.isArray(nodes))
+                    each(nodes, visit);
+                else
+                    visit(nodes);
+            });
+        }
+        if (!items.length)
+            return;
+        //强制回流使反位移先生效
+        void document.body.offsetWidth;
+        nextFrame(() => {
+            each(items, ({ el }) => {
+                el.style.removeProperty('transition-duration');
+                el.style.removeProperty('transform');
+                waitTransitionEnd(el, cfg, () => el.classList.remove(moveClass));
+            });
+        });
     }
 
     /**
@@ -10291,10 +11032,11 @@
     }
     function updateDirective(diFn, pointNode, newArgs, oldArgs, executor, renderComponent, slotComponent, varChain, up, updatedMap) {
         let rs;
-        let pointType = get(DirectiveScopeMap.get(diFn), [0], '');
-        let isTextOrSlot = [EnterPointType.TEXT, EnterPointType.SLOT].includes(pointType);
+        let scopes = DirectiveScopeMap.get(diFn);
+        let pointType = scopes ? scopes[0] : '';
+        let isTextOrSlot = pointType === EnterPointType.TEXT || pointType === EnterPointType.SLOT;
         if (isTextOrSlot) {
-            Collector.start();
+            Collector.start(renderComponent);
             rs = executor(pointNode, newArgs, oldArgs, { renderComponent, slotComponent, varChain, updatedMap, pointType });
             Collector.end(renderComponent, up);
         }
@@ -10304,95 +11046,123 @@
         if (!rs)
             return;
         let [tag, tmplM, newKeys, oldKeys, tmplFn, newAryOrObj] = rs;
+        if (rs.length > 6) {
+            //transition()包装指令附加的过渡配置（固定第7位，undefined表示清除）
+            up.__transition = rs[6];
+        }
         if (tag === DirectiveUpdateTag.NONE)
             return;
-        if (tag === DirectiveUpdateTag.REFRESH)
-            return;
+        if (tag === DirectiveUpdateTag.REFRESH) {
+            //REFRESH：结构/key未变仅值变化，直接应用新varList到子视图更新点
+            //（此前结果被丢弃：仅主视图路径可达时——如整组同key替换——DOM不更新，且子视图路径会重复执行本指令）
+            let r1 = rs[1];
+            let newVars = isFunction(r1) ? buildVars(renderComponent, r1.call(renderComponent, newArgs[0])) : r1;
+            if (newVars)
+                updateView(newVars, renderComponent, up.children, undefined, updatedMap);
+            return true;
+        }
         let newValueAry = newAryOrObj;
         if (!isArray(newAryOrObj)) {
             newValueAry = map(newAryOrObj, (v, k) => v);
         }
-        let subViewId = get(pointNode, '__anchor__');
-        let parentViewsIdMap = {};
-        each(keys(pointNode), k => {
-            if (k === '__anchor__')
-                return;
-            if (!startsWith(k, '__c-'))
-                return;
-            parentViewsIdMap[k] = get(pointNode, [k]);
-        });
+        //以下两个值在结构初始化（insertSubView标记）后保持不变，缓存到更新点避免每次扫描节点属性
+        let subViewId = up.__subViewId;
+        if (subViewId === undefined) {
+            subViewId = up.__subViewId = get(pointNode, '__anchor__');
+        }
+        let parentViewsIdMap = up.__parentViewsIdMap;
+        if (parentViewsIdMap === undefined) {
+            parentViewsIdMap = up.__parentViewsIdMap = {};
+            each(keys(pointNode), k => {
+                if (k === '__anchor__')
+                    return;
+                if (!startsWith(k, '__c-'))
+                    return;
+                parentViewsIdMap[k] = get(pointNode, [k]);
+            });
+        }
         let subViewRootNodes = up.subViewRootNodes;
         let updatePoints = up.children;
         if (tag === DirectiveUpdateTag.REMOVE) {
-            let dels = [];
-            each(subViewRootNodes, (nodeAry, key) => {
+            let tCfg = getTransitionCfg(up);
+            let nodes = [];
+            each(subViewRootNodes, (nodeAry) => {
                 if (isArray(nodeAry)) {
-                    each(nodeAry, (weakN) => {
-                        let n = weakN.deref();
-                        n.remove();
-                        if (n instanceof CompElem) {
-                            n.destroy();
+                    each(nodeAry, (n) => nodes.push(n));
+                }
+                else {
+                    nodes.push(nodeAry);
+                }
+            });
+            let oldUps = updatePoints ? toArray(updatePoints) : [];
+            up.subViewRootNodes = isArray(subViewRootNodes) ? [] : {};
+            up.children = [];
+            //有过渡配置时延迟移除：打leave类，动画结束后才真正移除节点并销毁更新点
+            removeNodesAnimated(up, nodes, oldUps, renderComponent, tCfg);
+        }
+        else if (tag === DirectiveUpdateTag.REPLACE) {
+            let tCfg = getTransitionCfg(up);
+            //旧内容快照（延迟离场/模式控制需要）
+            let oldNodes = [];
+            each(subViewRootNodes, (n) => oldNodes.push(n));
+            let oldUps = updatePoints ? toArray(updatePoints) : [];
+            up.children = [];
+            up.subViewRootNodes = isArray(subViewRootNodes) ? [] : {};
+            //构造新DOM
+            let [, tmplFn, tmplM] = rs;
+            up.__transitionSn = (up.__transitionSn ?? 0) + 1;
+            let sn = up.__transitionSn;
+            if (tCfg?.mode === 'in-out') {
+                //先入场，入场完成后旧内容离场
+                insertSubView(pointNode, up, tmplFn, tmplM, renderComponent, undefined, undefined, tCfg, () => {
+                    if (up.__transitionSn === sn) {
+                        removeNodesAnimated(up, oldNodes, oldUps, renderComponent, tCfg);
+                    }
+                    else {
+                        //批次已被后续切换取代：直接移除避免泄漏
+                        removeNodesAnimated(up, oldNodes, oldUps, renderComponent, undefined);
+                    }
+                });
+            }
+            else {
+                const doInsert = () => insertSubView(pointNode, up, tmplFn, tmplM, renderComponent, undefined, undefined, tCfg);
+                if (tCfg?.mode === 'out-in') {
+                    //旧内容离场完成后新内容入场（被后续切换取代时不再插入）
+                    removeNodesAnimated(up, oldNodes, oldUps, renderComponent, tCfg, {
+                        onAfter: () => {
+                            if (up.__transitionSn === sn)
+                                doInsert();
                         }
                     });
                 }
                 else {
-                    let n = nodeAry.deref();
-                    n.remove();
-                    dels.push(nodeAry);
-                    if (n instanceof CompElem) {
-                        n.destroy();
-                    }
+                    //新旧同时过渡
+                    removeNodesAnimated(up, oldNodes, oldUps, renderComponent, tCfg);
+                    doInsert();
                 }
-            });
-            dels.forEach(d => {
-                remove(subViewRootNodes, wr => wr === d);
-            });
-            updatePoints?.forEach((up, i) => {
-                up.destroy(renderComponent);
-                updatePoints[i] = null;
-            });
-            up.children = compact(updatePoints);
-            if (isArray(subViewRootNodes)) {
-                up.subViewRootNodes = [];
             }
-            else {
-                up.subViewRootNodes = {};
-            }
-        }
-        else if (tag === DirectiveUpdateTag.REPLACE) {
-            //删除旧dom
-            each(subViewRootNodes, (weakN) => {
-                let n = weakN.deref();
-                n.remove();
-                if (n instanceof CompElem) {
-                    n.destroy();
-                }
-            });
-            updatePoints?.forEach((up, i) => {
-                up.destroy(renderComponent);
-                updatePoints[i] = null;
-            });
-            up.children = compact(updatePoints);
-            //构造新DOM
-            let [, tmplFn, tmplM] = rs;
-            insertSubView(pointNode, up, tmplFn, tmplM, renderComponent);
         }
         else if (tag === DirectiveUpdateTag.UPDATE) {
+            let tCfg = getTransitionCfg(up);
             if (isEmpty(subViewRootNodes)) {
-                insertSubView(pointNode, up, tmplFn, tmplM, renderComponent, newAryOrObj, (v, k, i) => newKeys[i]);
+                insertSubView(pointNode, up, tmplFn, tmplM, renderComponent, newAryOrObj, (v, k, i) => newKeys[i], tCfg);
                 return;
             }
             let oldNodeKeyMap = {};
             let oldUpKeyMap = {};
-            each(oldKeys, (key) => {
-                let ary = oldNodeKeyMap[key];
-                if (!ary) {
-                    ary = oldNodeKeyMap[key] = [];
+            let siblings = pointNode.parentElement.childNodes;
+            let keyProp = '__c-' + subViewId;
+            for (let si = 0; si < siblings.length; si++) {
+                let sib = siblings[si];
+                let sibKey = sib[keyProp];
+                if (sibKey != null) {
+                    let ary = oldNodeKeyMap[sibKey];
+                    if (!ary) {
+                        ary = oldNodeKeyMap[sibKey] = [];
+                    }
+                    ary.push(sib);
                 }
-                filter(pointNode.parentElement.childNodes, (n) => get(n, ['__c-' + subViewId]) == key).forEach(n => {
-                    ary.push(n);
-                });
-            });
+            }
             up.children?.forEach(up => {
                 if (!oldUpKeyMap[up.key]) {
                     oldUpKeyMap[up.key] = [up];
@@ -10403,8 +11173,40 @@
             });
             let oldSeq = oldKeys;
             let newSeq = newKeys;
-            let sameKeys = intersect(oldKeys, newKeys);
-            let delKeys = except(oldKeys, sameKeys);
+            let oldSeqMap = new Map();
+            let newSeqMap = new Map();
+            oldSeq.forEach((v, i) => {
+                oldSeqMap.set(v, i);
+            });
+            newSeq.forEach((v, i) => {
+                newSeqMap.set(v, i);
+            });
+            const oldUsed = new Uint8Array(oldSeq.length);
+            const sameKeysArr = [];
+            for (let i = 0; i < newSeq.length; i++) {
+                const idx = oldSeqMap.get(newSeq[i]);
+                if (idx !== undefined) {
+                    oldUsed[idx] = 1;
+                    sameKeysArr.push(newSeq[i]);
+                }
+            }
+            const delKeysArr = [];
+            for (let i = 0; i < oldSeq.length; i++) {
+                if (!oldUsed[i]) {
+                    delKeysArr.push(oldSeq[i]);
+                }
+            }
+            //FLIP First：记录变更前位置（含将离场节点，配合leave-active的absolute定位实现平滑位移）
+            let flipRects;
+            if (tCfg) {
+                flipRects = new Map();
+                each(oldNodeKeyMap, (nodes) => {
+                    each(nodes, (n) => {
+                        if (n instanceof Element)
+                            flipRects.set(n, n.getBoundingClientRect());
+                    });
+                });
+            }
             //compare
             let adds = [];
             let moveAfterAddGroups = [];
@@ -10418,7 +11220,7 @@
                 let i = 0;
                 for (; i < newSeq.length; i++) {
                     const newKey = newSeq[i];
-                    let oldI = oldSeq.findIndex(c => c === newKey);
+                    let oldI = oldSeqMap.get(newKey) ?? -1;
                     if (oldI < 0) {
                         let prevKey = newSeq[i - 1];
                         //add
@@ -10467,10 +11269,8 @@
                         moveGroupNodes(moveGroup, oldNodeKeyMap, oldKeys);
                     }
                     else {
-                        let lastGroupIndex = last(vals).moveIndex;
-                        if (Math.abs(vals[vals.length - 2].moveIndex - lastGroupIndex) === 1) {
-                            vals = initial(vals);
-                        }
+                        //注意：不可按「相邻moveIndex」丢弃组——单项反转（如[1,2,3]→[3,2,1]产生两个moveIndex相邻的
+                        //单元素组）会被误删导致后半组节点永不移动（实测 sort/下标互换渲染错乱）
                         vals.forEach(({ moveGroup }) => {
                             if (moveGroup[0].refNew) {
                                 moveAfterAddGroups.push(moveGroup);
@@ -10483,11 +11283,12 @@
             }
             //add
             let addGroup;
+            let addedEls = [];
             if (adds.length > 0) {
                 adds.forEach(add => {
-                    let i = findIndex(newKeys, k => k == add.newKey);
+                    let i = newSeqMap.get(add.newKey) ?? -1;
                     let val = newValueAry[i];
-                    let vars = buildVars(tmplFn.call(renderComponent, val, add.newKey, i));
+                    let vars = buildVars(renderComponent, tmplFn.call(renderComponent, val, add.newKey, i));
                     let [rs, upAry] = renderTemplate(renderComponent, tmplM, vars);
                     add.fragment = rs;
                     each(upAry, nUp => {
@@ -10497,12 +11298,19 @@
                     let addNodes = toArray(rs.childNodes);
                     //for afterAdd move
                     let ary = oldNodeKeyMap[add.newKey];
+                    let newKeyStr = add.newKey + '';
                     each(addNodes, (n) => {
                         ary.push(n);
-                        rs.childNodes.forEach(n => set(n, '__c-' + subViewId, add.newKey + ''));
+                        set(n, '__c-' + subViewId, newKeyStr);
                         each(parentViewsIdMap, (v, pid) => set(n, pid, v));
+                        if (n instanceof Element)
+                            addedEls.push(n);
                     });
                 });
+                if (tCfg && addedEls.length > 0) {
+                    //入场类必须在插入前打好（见 beginEnter 说明），否则入场动画不可见
+                    beginEnter(renderComponent, addedEls, tCfg);
+                }
                 bindEvents(renderComponent);
                 addGroup = groupAddNodes(adds);
                 addGroup.forEach((v, i) => {
@@ -10532,16 +11340,50 @@
                 moveGroupNodes(moveGroup, oldNodeKeyMap, oldKeys);
             });
             //del
-            delKeys.forEach(k => {
-                oldNodeKeyMap[k].forEach(n => {
-                    n.parentNode?.removeChild(n);
-                });
-                oldUpKeyMap[k].forEach(up => {
-                    up.destroy();
-                });
+            let leavingEls = tCfg ? new Set() : undefined;
+            let delNodes = [];
+            let delUps = [];
+            delKeysArr.forEach(k => {
+                let kNodes = oldNodeKeyMap[k] || [];
+                let kUps = oldUpKeyMap[k] || [];
+                if (tCfg) {
+                    //摘除key标记：离场节点不再参与后续key扫描，也不会被当作在册节点
+                    each(kNodes, (n) => { delete n['__c-' + subViewId]; });
+                    //从更新点列表摘除，避免下方redundant逻辑立即销毁（销毁延迟到离场动画结束）
+                    each(kUps, (dup) => {
+                        let idx = updatePoints.indexOf(dup);
+                        if (idx > -1)
+                            updatePoints.splice(idx, 1);
+                    });
+                    each(kNodes, (n) => {
+                        delNodes.push(n);
+                        if (n instanceof Element)
+                            leavingEls.add(n);
+                    });
+                    each(kUps, (dup) => delUps.push(dup));
+                }
+                else {
+                    each(kNodes, (n) => {
+                        n.parentNode?.removeChild(n);
+                    });
+                    each(kUps, (dup) => {
+                        dup.destroy();
+                    });
+                }
             });
+            if (delNodes.length > 0) {
+                removeNodesAnimated(up, delNodes, delUps, renderComponent, tCfg, { forceFinish: false });
+            }
+            //FLIP回放：保留节点从旧位置平滑过渡到新位置
+            if (tCfg && flipRects && (moved || delKeysArr.length > 0 || addGroup)) {
+                playMove(flipRects, oldNodeKeyMap, leavingEls, tCfg);
+            }
+            //新增项入场第二阶段：翻转并等待过渡结束
+            if (tCfg && addedEls.length > 0) {
+                settleEnter(renderComponent, addedEls, tCfg);
+            }
             //移动顺序
-            if (moved || delKeys.length > 0 || addGroup) {
+            if (moved || delKeysArr.length > 0 || addGroup) {
                 const upGroup = groupBy(updatePoints, up => up.key);
                 let movedUpAry = [];
                 let i = 0;
@@ -10556,20 +11398,24 @@
                 up.children = movedUpAry;
             }
             //更新rootNodes
-            let rootNodes = {};
-            each(newValueAry, (val, i) => {
-                let newK = newKeys[i];
-                let nodes = oldNodeKeyMap[newK];
-                rootNodes[newK] = nodes.map((n) => new WeakRef(n));
-            });
-            up.subViewRootNodes = rootNodes;
+            if (moved || delKeysArr.length > 0 || addGroup) {
+                let rootNodes = {};
+                each(newValueAry, (val, i) => {
+                    let newK = newKeys[i];
+                    let nodes = oldNodeKeyMap[newK];
+                    rootNodes[newK] = nodes;
+                });
+                up.subViewRootNodes = rootNodes;
+            }
             //更新视图
-            if (sameKeys.length > 0) {
+            if (sameKeysArr.length > 0) {
                 let varList = [];
                 each(newAryOrObj, (val, k, c, i) => {
                     let v = val;
-                    let vars = buildVars(tmplFn.call(renderComponent, v, k, i));
-                    varList.push(...vars);
+                    let vars = buildVars(renderComponent, tmplFn.call(renderComponent, v, k, i));
+                    for (let vi = 0; vi < vars.length; vi++) {
+                        varList.push(vars[vi]);
+                    }
                 });
                 updateView(varList, renderComponent, up.children, undefined, updatedMap);
             }
@@ -10621,6 +11467,10 @@
         updatePointMetas;
         fragment;
         emptyEvents;
+        upmMap;
+        slotNodeMap;
+        //需要跳过的varIndex数组，如<transition>等伪元素
+        skipVarIndexSet;
         constructor(tmpl, component, vars) {
             let [html, v] = this.parseTemplate(tmpl);
             if (vars) {
@@ -10628,7 +11478,18 @@
             }
             this.updatePointMetas = [];
             this.emptyEvents = {};
-            this.fragment = createTemplate(this.updatePointMetas, html, v, component, this.emptyEvents);
+            this.skipVarIndexSet = new Set();
+            this.fragment = createTemplate(this.updatePointMetas, html, v, component, this.emptyEvents, this.skipVarIndexSet);
+            this.upmMap = {};
+            this.slotNodeMap = {};
+            this.updatePointMetas.forEach((upm, i) => {
+                if (!this.upmMap[upm.nodeSn])
+                    this.upmMap[upm.nodeSn] = [];
+                this.upmMap[upm.nodeSn].push(upm);
+                if (upm.slotNodeSn > -1) {
+                    this.slotNodeMap[upm.slotNodeSn] = null;
+                }
+            });
         }
         parseTemplate(tmpl) {
             let html = "";
@@ -10638,7 +11499,7 @@
             let varIndex = 0;
             for (let i = 0; i <= l; i++) {
                 const str = tmpl.strings[i];
-                let val = get(vars, varIndex, '');
+                let val = varIndex < vars.length ? vars[varIndex] : '';
                 if (val instanceof Template) {
                     let [h, v] = this.parseTemplate(val);
                     val = h;
@@ -10674,7 +11535,7 @@
         strings;
         vars;
         constructor(strings, vars) {
-            this.strings = concat(strings);
+            this.strings = strings;
             this.vars = vars;
         }
         //解析模板中的key
@@ -10715,6 +11576,7 @@
        * @param tmpl
        */
         append(tmpl) {
+            this.strings = concat(this.strings);
             let lastStr = last(this.strings);
             tmpl.strings.forEach((str, i) => {
                 if (i == 0) {
@@ -10733,9 +11595,10 @@
          * @returns
          */
         insert(position, tmpl) {
-            let firstStr = tmpl.strings.shift();
+            this.strings = concat(this.strings);
+            let firstStr = tmpl.strings[0];
             this.strings[position] += firstStr;
-            this.strings.splice(position + 1, 0, ...tmpl.strings);
+            this.strings.splice(position + 1, 0, ...tmpl.strings.slice(1));
             this.vars.splice(position, 0, ...tmpl.vars);
             return this;
         }
@@ -10757,7 +11620,7 @@
         metaInfo;
         //在子视图中的平级key
         key;
-        //表达式对应的vars位置
+        //表达式对应的vars位置（子视图平铺后的数字索引，UPDATE重排/updateView时重赋值）
         varIndex;
         value;
         //表达式所在节点，可能是元素/文本
@@ -10767,8 +11630,36 @@
         __destroyed = false;
         children;
         parent;
+        //指令更新热路径缓存
+        __slotCompResolved = false;
+        __slotComp = null;
+        //所属子视图id（__anchor__，可能为0，用undefined判断未缓存）
+        __subViewId;
+        //父级子视图key映射（__c-*属性）
+        __parentViewsIdMap;
+        //transition()指令附着的过渡配置（<transition>伪标签的配置存于metaInfo.transitionCfg）
+        __transition;
+        //<transition>伪标签钩子经vars解析后的配置（每次更新重算，严禁写入共享的metaInfo.transitionCfg）
+        __resolvedTransition;
+        //过渡批次序号：每次结构切换递增，用于使已被取代的延迟插入失效
+        __transitionSn;
         constructor(varIndex) {
             this.varIndex = varIndex;
+        }
+        /**
+         * 获取更新点所属的slot组件（带缓存）
+         */
+        getSlotComponent(renderComponent) {
+            if (!this.__slotCompResolved) {
+                this.__slotCompResolved = true;
+                if (this.node) {
+                    let documentFragment = closest(this.node, (n) => n.host && n.host instanceof CompElem, 'parentNode');
+                    if (documentFragment && documentFragment.host !== renderComponent) {
+                        this.__slotComp = documentFragment.host;
+                    }
+                }
+            }
+            return this.__slotComp;
         }
         static createFrom(upm) {
             let newUp = new UpdatePoint(upm.varIndex);
@@ -10781,12 +11672,13 @@
             this.__destroyed = true;
             let node = this.node;
             let children = this.children;
-            this.parent;
             //clean up
             this.node = this.value = this.children = this.parent = this.metaInfo = null;
+            this.__slotComp = null;
+            this.__parentViewsIdMap = undefined;
+            this.__subViewId = undefined;
             if (!node)
                 return;
-            // contextComponent?._unregDeps(node.deref()!)
             //sub scopes
             let updatePoints = children;
             updatePoints?.forEach((up, i) => {
@@ -10796,9 +11688,11 @@
                 node.destroy();
             }
             if (contextComponent) {
-                DomUtil.clear(node.deref(), contextComponent);
+                //文本/注释节点不可能包含子组件，跳过子树扫描
+                if (node instanceof Element)
+                    DomUtil.clear(node);
             }
-            node.deref()?.remove();
+            node?.remove();
         }
         insert(up) {
             up.parent = this;
@@ -10819,6 +11713,8 @@
         attrName;
         //属性值模板
         attrTmpl;
+        //属性值整体即单一插值占位符（如 "⟬Ċ⟭3"），更新时可直接set免replace
+        isPureTmpl = false;
         isText = false;
         isDirective = false;
         directiveType;
@@ -10841,6 +11737,8 @@
         //模板DOM中的节点路径
         nodeSn = -1;
         slotNodeSn = -1;
+        //<transition>伪标签解析期附着的过渡配置（仅直接子级指令锚点携带）
+        transitionCfg;
         constructor(varIndex) {
             this.varIndex = varIndex;
         }
@@ -10876,25 +11774,133 @@
         });
         return html;
     }
-    function buildVars(tmpl) {
-        let vars = concat(tmpl.vars);
-        let l = tmpl.strings.length - 1;
-        for (let i = 0; i <= l; i++) {
-            let val = get(tmpl.vars, i, '');
-            if (val instanceof Template) {
-                let vs = buildVars(val);
-                vars.splice(i, 1, ...vs);
+    function buildVars(comp, tmpl) {
+        const result = [];
+        const skipSet = TMPL_META_CACHE.get(comp.constructor)?.skipVarIndexSet;
+        const walk = (t) => {
+            const sl = t.strings.length - 1;
+            for (let i = 0; i < sl; i++) {
+                if (skipSet?.has(i))
+                    continue;
+                const val = t.vars[i];
+                if (val instanceof Template) {
+                    walk(val);
+                }
+                else {
+                    result.push(val ?? '');
+                }
+            }
+        };
+        walk(tmpl);
+        return result;
+    }
+    const EXP_TOKEN_IDX = new RegExp(`${PLACEHOLDER}(\\d+)`);
+    /**
+     * 解析<transition>
+     * @param el
+     */
+    function parseTransitionTag(el, vars, skipVarIndexSet) {
+        let tName;
+        let tMode;
+        let tAppear;
+        let tDuration;
+        let hooks;
+        each(el.attributes, attr => {
+            let attrVal = attr.nodeValue;
+            const isExpVal = EXP_TAG.test(attrVal ?? '');
+            if (isExpVal) {
+                const m = EXP_TOKEN_IDX.exec(attr.value.trim());
+                let varIndex = parseInt(m[1]);
+                attrVal = vars[varIndex];
+                vars[varIndex] = null;
+                skipVarIndexSet.add(varIndex);
+            }
+            let attrName = attr.nodeName;
+            if (attrName[0] === ATTR_PREFIX_EVENT) {
+                if (!hooks) {
+                    hooks = {};
+                }
+                hooks[attrName.substring(1)] = attrVal;
+                return;
+            }
+            switch (attrName) {
+                case 'name':
+                    if (!attrVal) {
+                        showTagError('TRANSITION', `'<transition>' requires a 'name' attribute`);
+                        return;
+                    }
+                    tName = attrVal;
+                    break;
+                case 'mode':
+                    tMode = attrVal;
+                    break;
+                case 'appear':
+                    tAppear = attrVal === 'true' || attrVal === '';
+                    break;
+                case 'duration':
+                    if (attrVal) {
+                        const d = parseFloat(attrVal);
+                        if (!isNaN(d) && d >= 0) {
+                            tDuration = d;
+                        }
+                        else {
+                            showTagError('TRANSITION', `'<transition duration>' must be a non-negative number(ms), got '${attrVal}'`);
+                        }
+                    }
+                    break;
+            }
+        });
+        {
+            if (!toArray(el.childNodes).some((c) => c.nodeType === Node.TEXT_NODE && (c.nodeValue || '').includes(PLACEHOLDER))) {
+                showTagError('TRANSITION', `'<transition>' must contain a structural directive (ifElse/ifTrue/when/forEach) as direct child`);
             }
         }
-        return vars;
+        return tName
+            ? { name: tName, mode: tMode, appear: tAppear, duration: tDuration, hooks } : undefined;
+    }
+    /**
+     * 剥离所有<transition>伪标签并收集过渡配置锚点
+     *
+     * @param root 模板fragment
+     * @param anchorMap 锚点映射：直接子级含占位符的Text节点 -> 过渡配置
+     * @param vars 动态属性，仅在编译期获取
+     * @param skipVarIndexSet 需要跳过的vars索引集合，仅在编译期获取
+     */
+    function unwrapTransitionTags(root, anchorMap, vars, skipVarIndexSet) {
+        const tEls = root.querySelectorAll('transition');
+        //正序遍历：嵌套时先解外层，其"直接子级"判定须基于解包前的原始子节点，
+        //否则内层解包后提升的文本节点会被外层误当作自己的指令锚点
+        for (let i = 0; i < tEls.length; i++) {
+            const el = tEls[i];
+            const cfg = parseTransitionTag(el, vars, skipVarIndexSet);
+            if (cfg) {
+                toArray(el.childNodes).forEach((c) => {
+                    if (c.nodeType === Node.TEXT_NODE && (c.nodeValue || '').includes(PLACEHOLDER)) {
+                        anchorMap.set(c, cfg);
+                    }
+                });
+            }
+            const parent = el.parentNode;
+            if (parent) {
+                //节点身份在insertBefore后保持，anchorMap的Text键在后续遍历中依然命中
+                toArray(el.childNodes).forEach((c) => parent.insertBefore(c, el));
+            }
+            el.remove();
+        }
     }
     /**
      * 构建模板DOM
      * @param html
      */
-    function createTemplate(updatePoints, html, vars, renderComponent, emptyEvents) {
+    function createTemplate(updatePoints, html, vars, renderComponent, emptyEvents, skipVarIndexSet) {
         const container = document.createElement("template");
         container.innerHTML = html;
+        //剔除<transition>
+        const transitionAnchorMap = new Map();
+        if (html.includes('<transition')) {
+            unwrapTransitionTags(container.content, transitionAnchorMap, vars, skipVarIndexSet);
+            vars = compact(vars);
+        }
         //遍历dom
         const nodeIterator = document.createNodeIterator(container.content, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
         let currentNode;
@@ -10914,10 +11920,11 @@
                     slotNodeSn = nodeSn;
                 }
                 let props = {};
-                let attrs = map(currentNode.attributes, item => ({ name: item.name, value: item.value }));
-                for (let i = 0; i < attrs.length; i++) {
-                    const attr = attrs[i];
-                    let { name, value } = attr;
+                const attrList = currentNode.attributes;
+                const toRemove = [];
+                for (let i = 0; i < attrList.length; i++) {
+                    let name = attrList[i].name;
+                    let value = attrList[i].value;
                     //todo 这里需要修改为 data-slot-xx
                     if (name === SLOT_KEY_PROPS) {
                         // varCacheQueue && varCacheQueue.push({ type: VarType.AttrSlot, name: slotName, attrName: name })
@@ -10940,7 +11947,7 @@
                             updatePoints.push(po);
                             varIndex++;
                         }
-                        currentNode.removeAttribute(name);
+                        toRemove.push(name);
                         continue;
                     } //endif
                     //@event.stop.prevent.debounce
@@ -10967,7 +11974,7 @@
                             }
                             evList.push(evName);
                         }
-                        currentNode.removeAttribute(name);
+                        toRemove.push(name);
                         continue;
                     } //endif
                     if (name === ATTR_REF) {
@@ -10983,7 +11990,7 @@
                             updatePoints.push(po);
                             varIndex++;
                         }
-                        currentNode.removeAttribute(name);
+                        toRemove.push(name);
                         continue;
                     } //endif
                     //校验变量必须是表达式
@@ -10994,7 +12001,7 @@
                     //用于兼容其他框架会自动移除属性的场景
                     if (last(name) === ATTR_PREFIX_PROP) {
                         props[name.substring(0, name.length - 1)] = value;
-                        currentNode.removeAttribute(name);
+                        toRemove.push(name);
                         let po = new UpdatePointMeta(varIndex);
                         po.attrName = name.substring(0, name.length - 1);
                         po.nodeSn = nodeSn;
@@ -11048,15 +12055,19 @@
                                     po.attrName = propName;
                                 }
                             }
-                            currentNode.removeAttribute(name);
+                            toRemove.push(name);
                         }
                         else {
                             po.attrTmpl = value;
+                            po.isPureTmpl = value === PLACEHOLDER + varIndex;
                         }
                         updatePoints.push(po);
                         varIndex++;
                     } //endif
                 } //endfor
+                for (let r = 0; r < toRemove.length; r++) {
+                    currentNode.removeAttribute(toRemove[r]);
+                }
             }
             else {
                 let textParts = trim(currentNode.nodeValue).split(EXP_TAG);
@@ -11085,6 +12096,10 @@
                         if (slotComponent) {
                             po.slotNodeSn = slotNodeSn;
                         }
+                        //动画执行节点必须是指令或路由点
+                        const tCfg = transitionAnchorMap.get(currentNode);
+                        if (tCfg)
+                            po.transitionCfg = tCfg;
                         let [, , diFn] = val;
                         directiveScopeChecker(diFn, pType, renderComponent.tagName);
                         val = undefined;
@@ -11107,33 +12122,43 @@
         }
         return container.content;
     }
+    //快照收集 fragment 中的元素与文本节点（文档序）
+    function collectNodes(root, out) {
+        let children = root.childNodes;
+        for (let i = 0, l = children.length; i < l; i++) {
+            let n = children[i];
+            let t = n.nodeType;
+            if (t === Node.ELEMENT_NODE) {
+                out.push(n);
+                collectNodes(n, out);
+            }
+            else if (t === Node.TEXT_NODE) {
+                out.push(n);
+            }
+        }
+    }
     function renderTemplate(component, tmplM, vars) {
-        const { fragment, updatePointMetas, emptyEvents } = tmplM;
+        const { fragment, updatePointMetas, emptyEvents, upmMap, slotNodeMap } = tmplM;
         let rs = fragment.cloneNode(true);
         let upAry = [];
+        if (tmplM.skipVarIndexSet?.size) {
+            vars = vars.filter((_, i) => !tmplM.skipVarIndexSet?.has(i));
+        }
         let currentNode;
         let textDirectives = [];
         let direcitves = [];
         let evList = getEventBindList(component);
-        //遍历dom
-        const nodeIterator = document.createNodeIterator(rs, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
-        let upmMap = {};
-        let slotNodeMap = {};
-        updatePointMetas.forEach((upm, i) => {
-            if (!upmMap[upm.nodeSn])
-                upmMap[upm.nodeSn] = [];
-            upmMap[upm.nodeSn].push(upm);
-            if (upm.slotNodeSn > -1) {
-                slotNodeMap[upm.slotNodeSn] = null;
-            }
-        });
+        //快照遍历
+        const nodes = [];
+        collectNodes(rs, nodes);
         let nodeSn = -1;
         let varIndex = 0;
         if (size(vars) != size(updatePointMetas)) {
-            showTagError(component.tagName, `Dynamic root elements are not supported in component view, please checker the 'render()' function`);
+            showTagError(component.tagName, `Dynamic root elements are not supported in component view, please check the 'render()' function`);
             return [rs, upAry];
         }
-        while ((currentNode = nodeIterator.nextNode())) {
+        for (let ni = 0; ni < nodes.length; ni++) {
+            currentNode = nodes[ni];
             nodeSn++;
             if (slotNodeMap[nodeSn] === null) {
                 slotNodeMap[nodeSn] = currentNode;
@@ -11144,15 +12169,15 @@
                     evList.push([evName, noop, currentNode]);
                 });
             }
-            let props = {};
+            let props;
             const upms = upmMap[nodeSn];
             upms && upms.forEach(upm => {
                 let val = vars[varIndex++];
                 let newUp = UpdatePoint.createFrom(upm);
-                newUp.node = new WeakRef(currentNode);
+                newUp.node = currentNode;
                 newUp.value = val;
                 if (upm.isProp || upm.isPropPerfix) {
-                    props[upm.attrName] = val;
+                    (props ?? (props = {}))[upm.attrName] = val;
                 }
                 else if (upm.isRef) {
                     val.__setRef(new WeakRef(currentNode));
@@ -11174,7 +12199,8 @@
                         let [executor, args, , varChain] = val;
                         textDirectives.push([currentNode, attrName, slotComponent, executor, args, varChain, newUp]);
                     }
-                    else {
+                    else if (!upm.isPlaceholder) {
+                        //<transition>钩子marker仅占vars槽位，禁止首次渲染时把函数写成文本
                         currentNode.textContent = val;
                     }
                 }
@@ -11198,18 +12224,26 @@
             else if (currentNode instanceof HTMLElement) {
                 if (isCompElemNode(currentNode)) {
                     ComponentUninitializedWrapperComponentMap.set(currentNode, component);
-                    addUninitializedSubComponentProp(component, currentNode, props);
+                    if (props)
+                        addUninitializedSubComponentProp(component, currentNode, props);
                 }
             }
         }
         textDirectives.forEach(([currentNode, attrName, slotComponent, executor, args, varChain, newUp]) => {
-            set(currentNode, '__anchor__', SubViewSn++);
-            Collector.start();
+            currentNode['__anchor__'] = SubViewSn++;
+            Collector.start(component);
             let tmpl = executor(currentNode, args, undefined, { renderComponent: component, slotComponent, varChain, attrName, pointType: newUp.directiveType });
             Collector.end(component, newUp);
-            if (tmpl && tmpl.length > 1) {
+            if (tmpl && tmpl.length > 6) {
+                //transition()包装指令附加的过渡配置（固定第7位，undefined表示清除）
+                newUp.__transition = tmpl[6];
+            }
+            if (tmpl && tmpl.length > 1 && tmpl[1] && tmpl[2]) {
                 let [, tmplFn, tmplM, newAry, keyFn] = tmpl;
-                insertSubView(currentNode, newUp, tmplFn, tmplM, component, newAry, keyFn);
+                //首次渲染仅在显式声明appear时播放入场动画（钩子表达式同步解析，appear入场钩子生效）
+                resolveAnchorHooks(newUp);
+                const initCfg = getTransitionCfg(newUp);
+                insertSubView(currentNode, newUp, tmplFn, tmplM, component, newAry, keyFn, initCfg?.appear ? initCfg : undefined);
             }
         });
         direcitves.forEach(([currentNode, attrName, slotComponent, executor, args, varChain, pointType]) => {
@@ -11222,7 +12256,7 @@
         let vars = [];
         if (TMPL_META_CACHE.has(component.constructor)) {
             tmplM = TMPL_META_CACHE.get(component.constructor);
-            vars = buildVars(tmpl);
+            vars = buildVars(component, tmpl);
         }
         else {
             tmplM = new TemplateMeta(tmpl, component, vars);
@@ -11232,29 +12266,29 @@
         component.__updateTree = upAry;
         return rs;
     }
-    function insertSubView(node, point, tmplFn, tmplM, component, valueAry, keyFn) {
+    function insertSubView(node, point, tmplFn, tmplM, component, valueAry, keyFn, enterCfg, onEnterDone) {
         let upList = [];
         let rootNodes = keyFn ? {} : undefined;
         valueAry = valueAry ?? [0];
-        let fragment = document.createDocumentFragment();
+        //延迟初始化
+        let fragment = keyFn ? document.createDocumentFragment() : undefined;
         let subViewId = get(node, '__anchor__');
         each(valueAry, (v, k, c, i) => {
-            Collector.start();
-            let vars = buildVars(tmplFn.call(component, v, k, i));
+            Collector.start(component);
+            let vars = buildVars(component, tmplFn.call(component, v, k, i));
             Collector.end(component);
             let [rs, upAry] = renderTemplate(component, tmplM, vars);
-            let roots = toArray(rs.childNodes).map((n) => new WeakRef(n));
+            let roots = toArray(rs.childNodes);
             if (keyFn) {
                 let key = keyFn.call(component, v, k, i) + '';
                 roots.forEach(n => {
-                    let dom = n.deref();
-                    set(dom, '__c-' + subViewId, key);
+                    n['__c-' + subViewId] = key;
                 });
                 rootNodes[key] = roots;
-                upAry.forEach(up => {
-                    up.key = key;
-                });
-                upList.push(...upAry);
+                for (let ui = 0; ui < upAry.length; ui++) {
+                    upAry[ui].key = key;
+                    upList.push(upAry[ui]);
+                }
                 fragment.append(rs);
             }
             else {
@@ -11272,17 +12306,37 @@
                 point.insert(up);
             });
         }
-        let len = fragment.childNodes.length;
+        let len = fragment ? fragment.childNodes.length : 0;
         if (len > 0) {
+            if (enterCfg) {
+                //入场类必须在插入前打好：插入后再加类会以插入态为过渡起点，产生幻影过渡导致入场不可见
+                beginEnter(component, collectElementRoots(point.subViewRootNodes), enterCfg);
+            }
             bindEvents(component);
             node.parentNode.insertBefore(fragment, node);
         }
+        if (enterCfg) {
+            settleEnter(component, collectElementRoots(point.subViewRootNodes), enterCfg, onEnterDone);
+        }
+        else {
+            onEnterDone?.();
+        }
     }
-    function updateView(vars, renderComponent, updatePoints, renderedUps, changed) {
+    function updateView(vars, renderComponent, updatePoints, renderedUps, changed, oldVars) {
         if (isBlank(vars))
             return;
         if (!updatePoints)
             return;
+        let skipMask;
+        if (oldVars && oldVars.length === vars.length) {
+            skipMask = new Uint8Array(vars.length);
+            for (let i = 0; i < vars.length; i++) {
+                const nv = vars[i];
+                if (nv === oldVars[i] && typeof nv !== 'object') {
+                    skipMask[i] = 1;
+                }
+            }
+        }
         for (let i = 0; i < updatePoints.length; i++) {
             const up = updatePoints[i];
             let varIndex = up.varIndex;
@@ -11293,19 +12347,15 @@
                 continue;
             if (up.__destroyed)
                 continue;
+            if (skipMask && skipMask[varIndex])
+                continue;
             let oldValue = up.value;
-            let newValue = vars;
-            let node = up.node.deref();
+            let node = up.node;
             if (!node)
                 continue;
-            let indexSegs = split(varIndex, PATH_SEPARATOR);
-            for (let l = 0; l < indexSegs.length; l++) {
-                const seg = indexSegs[l];
-                newValue = get(newValue, seg);
-                if (newValue && newValue.vars && i < indexSegs.length - 1) {
-                    newValue = newValue.vars;
-                }
-            }
+            let newValue;
+            //varIndex为子视图平铺后的数字索引，直接下标取值避免通用路径解析开销
+            newValue = vars[varIndex];
             //check
             if (!isObject(oldValue) && oldValue === newValue)
                 continue;
@@ -11316,7 +12366,7 @@
                 let [executor, oldArgs, diFn, varChain] = up.value;
                 if (!isArray(newValue))
                     continue;
-                let slotComponent = getSlotComponent(node, renderComponent);
+                let slotComponent = up.getSlotComponent(renderComponent);
                 let [, newArgs] = newValue;
                 let updated = updateDirective(diFn, node, newArgs, oldArgs, executor, renderComponent, slotComponent, varChain, up, changed);
                 if (updated) {
@@ -11346,24 +12396,23 @@
             }
             else if (upm.attrName) {
                 //特性
-                if (!isEqual(oldValue, newValue)) {
-                    switch (upm.attrName) {
-                        case 'value':
-                            if (node instanceof HTMLInputElement) {
-                                node.value = newValue;
-                                break;
-                            }
-                        default:
-                            node.setAttribute(upm.attrName, replace(upm.attrTmpl, EXP_TAG, newValue + ''));
+                if (oldValue != newValue) {
+                    if (upm.attrName === 'value' && node instanceof HTMLInputElement) {
+                        node.value = newValue;
+                    }
+                    else if (upm.isPureTmpl) {
+                        node.setAttribute(upm.attrName, newValue + '');
+                    }
+                    else {
+                        node.setAttribute(upm.attrName, replace(upm.attrTmpl, EXP_TAG, newValue + ''));
                     }
                 }
             }
             else if (upm.isText) {
-                let textNode = up.node;
                 let newTxt = toString(newValue ?? '');
-                let oldTxt = textNode.deref().textContent;
+                let oldTxt = node.textContent;
                 if (newTxt !== oldTxt)
-                    textNode.deref().textContent = newTxt;
+                    node.textContent = newTxt;
             }
             up.value = newValue;
         } //endfor
@@ -11372,9 +12421,9 @@
     function updateSubScopeView(subScopeUpdatePoint, renderComponent, tmpl, updatedMap) {
         if (!subScopeUpdatePoint || subScopeUpdatePoint.__destroyed)
             return;
-        let node = subScopeUpdatePoint.node.deref();
+        let node = subScopeUpdatePoint.node;
         const [executor, oldArgs, diFn, varChain] = subScopeUpdatePoint.value;
-        let slotComponent = getSlotComponent(node, renderComponent);
+        let slotComponent = subScopeUpdatePoint.getSlotComponent(renderComponent);
         let newArgs;
         if (!tmpl) {
             let rs = executor(node, subScopeUpdatePoint.value[1], oldArgs, { renderComponent, slotComponent, varChain, updatedMap, pointType: get(DirectiveScopeMap.get(diFn), [0], EnterPointType.TEXT) });
@@ -11383,7 +12432,7 @@
             if (rs[0] !== DirectiveUpdateTag.REFRESH)
                 return;
             if (isFunction(rs[1])) {
-                newArgs = buildVars(rs[1].call(renderComponent, subScopeUpdatePoint.value[1][0]));
+                newArgs = buildVars(renderComponent, rs[1].call(renderComponent, subScopeUpdatePoint.value[1][0]));
             }
             else {
                 newArgs = rs[1];
@@ -11533,6 +12582,8 @@
                 }
                 let dw = new DecoratorWrapper(args, metadata.splice(1), decoClass);
                 ary?.push(dw);
+                //提前排序
+                ary?.sort((a, b) => b.priority - a.priority);
                 return dw;
             };
         };
@@ -11551,61 +12602,14 @@
         delete target[propertyKey];
         Reflect.defineProperty(target, propertyKey, {
             get() {
-                if (Collector.__collecting) {
-                    Collector.__varPathList.push(propertyKey);
+                if (Collector.isCollection()) {
+                    Collector.getVarPathList().push(propertyKey);
                 }
                 let v = Reflect.get(this[DATA_KEY], propertyKey);
                 return v;
             }
         });
         return Reflect.getOwnPropertyDescriptor(target, propertyKey);
-    }
-
-    /**
-     * class装饰器：声明组件可 emit 的事件名
-     *
-     * 用于两处决策：
-     * 1. 父组件模板绑定子组件事件时（registerEvent）：声明过 → emit 语义；
-     *    未声明且为标准 DOM 事件 → 自动 native，无需手写 .native
-     * 2. emit() 调用时的 DEV 校验（未声明事件给出警告）
-     *
-     * 支持通配符 'update:*'（匹配 update:value 等，配合 model 指令使用）。
-     * 事件名禁止包含 '.'（parseEventName 以 '.' 拆分修饰符）。
-     *
-     * @param eventNames 事件名列表，如 'input'、'change'、'update:*'
-     * @example
-     * @emits('input', 'change', 'update:*')
-     * @tag('l-input')
-     * class LInput extends CompElem { ... }
-     */
-    function emits(...eventNames) {
-        return (target) => {
-            let set = DefinitionCompEmitMap.get(target);
-            if (!set) {
-                set = new Set();
-                DefinitionCompEmitMap.set(target, set);
-            }
-            eventNames.forEach(n => set.add(n));
-        };
-    }
-
-    /**
-     * 绑定非视图事件，如window/document等
-     * @param eventName 事件名，含修饰参数。同视图模板中的事件名
-     * @param eventTarget 事件绑定目标，默认this
-     */
-    function event(eventName, eventTarget) {
-        return (target, name, descriptor) => {
-            if (!DefinitionCompEventMap.has(target.constructor)) {
-                let mixinEvents = [];
-                let parentCtor = target.constructor;
-                while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
-                    mixinEvents = concat(mixinEvents, DefinitionCompEventMap.get(parentCtor) ?? []);
-                }
-                DefinitionCompEventMap.set(target.constructor, mixinEvents);
-            }
-            DefinitionCompEventMap.get(target.constructor)?.push({ name: eventName, targetFn: eventTarget, fnName: name });
-        };
     }
 
     /**
@@ -11723,7 +12727,7 @@
     }
 
     /**
-     * class用注解，用于自动注册自定义组件
+     * class用装饰器，用于自动注册自定义组件
      * @param name 自定义组件名称
      * @param immediate 立即注册，默认false
      */
@@ -11823,7 +12827,227 @@
         };
     }
 
-    const Ignores = ['key'];
+    const ClassLastMap = new WeakMap();
+    function normalizeClass(val) {
+        if (typeof val === 'string') {
+            return val.trim();
+        }
+        if (isPlainObject(val)) {
+            let result = '';
+            each(val, (v, k) => {
+                if (v)
+                    result += (result ? ' ' : '') + k;
+            });
+            return result;
+        }
+        if (Array.isArray(val)) {
+            let result = '';
+            each(val, v => {
+                const normalized = normalizeClass(v);
+                if (normalized) {
+                    result += (result ? ' ' : '') + normalized;
+                }
+            });
+            return result;
+        }
+        return '';
+    }
+    /**
+     * 根据变量内容自动插入class，与静态class自动合并
+     * @param styles 对象/数组/字符串
+     */
+    directive(function Classes(clazz) {
+        return (pointNode, [clazz], oldArgs) => {
+            const el = pointNode;
+            const newClass = normalizeClass(clazz);
+            const oldClass = ClassLastMap.get(el) ?? '';
+            if (newClass === oldClass)
+                return;
+            if (oldClass) {
+                el.classList.remove(...oldClass.split(' ').filter(Boolean));
+            }
+            if (newClass) {
+                el.classList.add(...newClass.split(' ').filter(Boolean));
+            }
+            ClassLastMap.set(el, newClass);
+        };
+    }, [EnterPointType.TAG]);
+
+    const KeyCache = new Map();
+    const OldKeys = new WeakMap();
+    //已应用样式值缓存（值级diff用：跳过未变更项的CSSOM写入）
+    const OldValues = new WeakMap();
+    const LENGTH_PROPS = new Set([
+        // size
+        'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height',
+        // padding & margin
+        'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+        'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+        // border
+        'border-width', 'border-radius', 'outline-width', 'outline-offset',
+        // position
+        'top', 'right', 'bottom', 'left',
+        'inset', 'inset-block', 'inset-inline', 'inset-block-start', 'inset-block-end',
+        'inset-inline-start', 'inset-inline-end',
+        // font
+        'font-size', 'letter-spacing', 'word-spacing', 'text-indent',
+        // layout
+        'gap', 'row-gap', 'column-gap',
+        'grid-gap', 'grid-row-gap', 'grid-column-gap',
+    ]);
+    function parseValue(sv) {
+        if (isEmpty(sv))
+            return undefined;
+        let rs = { value: '' };
+        if (isObject(sv)) {
+            rs = sv;
+        }
+        else if (isString(sv) || isNumber(sv)) {
+            rs.value = sv;
+            rs.important = false;
+        }
+        else {
+            return undefined;
+        }
+        return rs;
+    }
+    function normalizeStyle(val) {
+        let rs = {};
+        if (isString(val)) {
+            const trimmed = val.trim();
+            if (trimmed) {
+                trimmed.split(';').filter(rule => rule.trim()).forEach(rule => {
+                    const colonIndex = rule.indexOf(':');
+                    if (colonIndex > 0) {
+                        const key = rule.slice(0, colonIndex).trim();
+                        const val = rule.slice(colonIndex + 1).trim();
+                        let pv = parseValue(val);
+                        if (pv)
+                            rs[key] = pv;
+                    }
+                });
+            }
+            return rs;
+        }
+        let tmp = {};
+        if (Array.isArray(val)) {
+            for (const item of val) {
+                const normalizedItem = normalizeStyle(item);
+                Object.assign(tmp, normalizedItem);
+            }
+        }
+        else if (isObject(val)) {
+            tmp = val;
+        }
+        each(tmp, (v, k) => {
+            let nk = normalizeKey(k);
+            let nv = parseValue(v);
+            if (!nv)
+                return;
+            if (LENGTH_PROPS.has(nk) && !nk.startsWith('--') && isNumeric(nv.value)) {
+                nv.value = nv.value + 'px';
+            }
+            rs[nk] = nv;
+        });
+        return rs;
+    }
+    function normalizeKey(key) {
+        if (key.startsWith('--')) {
+            return key;
+        }
+        if (KeyCache.has(key)) {
+            return KeyCache.get(key);
+        }
+        const result = kebabCase(key);
+        KeyCache.set(key, result);
+        return result;
+    }
+    /**
+     * 根据变量内容设置元素样式
+     * @param styles 对象/字符串
+     */
+    directive(function Styles(style) {
+        return (pointNode, newArgs, oldArgs) => {
+            let el = pointNode;
+            const styleObj = normalizeStyle(newArgs[0]);
+            const newKeys = new Set(Object.keys(styleObj));
+            const oldkeys = OldKeys.get(el);
+            let oldVals = OldValues.get(el);
+            if (!oldVals) {
+                oldVals = {};
+                OldValues.set(el, oldVals);
+            }
+            each(oldkeys, (v) => {
+                if (!newKeys.has(v)) {
+                    el.style.removeProperty(v);
+                    delete oldVals[v];
+                }
+            });
+            each(styleObj, (v, k) => {
+                const s = v.value + '' + (v.important ? ' !important' : '');
+                if (oldVals[k] === s)
+                    return;
+                el.style.setProperty(k, v.value + '', v.important ? 'important' : '');
+                oldVals[k] = s;
+            });
+            OldKeys.set(el, newKeys);
+        };
+    }, [EnterPointType.TAG]);
+
+    const Ignores = ['key', 'ref', 'emit-native'];
+    const LastValsMap = new WeakMap();
+    //bind 写入的 class
+    const BindClassLast = new WeakMap();
+    //bind 写入的 style 键/值
+    const BindStyleKeys = new WeakMap();
+    const BindStyleVals = new WeakMap();
+    const CLASS_KEY = 'class';
+    const STYLE_KEY = 'style';
+    /**
+     * 合并写入 class，仅移除/添加本指令负责的类
+     */
+    function applyBindClass(el, val, hasKey) {
+        const newClass = hasKey ? normalizeClass(val) : '';
+        const oldClass = BindClassLast.get(el) ?? '';
+        if (newClass === oldClass)
+            return;
+        if (oldClass) {
+            el.classList.remove(...oldClass.split(' ').filter(Boolean));
+        }
+        if (newClass) {
+            el.classList.add(...newClass.split(' ').filter(Boolean));
+        }
+        BindClassLast.set(el, newClass);
+    }
+    /**
+     * 合并写入 style，仅移除/设置本指令负责的键
+     */
+    function applyBindStyle(el, val, hasKey) {
+        const styleObj = hasKey ? normalizeStyle(val) : {};
+        const newKeys = new Set(Object.keys(styleObj));
+        const oldKeys = BindStyleKeys.get(el);
+        let oldVals = BindStyleVals.get(el);
+        if (!oldVals) {
+            oldVals = {};
+            BindStyleVals.set(el, oldVals);
+        }
+        if (oldKeys) {
+            oldKeys.forEach((k) => {
+                if (!newKeys.has(k)) {
+                    el.style.removeProperty(k);
+                    delete oldVals[k];
+                }
+            });
+        }
+        each(styleObj, (v, k) => {
+            const s = v.value + '' + (v.important ? ' !important' : '');
+            if (oldVals[k] === s)
+                return;
+            el.style.setProperty(k, v.value + '', v.important ? 'important' : '');
+            oldVals[k] = s;
+        });
+        BindStyleKeys.set(el, newKeys);
+    }
     /**
      * 绑定属性到节点上，如果节点是组件会使用in操作符判断是否props
      * @param styles 对象/数组/字符串
@@ -11831,9 +13055,22 @@
     directive(function Bind(obj) {
         return (pointNode, [obj], oldArgs, { renderComponent }) => {
             let el = pointNode;
+            //class/style 合并
+            applyBindClass(el, obj[CLASS_KEY], CLASS_KEY in obj);
+            applyBindStyle(el, obj[STYLE_KEY], STYLE_KEY in obj);
             if (oldArgs) {
+                let oldVals = LastValsMap.get(el);
+                if (!oldVals) {
+                    oldVals = {};
+                    LastValsMap.set(el, oldVals);
+                }
                 each(obj, (v, k) => {
+                    if (Ignores.includes(k) || k === CLASS_KEY || k === STYLE_KEY)
+                        return;
+                    if (oldVals[k] === v && (v === null || typeof v !== 'object'))
+                        return;
                     el.setAttribute(k, v);
+                    oldVals[k] = v;
                 });
                 return;
             }
@@ -11842,8 +13079,10 @@
                 let props = {};
                 // let attrs: Record<string, string> = {}
                 let propDefs = DefinitionPropMap.get(el.constructor);
+                let oldVals = {};
+                LastValsMap.set(el, oldVals);
                 each(obj, (v, k) => {
-                    if (Ignores.includes(k))
+                    if (Ignores.includes(k) || k === CLASS_KEY || k === STYLE_KEY)
                         return;
                     let ck = camelCase(k);
                     let propDef = propDefs ? propDefs[ck] : undefined;
@@ -11852,82 +13091,215 @@
                     }
                     else {
                         el.setAttribute(k, v + '');
-                        // attrs[k] = v + '';
+                        oldVals[k] = v;
                     }
                 });
                 addUninitializedSubComponentProp(renderComponent, el, props);
-                // el._initProps(props, attrs)
             }
             else {
+                let oldVals = {};
+                LastValsMap.set(el, oldVals);
                 each(obj, (v, k) => {
+                    if (Ignores.includes(k) || k === CLASS_KEY || k === STYLE_KEY)
+                        return;
                     el.setAttribute(k, v);
+                    oldVals[k] = v;
                 });
             }
-        };
-    }, [EnterPointType.TAG]);
-
-    const ClassLastMap = new WeakMap();
-    /**
-     * 根据变量内容自动插入class，与静态class自动合并
-     * @param styles 对象/数组/字符串
-     */
-    directive(function Classes(clazz) {
-        return (pointNode, [clazz], oldArgs, { renderComponent }) => {
-            let rs = [];
-            if (isArray(clazz)) {
-                rs = compact(clazz);
-            }
-            else if (isObject(clazz)) {
-                rs = flatMap(clazz, (v, k) => v ? k : []);
-            }
-            else if (isString(clazz)) {
-                rs = clazz.split(' ');
-            }
-            if (rs.length < 1 && !oldArgs)
-                return;
-            let el = pointNode;
-            if (ClassLastMap.get(el) && ClassLastMap.get(el).length === rs.length && isMatch(ClassLastMap.get(el), rs))
-                return;
-            let lastCls = ClassLastMap.get(el);
-            each(lastCls, (cls) => {
-                el.classList.remove(cls);
-            });
-            each(rs, cls => {
-                el.classList.add(cls);
-            });
-            lastCls = concat(rs);
-            ClassLastMap.set(el, lastCls);
         };
     }, [EnterPointType.TAG]);
 
     const LastKeysMap = new WeakMap();
     const EachTmplMap = new WeakMap();
+    const EachVarsMap = new WeakMap();
+    /**
+     * 解析本轮变更中属于数组元素内部路径（root.N[.field]）的脏项索引
+     * 返回null表示无法解析（应回退全量路径）
+     */
+    function parseDirtyIndices(updatedMap, root) {
+        if (!updatedMap)
+            return null;
+        let keys = Object.keys(updatedMap);
+        if (keys.length === 0)
+            return null;
+        let rootPrefix = root + '.';
+        let dirty = new Set();
+        for (let i = 0; i < keys.length; i++) {
+            let k = keys[i];
+            if (k === root || startsWith(root, k + '.')) {
+                //root自身或其祖先路径：仅作为更深层变更的前缀副产物（end=false）时允许
+                if (updatedMap[k].end)
+                    return null;
+                continue;
+            }
+            if (!startsWith(k, rootPrefix))
+                return null;
+            let rest = k.slice(rootPrefix.length);
+            let dotIdx = rest.indexOf('.');
+            let nStr = dotIdx < 0 ? rest : rest.slice(0, dotIdx);
+            let n = Number(nStr);
+            if (!Number.isInteger(n) || n < 0 || String(n) !== nStr)
+                return null;
+            dirty.add(n);
+        }
+        return dirty;
+    }
+    /**
+     * 获取数组的路径根：
+     * - proxyRoot：reactive代理记录的路径（与依赖收集到的读取路径同命名空间，用于跨项检测）
+     * - ctxRoot：变更通知中的路径根（数组跨组件传入时会被重映射为当前组件的属性名，用于脏项解析）
+     * 数组非reactive代理时返回null
+     */
+    function getContextRoots(aryOrObj, renderComponent) {
+        let pathAry = OBJECT_VAR_PATH.get(aryOrObj);
+        if (!pathAry || pathAry.length === 0)
+            return null;
+        let proxyRoot = pathAry.join('.');
+        let remap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(renderComponent);
+        let first = remap?.[pathAry[0]];
+        let ctxRoot = first !== undefined ? [first, ...pathAry.slice(1)].join('.') : proxyRoot;
+        return { proxyRoot, ctxRoot };
+    }
+    /**
+     * 检测mark之后读取的路径中是否存在跨项依赖（读取其他项或整组数组的路径）
+     * 存在时脏项外的渲染结果可能依赖脏项数据，必须禁用/放弃局部更新
+     */
+    function detectCrossRead(mark, root, idx) {
+        let reads = Collector.getVarPathList();
+        let self = root + '.' + idx;
+        for (let j = mark; j < reads.length; j++) {
+            let p = reads[j];
+            if (p === root || (startsWith(p, root + '.') && p !== self && !startsWith(p, self + '.'))) {
+                return true;
+            }
+        }
+        return false;
+    }
+    /**
+     * 全量重建每项vars并构建缓存；处于依赖收集会话时同步进行跨项依赖检测
+     */
+    function getVars(newAryOrObj, tmplFn, renderComponent, proxyRoot, ctxRoot, pointNode) {
+        let varList = [];
+        let varsPerItem = [];
+        let cross = false;
+        let tracking = proxyRoot !== undefined && Collector.isCollection();
+        let idx = 0;
+        each(newAryOrObj, (val, k) => {
+            let mark = tracking ? Collector.getVarPathList().length : 0;
+            let vars = buildVars(renderComponent, tmplFn.call(renderComponent, val, k));
+            if (tracking && !cross) {
+                cross = detectCrossRead(mark, proxyRoot, idx);
+            }
+            varsPerItem.push(vars);
+            for (let vi = 0; vi < vars.length; vi++) {
+                varList.push(vars[vi]);
+            }
+            idx++;
+        });
+        if (pointNode !== undefined && proxyRoot !== undefined && ctxRoot !== undefined) {
+            if (tracking) {
+                EachVarsMap.set(pointNode, { keys: LastKeysMap.get(pointNode), varsPerItem, cross });
+            }
+            else {
+                //非收集会话（子视图路径）无法做跨项检测，缓存不可信
+                EachVarsMap.delete(pointNode);
+            }
+        }
+        return varList;
+    }
     /**
      * 循环节点指令
      * 1. 支持多根输出
      * 2.
      */
-    const forEach = directive(function ForEach(value, keyFn, tmpl) {
-        return (pointNode, newArgs, oldArgs, { renderComponent, varChain, updatedMap }) => {
+    directive(function ForEach(value, keyFn, tmpl) {
+        return (pointNode, newArgs, oldArgs, { renderComponent, updatedMap }) => {
             let newAryOrObj = newArgs[0];
-            get(oldArgs, 0);
             if (isEmpty(newAryOrObj) && isUndefined(oldArgs))
                 return [DirectiveUpdateTag.INIT];
-            let i = 0;
-            let newKeys = compact(map(newAryOrObj, (v, k) => keyFn.call(renderComponent, v, k, i++) + ''));
-            //check keys
-            if (newKeys.length != new Set(newKeys).size) {
-                showError(`forEach - duplicate key in '${newKeys}'`);
-                return;
-            }
             let oldKeys = LastKeysMap.get(pointNode);
+            //快速路径：数组引用未变且本轮变更均为元素内部路径（root.N.xxx）时，非脏项key必然不变，
+            //脏项key经下方显式校验（key字段变异/排序/增删导致不匹配时回退全量路径走UPDATE）
+            //命中缓存时进一步只重建脏项模板vars
+            if (oldArgs && oldKeys && !isEmpty(newAryOrObj) && oldArgs[0] === newAryOrObj) {
+                let roots = getContextRoots(newAryOrObj, renderComponent);
+                if (roots) {
+                    let dirty = parseDirtyIndices(updatedMap, roots.ctxRoot);
+                    if (dirty) {
+                        let ary = newAryOrObj;
+                        let keyChanged = false;
+                        for (let n of dirty) {
+                            if (n >= ary.length) {
+                                keyChanged = true;
+                                break;
+                            }
+                            let k = keyFn(ary[n], n, n);
+                            let sk = isNil(k) ? null : (typeof k === 'string' ? k : String(k));
+                            if (sk !== oldKeys[n]) {
+                                keyChanged = true;
+                                break;
+                            }
+                        }
+                        if (!keyChanged) {
+                            let cache = EachVarsMap.get(pointNode);
+                            if (cache && cache.keys === oldKeys && !cache.cross && cache.varsPerItem.length === oldKeys.length) {
+                                //脏项局部更新
+                                let tracking = Collector.isCollection();
+                                let flipped = false;
+                                for (let n of dirty) {
+                                    let mark = tracking ? Collector.getVarPathList().length : 0;
+                                    cache.varsPerItem[n] = buildVars(renderComponent, tmpl.call(renderComponent, ary[n], n));
+                                    if (tracking && !cache.cross && detectCrossRead(mark, roots.proxyRoot, n)) {
+                                        cache.cross = true;
+                                        flipped = true;
+                                        break;
+                                    }
+                                }
+                                if (!flipped) {
+                                    let varList = [];
+                                    for (let i = 0; i < cache.varsPerItem.length; i++) {
+                                        let ivars = cache.varsPerItem[i];
+                                        for (let vi = 0; vi < ivars.length; vi++) {
+                                            varList.push(ivars[vi]);
+                                        }
+                                    }
+                                    return [DirectiveUpdateTag.REFRESH, varList];
+                                }
+                            }
+                            //key序列未变：跳过key计算直接REFRESH（getVars全量重建并刷新缓存）
+                            return [DirectiveUpdateTag.REFRESH, getVars(newAryOrObj, tmpl, renderComponent, roots.proxyRoot, roots.ctxRoot, pointNode)];
+                        }
+                    }
+                }
+            }
+            const newKeys = [];
+            const checkSet = new Set();
+            let i = 0;
+            each(newAryOrObj, (v, k) => {
+                let key = keyFn(v, k, i++);
+                if (isNil(key))
+                    return;
+                const strKey = typeof key === 'string' ? key : String(key);
+                if (checkSet.has(strKey)) {
+                    showError(`forEach - duplicate key in '${newKeys}'`);
+                    return;
+                }
+                checkSet.add(strKey);
+                newKeys.push(strKey);
+            });
             LastKeysMap.set(pointNode, newKeys);
             if (oldArgs) {
                 if (isEmpty(newKeys))
                     return [DirectiveUpdateTag.REMOVE];
-                if (size(newKeys) === size(oldKeys) && isEqual(newKeys, oldKeys))
-                    return [DirectiveUpdateTag.REFRESH, getVars(newAryOrObj, tmpl, renderComponent)];
+                if (oldKeys && newKeys.length === oldKeys.length && isStrictEqual(newKeys, oldKeys)) {
+                    let roots = getContextRoots(newAryOrObj, renderComponent);
+                    return [DirectiveUpdateTag.REFRESH, roots
+                            ? getVars(newAryOrObj, tmpl, renderComponent, roots.proxyRoot, roots.ctxRoot, pointNode)
+                            : getVars(newAryOrObj, tmpl, renderComponent)];
+                }
             }
+            //key序列变化：结构更新，脏项缓存失效
+            EachVarsMap.delete(pointNode);
             let tmplM;
             let tmplFn = newArgs[2];
             if (!EachTmplMap.has(pointNode)) {
@@ -11946,13 +13318,14 @@
             return [DirectiveUpdateTag.INIT, tmpl, tmplM, newAryOrObj, keyFn];
         };
     }, [EnterPointType.TEXT, EnterPointType.SLOT]);
-    function getVars(newAryOrObj, tmplFn, renderComponent) {
-        let varList = [];
-        each(newAryOrObj, (val, i) => {
-            let vars = buildVars(tmplFn.call(renderComponent, val, i));
-            varList.push(...vars);
-        });
-        return varList;
+    function isStrictEqual(a, b) {
+        if (a.length !== b.length)
+            return false;
+        for (let i = 0; i < a.length; i++) {
+            if (a[i] !== b[i])
+                return false;
+        }
+        return true;
     }
 
     let compiler = document.createElement('template');
@@ -12276,53 +13649,6 @@
         };
     }, [EnterPointType.SLOT]);
 
-    /**
-     * Css 辅助类
-     */
-    class CssHelper {
-        /**
-         * 用于转换style对象为标准style字符串，会自动转换对象key为短横线格式
-         * @param styles 样式对象
-         * @returns
-         */
-        static getCssText(styles, important = false) {
-            if (isString(styles))
-                return styles;
-            return join(map(styles, (v, k) => {
-                if (k.startsWith('--'))
-                    return k + ":" + v + (important ? ' !important' : '');
-                return kebabCase(k) + ":" + v + (important ? ' !important' : '');
-            }), ';') + ';';
-        }
-        /**
-         * 设置样式
-         * @param styles 样式字符串或样式对象
-         * @param node HTML元素
-         * @returns 每个样式的旧值map
-         */
-        static setStyle(styles, node) {
-            if (isString(styles) && !trim(styles))
-                return;
-            let css = CssHelper.getCssText(styles);
-            node.style.cssText = css;
-        }
-    }
-
-    /**
-     * 根据变量内容设置元素样式，与静态样式自动合并
-     * @param styles 对象/字符串
-     */
-    directive(function Styles(...styles) {
-        return (pointNode, newArgs, oldArgs, { renderComponent }) => {
-            let el = pointNode;
-            let cssText = reduce(newArgs, (acc, v) => acc + CssHelper.getCssText(v), '');
-            let sKeys = compact(cssText.split(';').map(str => str.split(':')[0]));
-            let eKeys = compact(el.style.cssText.split(';'));
-            let ePairs = reject(eKeys, (str => sKeys.some(key => str.trim().startsWith(key))));
-            el.style.cssText = cssText + ePairs.join(';');
-        };
-    }, [EnterPointType.TAG]);
-
     const LastConditionMap = new WeakMap();
     const BranchTmplMMap = new WeakMap();
     /**
@@ -12394,9 +13720,12 @@
         };
     }, [EnterPointType.TEXT, EnterPointType.SLOT]);
 
+    // DevTools 接入点：模块加载期即挂载（扩展据此判断核心库是否已加载）
+    installCompElemDevtools();
     function defineComponents() {
         each(DefinitionComponentMap, (clz, name) => {
-            customElements.define(name, clz);
+            if (!customElements.get(name))
+                customElements.define(name, clz);
         });
     }
 
@@ -12560,586 +13889,6 @@
     exports.PageTest = __decorate([
         tag("page-test")
     ], exports.PageTest);
-    ////////////////////////////////////////////////// 事件代理专项探针
-    const makeSilentWav = () => {
-        const sampleRate = 8000;
-        const seconds = 0.1;
-        const samples = Math.floor(sampleRate * seconds);
-        const dataSize = samples * 2;
-        const buffer = new ArrayBuffer(44 + dataSize);
-        const view = new DataView(buffer);
-        const writeStr = (offset, str) => {
-            for (let i = 0; i < str.length; i++)
-                view.setUint8(offset + i, str.charCodeAt(i));
-        };
-        writeStr(0, 'RIFF');
-        view.setUint32(4, 36 + dataSize, true);
-        writeStr(8, 'WAVE');
-        writeStr(12, 'fmt ');
-        view.setUint32(16, 16, true);
-        view.setUint16(20, 1, true);
-        view.setUint16(22, 1, true);
-        view.setUint32(24, sampleRate, true);
-        view.setUint32(28, sampleRate * 2, true);
-        view.setUint16(32, 2, true);
-        view.setUint16(34, 16, true);
-        writeStr(36, 'data');
-        view.setUint32(40, dataSize, true);
-        //静音 PCM（全 0）
-        let bin = '';
-        const bytes = new Uint8Array(buffer);
-        for (let i = 0; i < bytes.length; i++)
-            bin += String.fromCharCode(bytes[i]);
-        return 'data:audio/wav;base64,' + btoa(bin);
-    };
-    const GIF_1PX = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
-    //子组件（emit 事件源）
-    exports.EventProbeSub = class EventProbeSub extends CompElem {
-        render() {
-            return h `<button id="sub-emit" @click=${this.emitClick}>emit-me</button>`;
-        }
-        emitClick() {
-            this.emit('custom-click', { v: 1 });
-        }
-    };
-    exports.EventProbeSub = __decorate([
-        emits('custom-click'),
-        tag('event-probe-sub')
-    ], exports.EventProbeSub);
-    //无 shadowDOM 组件（render 返回 null）：@event 装饰器直接绑定 window，仅自身事件监听
-    exports.EventProbeNull = class EventProbeNull extends CompElem {
-        onProbe() {
-            let n = parseInt(this.getAttribute('data-probe-count') || '0');
-            this.setAttribute('data-probe-count', (n + 1) + '');
-        }
-        render() {
-            return null;
-        }
-    };
-    __decorate([
-        event('probe-window', () => window)
-    ], exports.EventProbeNull.prototype, "onProbe", null);
-    exports.EventProbeNull = __decorate([
-        tag('event-probe-null')
-    ], exports.EventProbeNull);
-    exports.EventProbe = class EventProbe extends CompElem {
-        results = [];
-        list = [1, 2, 3];
-        imgSrc = GIF_1PX;
-        wavSrc = makeSilentWav();
-        probe = { click: 0, stop: 0, once: 0, focus: 0, load: 0, play: 0, enter: 0, each: 0, sub: 0, key: 0 };
-        log(name, ok, detail = '') {
-            this.results = [...this.results, `${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' (' + detail + ')' : ''}`];
-        }
-        mounted() {
-            setTimeout(() => this.runProbe(), 100);
-        }
-        //////////////////////////////////// 事件回调
-        onBtnClick() { this.probe.click++; }
-        onBtnStop() { this.probe.stop++; }
-        onBtnOnce() { this.probe.once++; }
-        onInputFocus() { this.probe.focus++; }
-        onImgLoad() { this.probe.load++; }
-        onImgError() { }
-        onAudioPlay() { this.probe.play++; }
-        onDivEnter() { this.probe.enter++; }
-        onEachClick() { this.probe.each++; }
-        onSubEvent() { this.probe.sub++; }
-        onKeyDown() { this.probe.key++; }
-        runProbe() {
-            const root = this.renderRoot;
-            const $ = (sel) => root.querySelector(sel);
-            //1. 冒泡事件委托（click）
-            this.probe.click = 0;
-            $('#btn-click').click();
-            this.log('冒泡事件委托 click', this.probe.click === 1);
-            //2. .stop 修饰符（阻止传播出组件边界，用 document 冒泡阶段监听验证）
-            let docGot = false;
-            const docCbk = () => { docGot = true; };
-            document.addEventListener('click', docCbk, false);
-            this.probe.stop = 0;
-            $('#btn-stop').click();
-            document.removeEventListener('click', docCbk, false);
-            this.log('.stop 修饰符', this.probe.stop === 1 && !docGot);
-            //3. .once 修饰符（委托命中后移除条目）
-            this.probe.once = 0;
-            const onceBtn = $('#btn-once');
-            onceBtn.click();
-            onceBtn.click();
-            this.log('.once 修饰符', this.probe.once === 1);
-            //4. 捕获事件委托（focus：无冒泡，捕获阶段）
-            this.probe.focus = 0;
-            const inp = $('#inp-focus');
-            inp.focus();
-            inp.blur();
-            this.log('捕获事件委托 focus', this.probe.focus === 1);
-            //5. 元素事件 load（独立绑定，不代理；dataURL 早载场景）
-            this.probe.load = 0;
-            setTimeout(() => {
-                this.log('元素事件 load（独立绑定）', this.probe.load === 1, 'load=' + this.probe.load);
-                //6. 媒体事件 play（audio，独立绑定）
-                const audio = $('#aud-play');
-                audio.play().then(() => {
-                    setTimeout(() => {
-                        this.log('元素事件 play（独立绑定）', this.probe.play === 1, 'play=' + this.probe.play);
-                    }, 300);
-                }).catch((e) => {
-                    this.log('元素事件 play（独立绑定）', false, 'play rejected: ' + e);
-                });
-                //7. 特殊传播 mouseenter（直接绑定）
-                this.probe.enter = 0;
-                $('#enter').dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
-                this.log('mouseenter（直接绑定）', this.probe.enter === 1);
-                //8. 键盘组合修饰符 ctrl.enter（委托 + 修饰符）
-                this.probe.key = 0;
-                const keyInp = $('#inp-key');
-                keyInp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
-                keyInp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: false, bubbles: true }));
-                this.log('键盘组合修饰符 ctrl.enter（委托）', this.probe.key === 1);
-                //9. 组件事件 emit（不代理）
-                this.probe.sub = 0;
-                root.querySelector('#sub-emit').click();
-                setTimeout(() => {
-                    this.log('组件事件 emit（不代理）', this.probe.sub === 1);
-                    //10. 无 shadowDOM 组件 @event window 绑定
-                    const nullComp = root.querySelector('event-probe-null');
-                    window.dispatchEvent(new CustomEvent('probe-window'));
-                    this.log('无 shadowDOM @event window 绑定', nullComp?.getAttribute('data-probe-count') === '1', 'count=' + nullComp?.getAttribute('data-probe-count'));
-                    //11. 动态节点委托（ForEach 新增节点后事件仍生效）
-                    this.probe.each = 0;
-                    root.querySelector('button[data-key="1"]').click();
-                    this.list = [...this.list, 4];
-                    setTimeout(() => {
-                        root.querySelector('button[data-key="4"]').click();
-                        this.log('动态节点委托（ForEach 新增）', this.probe.each === 2, 'each=' + this.probe.each);
-                        //12. destroy 释放 signal 监听
-                        const tmp = document.createElement('event-probe-null');
-                        document.body.appendChild(tmp);
-                        setTimeout(() => {
-                            window.dispatchEvent(new CustomEvent('probe-window'));
-                            tmp.destroy();
-                            const before = tmp.getAttribute('data-probe-count');
-                            window.dispatchEvent(new CustomEvent('probe-window'));
-                            this.log('destroy 释放 signal 监听', tmp.getAttribute('data-probe-count') === before, 'count=' + tmp.getAttribute('data-probe-count'));
-                            this.log('——探针完成——', true);
-                        }, 100);
-                    }, 300);
-                }, 50);
-            }, 400);
-        }
-        render() {
-            return h `<div>
-      <h3>事件代理专项探针</h3>
-      <button id="btn-click" @click=${this.onBtnClick}>click</button>
-      <button id="btn-stop" @click.stop=${this.onBtnStop}>click.stop</button>
-      <button id="btn-once" @click.once=${this.onBtnOnce}>click.once</button>
-      <input id="inp-focus" @focus=${this.onInputFocus} />
-      <input id="inp-key" @keydown.ctrl.enter=${this.onKeyDown} />
-      <img id="img-load" src=${this.imgSrc} @load=${this.onImgLoad} @error=${this.onImgError} />
-      <audio id="aud-play" src=${this.wavSrc} @play=${this.onAudioPlay}></audio>
-      <div id="enter" @mouseenter=${this.onDivEnter}>hover-me</div>
-      <div>
-        ${forEach(this.list, (item) => item + '', (item) => h `<button key="${item}" data-key="${item}" @click=${this.onEachClick}>each-${item}</button>`)}
-      </div>
-      <event-probe-sub @custom-click=${this.onSubEvent}></event-probe-sub>
-      <event-probe-null></event-probe-null>
-      <pre id="probe-result">${this.results.join('\n')}</pre>
-    </div>`;
-        }
-    };
-    __decorate([
-        state
-    ], exports.EventProbe.prototype, "results", void 0);
-    __decorate([
-        state
-    ], exports.EventProbe.prototype, "list", void 0);
-    exports.EventProbe = __decorate([
-        tag('event-probe')
-    ], exports.EventProbe);
-    ////////////////////////////////////////////////// 代理事件（含修饰符）专项探针
-    exports.EventDelegateProbe = class EventDelegateProbe extends CompElem {
-        results = [];
-        list = [1];
-        probe = {
-            bubble: 0, click: 0, stop: 0, prevent: 0, once: 0,
-            selfOut: 0, focus: 0, key: 0, left: 0, each: 0
-        };
-        lastPrevented = false;
-        watchName(nv) {
-            console.log(nv);
-        }
-        log(name, ok, detail = '') {
-            this.results = [...this.results, `${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' (' + detail + ')' : ''}`];
-        }
-        mounted() {
-            setTimeout(() => this.runProbe(), 100);
-        }
-        //////////////////////////////////// 事件回调
-        onBubble() { this.probe.bubble++; }
-        onBtnClick() { this.probe.click++; }
-        onBtnStop() { this.probe.stop++; }
-        onBtnPrevent(e) { this.probe.prevent++; this.lastPrevented = e.defaultPrevented; }
-        onBtnOnce() { this.probe.once++; }
-        onSelfOut() { this.probe.selfOut++; }
-        onFocus() { this.probe.focus++; }
-        onKeyDown() { this.probe.key++; }
-        onMouseLeft() { this.probe.left++; }
-        onEachClick() { this.probe.each++; }
-        runProbe() {
-            const root = this.renderRoot;
-            const $ = (sel) => root.querySelector(sel);
-            //1. 冒泡委托：子元素点击冒泡到祖先 div 的委托监听
-            this.probe.bubble = 0;
-            $('#bubble-child').click();
-            this.log('冒泡委托（子→父）', this.probe.bubble === 1);
-            //2. 基础 click 委托
-            this.probe.click = 0;
-            $('#btn-click').click();
-            this.log('冒泡事件委托 click', this.probe.click === 1);
-            //3. .stop 修饰符（阻止传播出组件边界，用 document 冒泡阶段监听验证）
-            let docGot = false;
-            const docCbk = () => { docGot = true; };
-            document.addEventListener('click', docCbk, false);
-            this.probe.stop = 0;
-            $('#btn-stop').click();
-            document.removeEventListener('click', docCbk, false);
-            this.log('.stop 修饰符', this.probe.stop === 1 && !docGot);
-            //4. .prevent 修饰符（回调执行前已 preventDefault）
-            this.probe.prevent = 0;
-            this.lastPrevented = false;
-            $('#btn-prevent').click();
-            this.log('.prevent 修饰符', this.probe.prevent === 1 && this.lastPrevented);
-            //5. .once 修饰符（委托命中后移除条目，二次点击不再触发）
-            this.probe.once = 0;
-            const onceBtn = $('#btn-once');
-            onceBtn.click();
-            onceBtn.click();
-            this.log('.once 修饰符', this.probe.once === 1);
-            //6. .self 修饰符（子元素点击不触发 / 自身点击触发）
-            this.probe.selfOut = 0;
-            $('#self-inner').click();
-            this.log('.self 修饰符（子元素不触发）', this.probe.selfOut === 0);
-            $('#self-box').dispatchEvent(new MouseEvent('click', { bubbles: true }));
-            this.log('.self 修饰符（自身触发）', this.probe.selfOut === 1);
-            //7. 捕获事件 + .capture 修饰符（focus 无冒泡，须捕获阶段委托）
-            this.probe.focus = 0;
-            const inp = $('#inp-focus');
-            inp.focus();
-            inp.blur();
-            this.log('捕获事件 focus.capture', this.probe.focus === 1);
-            //8. 键盘组合修饰符 ctrl.enter（委托 + 修饰符）
-            this.probe.key = 0;
-            const keyInp = $('#inp-key');
-            keyInp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
-            keyInp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: false, bubbles: true }));
-            this.log('键盘组合修饰符 ctrl.enter', this.probe.key === 1);
-            //9. 鼠标按键修饰符 .left
-            this.probe.left = 0;
-            $('#mouse-left').dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true }));
-            $('#mouse-left').dispatchEvent(new MouseEvent('mousedown', { button: 2, bubbles: true }));
-            this.log('鼠标按键修饰符 .left', this.probe.left === 1, 'left=' + this.probe.left);
-            //10. 动态节点委托（ForEach 新增节点后事件仍生效）
-            this.probe.each = 0;
-            $('button[data-key="1"]').click();
-            this.list = [...this.list, 2];
-            setTimeout(() => {
-                $('button[data-key="2"]').click();
-                this.log('动态节点委托（ForEach 新增）', this.probe.each === 2, 'each=' + this.probe.each);
-                this.log('——代理事件探针完成——', true);
-            }, 300);
-        }
-        render() {
-            return h `<div>
-      <h3>代理事件（含修饰符）</h3>
-      <div id="bubble"><button id="bubble-child" @click=${this.onBubble}>bubble-child</button></div>
-      <button id="btn-click" @click=${this.onBtnClick}>click</button>
-      <button id="btn-stop" @click.stop=${this.onBtnStop}>click.stop</button>
-      <button id="btn-prevent" @click.prevent=${this.onBtnPrevent}>click.prevent</button>
-      <button id="btn-once" @click.once=${this.onBtnOnce}>click.once</button>
-      <div id="self-box" @click.self=${this.onSelfOut}><button id="self-inner">self-inner</button></div>
-      <input id="inp-focus" @focus.capture=${this.onFocus} />
-      <input id="inp-key" @keydown.ctrl.enter=${this.onKeyDown} />
-      <div id="mouse-left" @mousedown.left=${this.onMouseLeft}>mouse-left</div>
-      <div>
-        ${forEach(this.list, (item) => item + '', (item) => h `<button key="${item}" data-key="${item}" @click=${this.onEachClick}>each-${item}</button>`)}
-      </div>
-      <pre id="delegate-result">${this.results.join('\n')}</pre>
-    </div>`;
-        }
-    };
-    __decorate([
-        state
-    ], exports.EventDelegateProbe.prototype, "results", void 0);
-    __decorate([
-        state
-    ], exports.EventDelegateProbe.prototype, "list", void 0);
-    __decorate([
-        state
-    ], exports.EventDelegateProbe.prototype, "probe", void 0);
-    __decorate([
-        watch('probe', { deep: true })
-    ], exports.EventDelegateProbe.prototype, "watchName", null);
-    exports.EventDelegateProbe = __decorate([
-        tag('event-delegate-probe')
-    ], exports.EventDelegateProbe);
-    ////////////////////////////////////////////////// 独立事件专项探针
-    exports.EventDirectProbe = class EventDirectProbe extends CompElem {
-        results = [];
-        probe = { load: 0, error: 0, scroll: 0, enter: 0, leave: 0, doc: 0, win: 0 };
-        imgSrc = GIF_1PX;
-        log(name, ok, detail = '') {
-            this.results = [...this.results, `${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' (' + detail + ')' : ''}`];
-        }
-        mounted() {
-            setTimeout(() => this.runProbe(), 100);
-        }
-        //////////////////////////////////// 事件回调
-        onImgLoad() { this.probe.load++; }
-        onImgError() { this.probe.error++; }
-        onScroll() { this.probe.scroll++; }
-        onEnter() { this.probe.enter++; }
-        onLeave() { this.probe.leave++; }
-        onDocEvent() { this.probe.doc++; }
-        onWinEvent() { this.probe.win++; }
-        runProbe() {
-            const root = this.renderRoot;
-            const $ = (sel) => root.querySelector(sel);
-            //1. 元素事件 scroll（不冒泡，独立绑定才有效）
-            this.probe.scroll = 0;
-            $('#box-scroll').dispatchEvent(new Event('scroll'));
-            this.log('元素事件 scroll（独立绑定）', this.probe.scroll === 1);
-            //2. 特殊传播 mouseenter/mouseleave（无传播语义，直接绑定）
-            this.probe.enter = 0;
-            this.probe.leave = 0;
-            $('#box-hover').dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
-            $('#box-hover').dispatchEvent(new MouseEvent('mouseleave', { bubbles: false }));
-            this.log('特殊传播 mouseenter/mouseleave（独立绑定）', this.probe.enter === 1 && this.probe.leave === 1);
-            //3. @event 装饰器 → document（独立绑定，非 Element 目标）
-            this.probe.doc = 0;
-            document.dispatchEvent(new CustomEvent('direct-doc-event'));
-            this.log('@event document 目标（独立绑定）', this.probe.doc === 1);
-            //4. @event 装饰器 → window（独立绑定）
-            this.probe.win = 0;
-            window.dispatchEvent(new CustomEvent('direct-win-event'));
-            this.log('@event window 目标（独立绑定）', this.probe.win === 1);
-            //5. 元素事件 load：dataURL 可能在探针启动前已加载完成，不做计数重置，断言已触发
-            setTimeout(() => {
-                this.log('元素事件 load（独立绑定）', this.probe.load >= 1, 'load=' + this.probe.load);
-                //6. 元素事件 error：合成 error 事件确定性验证（不依赖 404 网络时序）
-                this.probe.error = 0;
-                $('#img-error').dispatchEvent(new Event('error'));
-                this.log('元素事件 error（独立绑定）', this.probe.error === 1);
-                this.log('——独立事件探针完成——', true);
-            }, 400);
-        }
-        render() {
-            return h `<div>
-      <h3>独立事件（元素事件 / 特殊传播 / 装饰器目标）</h3>
-      <div id="box-scroll" style="height:60px;overflow:auto" @scroll=${this.onScroll}>scrollable</div>
-      <div id="box-hover" @mouseenter=${this.onEnter} @mouseleave=${this.onLeave}>hover-me</div>
-      <img id="img-load" src=${this.imgSrc} @load=${this.onImgLoad} @error=${this.onImgError} />
-      <img id="img-error" src="./missing-image.png" @error=${this.onImgError} />
-      <pre id="direct-result">${this.results.join('\n')}</pre>
-    </div>`;
-        }
-    };
-    __decorate([
-        state
-    ], exports.EventDirectProbe.prototype, "results", void 0);
-    __decorate([
-        event('direct-doc-event', () => document)
-    ], exports.EventDirectProbe.prototype, "onDocEvent", null);
-    __decorate([
-        event('direct-win-event', () => window)
-    ], exports.EventDirectProbe.prototype, "onWinEvent", null);
-    exports.EventDirectProbe = __decorate([
-        tag('event-direct-probe')
-    ], exports.EventDirectProbe);
-    ////////////////////////////////////////////////// 扩展事件专项探针
-    exports.EventExtProbe = class EventExtProbe extends CompElem {
-        results = [];
-        probe = { outside: 0, outsideDown: 0, resize: 0, attr: 0, child: 0 };
-        lastAttrName = '';
-        log(name, ok, detail = '') {
-            this.results = [...this.results, `${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' (' + detail + ')' : ''}`];
-        }
-        mounted() {
-            setTimeout(() => this.runProbe(), 100);
-        }
-        //////////////////////////////////// 事件回调
-        onOutside() { this.probe.outside++; }
-        onOutsideDown() { this.probe.outsideDown++; }
-        onResize() { this.probe.resize++; }
-        onMutateAttr(d) { this.probe.attr++; this.lastAttrName = d.attributeName; }
-        onMutateChild() { this.probe.child++; }
-        runProbe() {
-            const root = this.renderRoot;
-            const $ = (sel) => root.querySelector(sel);
-            //1. outside：盒内点击不触发
-            this.probe.outside = 0;
-            $('#box-outside').dispatchEvent(new MouseEvent('click', { bubbles: true }));
-            this.log('outside（盒内点击不触发）', this.probe.outside === 0);
-            //2. outside：盒外点击触发（全局注册）
-            this.probe.outside = 0;
-            $('#btn-other').click();
-            this.log('outside（盒外点击触发）', this.probe.outside === 1, 'n=' + this.probe.outside);
-            //3. outside.mousedown 修饰符（合成事件须 composed 穿透 shadow 边界到达 document 监听）
-            this.probe.outsideDown = 0;
-            $('#btn-other').dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }));
-            this.log('outside.mousedown 修饰符', this.probe.outsideDown === 1);
-            //4. resize（ResizeObserver，异步触发）
-            this.probe.resize = 0;
-            const box = $('#box-resize');
-            box.style.width = '260px';
-            setTimeout(() => {
-                this.log('resize（ResizeObserver）', this.probe.resize === 1, 'n=' + this.probe.resize);
-                //5. mutate.attr（属性变更）
-                this.probe.attr = 0;
-                const box2 = $('#box-mutate');
-                box2.setAttribute('data-x', '1');
-                setTimeout(() => {
-                    this.log('mutate.attr', this.probe.attr === 1 && this.lastAttrName === 'data-x', 'attr=' + this.lastAttrName);
-                    //6. mutate.child（子节点变更）
-                    this.probe.child = 0;
-                    const box3 = $('#box-mutate-child');
-                    box3.appendChild(document.createElement('i'));
-                    setTimeout(() => {
-                        this.log('mutate.child', this.probe.child === 1);
-                        //7. destroy 释放扩展事件（unbinder 进释放列表）
-                        this.checkDestroyRelease();
-                    }, 100);
-                }, 100);
-            }, 300);
-        }
-        checkDestroyRelease() {
-            const tmp = document.createElement('event-ext-destroy-probe');
-            document.body.appendChild(tmp);
-            setTimeout(() => {
-                const t = tmp;
-                //destroy 会清空 renderRoot，必须先保存按钮引用
-                const btn = t.renderRoot.querySelector('#other');
-                const before = t.count;
-                btn.click();
-                const after1 = t.count;
-                tmp.destroy();
-                btn.click();
-                const after2 = t.count;
-                this.log('扩展事件 destroy 释放（outside）', after1 === before + 1 && after2 === after1, `b=${before} a1=${after1} a2=${after2}`);
-                this.log('——扩展事件探针完成——', true);
-            }, 200);
-        }
-        render() {
-            return h `<div>
-      <h3>扩展事件（outside / resize / mutate）</h3>
-      <div id="box-outside" @outside=${this.onOutside} @outside.mousedown=${this.onOutsideDown}>outside-target</div>
-      <button id="btn-other">outside-other</button>
-      <div id="box-resize" style="width:120px;height:40px" @resize=${this.onResize}>resize-me</div>
-      <div id="box-mutate" @mutate.attr=${this.onMutateAttr}>mutate-attr</div>
-      <div id="box-mutate-child" @mutate.child=${this.onMutateChild}>mutate-child</div>
-      <pre id="ext-result">${this.results.join('\n')}</pre>
-    </div>`;
-        }
-    };
-    __decorate([
-        state
-    ], exports.EventExtProbe.prototype, "results", void 0);
-    exports.EventExtProbe = __decorate([
-        tag('event-ext-probe')
-    ], exports.EventExtProbe);
-    //扩展事件 destroy 释放探针（最小组件，避免嵌套自触发）
-    exports.EventExtDestroyProbe = class EventExtDestroyProbe extends CompElem {
-        count = 0;
-        onOutside() { this.count++; }
-        render() {
-            return h `<div>
-      <div id="box" @outside=${this.onOutside}>destroy-box</div>
-      <button id="other">other</button>
-    </div>`;
-        }
-    };
-    exports.EventExtDestroyProbe = __decorate([
-        tag('event-ext-destroy-probe')
-    ], exports.EventExtDestroyProbe);
-    ////////////////////////////////////////////////// emits 声明专项探针
-    //子组件：声明 custom-action（精确）与 update:*（通配符）；未声明 click / unlisted-event
-    exports.EventEmitsSub = class EventEmitsSub extends CompElem {
-        render() {
-            return h `<button id="btn">sub</button>`;
-        }
-        emitAction() { this.emit('custom-action', { v: 1 }); }
-        emitUpdate() { this.emit('update:foo', { v: 2 }); }
-        emitClick() { this.emit('click', { v: 4 }); }
-        emitUndeclared() { this.emit('unlisted-event', { v: 3 }); }
-    };
-    exports.EventEmitsSub = __decorate([
-        emits('custom-action', 'update:*'),
-        tag('event-emits-sub')
-    ], exports.EventEmitsSub);
-    exports.EventEmitsProbe = class EventEmitsProbe extends CompElem {
-        results = [];
-        probe = { native: 0, action: 0, update: 0, emitMod: 0 };
-        log(name, ok, detail = '') {
-            this.results = [...this.results, `${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' (' + detail + ')' : ''}`];
-        }
-        mounted() {
-            setTimeout(() => this.runProbe(), 100);
-        }
-        onNative() { this.probe.native++; }
-        onAction() { this.probe.action++; }
-        onUpdateFoo() { this.probe.update++; }
-        onEmitMod() { this.probe.emitMod++; }
-        runProbe() {
-            const root = this.renderRoot;
-            const $ = (sel) => root.querySelector(sel);
-            const sub = $('event-emits-sub');
-            //1. 自动 native：子组件未声明 'click'（标准事件）→ @click 自动绑定原生，无需 .native
-            this.probe.native = 0;
-            sub.click();
-            this.log('组件事件自动 native（未声明标准事件）', this.probe.native === 1);
-            //2. 声明 emit 语义：@emits('custom-action') 精确匹配
-            this.probe.action = 0;
-            sub.emitAction();
-            this.log('声明 emit 语义（精确匹配）', this.probe.action === 1);
-            //3. 通配符：@emits('update:*') 命中 @update:foo
-            this.probe.update = 0;
-            sub.emitUpdate();
-            this.log('声明 emit 通配符（update:*）', this.probe.update === 1);
-            //4. .emit 强制修饰符：未声明 'click' 也强制 emit 语义（不自动 native）
-            this.probe.emitMod = 0;
-            sub.emitClick();
-            this.log('.emit 强制修饰符', this.probe.emitMod === 1);
-            //5. emit() 侧 DEV 警告：未声明事件 emit 时 console.warn
-            const origWarn = console.warn;
-            let warned = 0;
-            console.warn = (...a) => { warned++; origWarn(...a); };
-            sub.emitUndeclared();
-            console.warn = origWarn;
-            this.log('emit() 未声明事件 DEV 警告', warned >= 1, 'warn=' + warned);
-            //6. emit-native 属性：emit() 校验跳过（不警告）
-            const subNative = $('event-emits-sub[emit-native]');
-            const origWarn2 = console.warn;
-            let warned2 = 0;
-            console.warn = (...a) => { warned2++; origWarn2(...a); };
-            subNative.emitAction();
-            console.warn = origWarn2;
-            this.log('emit-native 跳过 DEV 警告', warned2 === 0, 'warn=' + warned2);
-            this.log('——emits 声明探针完成——', true);
-        }
-        render() {
-            return h `<div>
-      <h3>emits 声明（自动 native / emit 语义 / 通配符 / 修饰符）</h3>
-      <event-emits-sub id="sub" @click=${this.onNative} @custom-action=${this.onAction} @update:foo=${this.onUpdateFoo} @click.emit=${this.onEmitMod}></event-emits-sub>
-      <event-emits-sub id="sub-native" emit-native></event-emits-sub>
-      <pre id="emits-result">${this.results.join('\n')}</pre>
-    </div>`;
-        }
-    };
-    __decorate([
-        state
-    ], exports.EventEmitsProbe.prototype, "results", void 0);
-    exports.EventEmitsProbe = __decorate([
-        tag('event-emits-probe')
-    ], exports.EventEmitsProbe);
 
     Object.defineProperty(exports, '__esModule', { value: true });
 
