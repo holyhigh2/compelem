@@ -12,6 +12,7 @@ import { Updater } from "./types";
 const CHAR_CODE_UNDERSCORE = 95
 export function getterValue(propertyKey: string, context: CompElem) {
   let thisHost = context
+  if (thisHost.isDestroyed || thisHost[DATA_KEY] == null) return undefined
   let v = Reflect.get(thisHost[DATA_KEY], propertyKey)
 
   if (collectorCollecting) {
