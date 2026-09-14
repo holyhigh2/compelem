@@ -290,6 +290,24 @@ src/
 | Use `model` with dynamic paths | Use static property paths only |
 | Duplicate `key` in `forEach` | Ensure unique keys |
 | Use `@query` on no-view component | Use `render()` returning Template |
+| Assume `ifTrue`/`ifElse`/`when` track deps before render | See Lazy Dependencies below |
+
+## Lazy Dependencies in Conditional Directives
+
+`ifTrue`/`ifElse`/`when` 的模板函数中的 state/prop 依赖是**惰性的**——只有在该分支首次被渲染执行时，框架才会收集并监听其中的变量。
+
+```ts
+// ❌ 如果 this.count 初始为 0，分支内变量变化不会触发更新
+render() {
+  return h`<div>
+    ${ifTrue(this.count > 0, () => h`<span>${this.detail}</span>`)}
+  </div>`
+}
+
+// ✅ 确保变量在根上下文中被读取，或使用 @watch
+@watch('detail')
+onDetailChange() {}
+```
 
 ---
 
