@@ -10,7 +10,7 @@ export function tag(name: string, immediate = false) {
   return (target: typeof CompElem<any>) => {
     if (target) {
       if (immediate) {
-        customElements.define(name, target)
+        if (!customElements.get(name)) customElements.define(name, target)
       } else {
         DefinitionTagMap[target.name] = name
         DefinitionComponentMap[name] = target

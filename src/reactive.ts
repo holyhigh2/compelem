@@ -157,24 +157,45 @@ const seen = new Set<string>()
 let collectorVarPathList = [] as string[]
 let collectorCollecting = false
 let collectorCurrentRenderComponent: CompElem | null = null
-export const Collector = {
-  popDirectiveQ() {
-    let rs: string[] = []
 
-    let list = collectorVarPathList
-    for (let i = 0; i < list.length; i++) {
+let directiveQScanned = 0
+let directiveQAcc: string[] = []
+let directiveQSnapshot: string[] = []
+
+function resetDirectiveQ() {
+  directiveQScanned = 0
+  directiveQAcc = []
+  directiveQSnapshot = []
+  seen.clear()
+}
+
+export const Collector = {
+  /**
+   * 优化每次调用创建新的数组并完整遍历依赖数组进行填充
+   * =>
+   * 因list在一次渲染周期内只增不减，所以可以在第一次调用时创建一个数组并填充，后续调用直接返回该数组的快照
+   *
+   */
+  popDirectiveQ() {
+    const list = collectorVarPathList
+    const n = list.length
+    if (n === directiveQScanned) return directiveQSnapshot
+
+    for (let i = directiveQScanned; i < n; i++) {
       let p = list[i]
       if (!seen.has(p)) {
         seen.add(p)
-        rs.push(p)
+        directiveQAcc.push(p)
       }
     }
-    seen.clear()
-    return rs;
+    directiveQScanned = n
+    directiveQSnapshot = directiveQAcc.slice()
+    return directiveQSnapshot
   },
   start(comp: CompElem<any>) {
     collectorCollecting = true;
     collectorVarPathList = []
+    resetDirectiveQ()
     collectorCurrentRenderComponent = comp
   },
   end(renderComponent?: CompElem, up?: UpdatePoint) {
@@ -187,6 +208,7 @@ export const Collector = {
   popVarPathList() {
     let rs: string[] = Array.from(new Set(collectorVarPathList))
     collectorVarPathList = [];
+    resetDirectiveQ()
     return rs;
   },
   getVarPathList() {
@@ -203,6 +225,8 @@ export function getCurrentRenderComponent() {
 //对象值在不同上下文的根路径
 export const OBJECT_VAR_ROOT_PATH_IN_CONTEXT = new WeakMap<CompElem<any>, Record<string, string>>()
 export const OBJECT_VAR_PATH = new WeakMap<any, Array<string>>()
+//用于缓存收集命中
+export const OBJECT_VAR_PATH_STR = new WeakMap<any, string>()
 //缓存已经创建的proxy对象
 export const PROXY_MAP = new WeakMap<Record<string, any>, ProxyConstructor>()
 //对象值的创建上下文
@@ -237,23 +261,23 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
       //ignores private props
       if (prop.charCodeAt(0) === CHAR_CODE_UNDERSCORE && prop.charCodeAt(1) === CHAR_CODE_UNDERSCORE) return value
 
-      let supPathArr = OBJECT_VAR_PATH.get(receiver)
-
       if (collectorCollecting) {
-        let supPath = supPathArr ? concat(supPathArr) : []
-        supPath.push(prop)
-        collectorVarPathList.push(supPath.join('.'))
+        const supPathStr = OBJECT_VAR_PATH_STR.get(receiver)
+        collectorVarPathList.push(supPathStr ? supPathStr + '.' + prop : prop)
       }
 
       if (value !== null && typeof value === 'object' && PROXY_MAP.has(value)) return PROXY_MAP.get(value)
 
       let reactiveVal = value
       if (isObject(value) && !isFunction(value) && !(value instanceof Node) && !Object.isFrozen(value)) {
-        let supPath = supPathArr ? concat(supPathArr) : []
+        const parentArr = OBJECT_VAR_PATH.get(receiver)
+        let supPath = parentArr ? parentArr.slice() : []
+        const parentStr = OBJECT_VAR_PATH_STR.get(receiver)
 
         reactiveVal = reactive(value, context)
         supPath.push(prop)
         OBJECT_VAR_PATH.set(reactiveVal, supPath)
+        OBJECT_VAR_PATH_STR.set(reactiveVal, parentStr ? parentStr + '.' + prop : prop)
         PROXY_MAP.set(value, reactiveVal)
       }
 
@@ -265,7 +289,7 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
       let ov = target[prop];
 
       let chain = OBJECT_VAR_PATH.get(receiver) ?? []
-      let subChain = concat(chain, [prop])
+      let subChain = chain.length > 0 ? chain.concat(prop) : [prop]
       let stateMap = HasChangedPropOrStateMap.get(context.constructor)
       let hasChanged = stateMap?.get(subChain[0])
       let moreThan1 = subChain.length > 1
@@ -320,6 +344,7 @@ export function reactive(obj: Record<string, any>, context: CompElem<any>, rootP
 
   if (!OBJECT_VAR_PATH.has(proxyObject)) {
     OBJECT_VAR_PATH.set(proxyObject, rootProp ? [rootProp] : [])
+    OBJECT_VAR_PATH_STR.set(proxyObject, rootProp ?? '')
   }
 
   PROXY_MAP.set(obj, proxyObject)

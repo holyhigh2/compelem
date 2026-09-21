@@ -14,7 +14,6 @@ import {
   noop,
   range,
   replace,
-  size,
   snakeCase,
   toArray,
   toString,
@@ -508,7 +507,7 @@ export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, va
   collectNodes(rs, nodes)
   let nodeSn = -1
   let varIndex = 0
-  if (process.env.DEV && size(vars) != size(updatePointMetas)) {
+  if (process.env.DEV && vars.length != updatePointMetas.length) {
     showTagError(component.tagName,
       `Dynamic root elements are not supported in component view, please check the 'render()' function`
     );
@@ -528,49 +527,53 @@ export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, va
     }
     let props: Record<string, any> | undefined;
     const upms = upmMap[nodeSn]
-    upms && upms.forEach(upm => {
-      let val = vars[varIndex++]
+    if (upms) {
+      const upmsLen = upms.length
+      for (let ui = 0; ui < upmsLen; ui++) {
+        const upm = upms[ui]
+        let val = vars[varIndex++]
 
-      let newUp = UpdatePoint.createFrom(upm)
-      newUp.node = currentNode
-      newUp.value = val
+        let newUp = UpdatePoint.createFrom(upm)
+        newUp.node = currentNode
+        newUp.value = val
 
-      if (upm.isProp || upm.isPropPerfix) {
-        (props ?? (props = {}))[upm.attrName] = val;
-      } else if (upm.isRef) {
-        val.__setRef(new WeakRef(currentNode))
-      } else if (upm.isEvent) {
-        evList.push([upm.attrName, val!, currentNode])
-      } else if (upm.isToggleProp) {
-        newUp.value = !!val;
-        currentNode.toggleAttribute(upm.attrName, newUp.value)
-      } else if (upm.isRefAttr) {
-        currentNode.setAttribute(upm.attrName, val)
-      } else if (upm.isText) {
-        if (upm.isDirective) {
-          let attrName = upm.attrName
+        if (upm.isProp || upm.isPropPerfix) {
+          (props ?? (props = {}))[upm.attrName] = val;
+        } else if (upm.isRef) {
+          val.__setRef(new WeakRef(currentNode))
+        } else if (upm.isEvent) {
+          evList.push([upm.attrName, val!, currentNode])
+        } else if (upm.isToggleProp) {
+          newUp.value = !!val;
+          currentNode.toggleAttribute(upm.attrName, newUp.value)
+        } else if (upm.isRefAttr) {
+          currentNode.setAttribute(upm.attrName, val)
+        } else if (upm.isText) {
+          if (upm.isDirective) {
+            let attrName = upm.attrName
+            let slotComponent = slotNodeMap[upm.slotNodeSn] as CompElem<HTMLElement>
+            let [executor, args, , varChain] = val as DirectiveInstance
+            textDirectives.push([currentNode, attrName, slotComponent, executor, args, varChain, newUp])
+          } else if (!upm.isPlaceholder) {
+            //<transition>钩子marker仅占vars槽位，禁止首次渲染时把函数写成文本
+            currentNode.textContent = val
+          }
+        } else if (upm.isDirective) {
           let slotComponent = slotNodeMap[upm.slotNodeSn] as CompElem<HTMLElement>
           let [executor, args, , varChain] = val as DirectiveInstance
-          textDirectives.push([currentNode, attrName, slotComponent, executor, args, varChain, newUp])
-        } else if (!upm.isPlaceholder) {
-          //<transition>钩子marker仅占vars槽位，禁止首次渲染时把函数写成文本
-          currentNode.textContent = val
-        }
-      } else if (upm.isDirective) {
-        let slotComponent = slotNodeMap[upm.slotNodeSn] as CompElem<HTMLElement>
-        let [executor, args, , varChain] = val as DirectiveInstance
-        let attrName = upm.attrName
+          let attrName = upm.attrName
 
-        if (isEmpty(varChain) && size(upm.directiveVarChain) > 0) {
-          varChain = upm.directiveVarChain
+          if ((!varChain || varChain.length < 1) && upm.directiveVarChain.length > 0) {
+            varChain = upm.directiveVarChain
+          }
+          direcitves.push([currentNode, attrName, slotComponent, executor, args, varChain, upm.directiveType])
+        } else {//attr
+          currentNode.setAttribute(upm.attrName, upm.attrTmpl.replace(EXP_TAG, val))
         }
-        direcitves.push([currentNode, attrName, slotComponent, executor, args, varChain, upm.directiveType])
-      } else {//attr
-        currentNode.setAttribute(upm.attrName, upm.attrTmpl.replace(EXP_TAG, val))
+
+        upAry.push(newUp)
       }
-
-      upAry.push(newUp)
-    })
+    }
     if (currentNode instanceof HTMLSlotElement) {
       component._bindSlot(currentNode, currentNode.name || 'default', props!)
     } else if (currentNode instanceof HTMLElement) {

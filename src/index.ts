@@ -47,6 +47,20 @@ export function defineComponents() {
     })
 }
 
+/**
+ * 按需注册组件子集：只注册 names 中列出的自定义元素。
+ * 用于宿主应用只使用组件库一小部分时，避免注册全部组件带来的启动开销。
+ * @param names 要注册的自定义元素名称列表（如 ["ce-button", "ce-select"]）
+ */
+export function defineComponentsSubset(names: string[]) {
+    for (const name of names) {
+        const clz = (DefinitionComponentMap as Record<string, Function>)[name];
+        if (clz && !customElements.get(name)) {
+            customElements.define(name, clz as any);
+        }
+    }
+}
+
 export * from './CompElem';
 export * from './config';
 export * from './types';
