@@ -5,7 +5,6 @@ import type { DefaultProps } from "./types"
 
 //全局/组件默认属性
 let DefaultCss: CSSStyleSheet[] = []
-let DefaultGlobalProps = {}
 let DefaultComponentProps: Record<string, any> = {}
 
 /**
@@ -24,7 +23,6 @@ export function setDefaults(options: DefaultProps) {
     return []
   })
 
-  DefaultGlobalProps = options.global!
   each(options, (v, k) => {
     if (test(k[0], /[A-Z]/)) {
       DefaultComponentProps[k] = v
@@ -45,5 +43,3 @@ export function getBaseSheets(ctor: Function): CSSStyleSheet[] {
 }
 
 export const getDefaultCss = (): CSSStyleSheet[] => DefaultCss
-export const getGlobalDefaultProps = (): Record<string, any> => DefaultGlobalProps
-export const getComponentDefaultProps = (): Record<string, any> => DefaultComponentProps

@@ -1,7 +1,7 @@
-import { debounce, each, find, get, isEmpty, isFunction, map, noop, once, remove, set, size, throttle } from "myfx";
+import { debounce, each, get, isEmpty, isFunction, noop, once, set, throttle } from "myfx";
 import { CompElem } from "../CompElem";
 import { DefinitionCompEmitMap, DefinitionCompEventMap, DefinitionComponentMap } from "../constants";
-import { _getSuper } from "../utils";
+import { _getSuper, fieldGet, tagNameLower } from "../utils";
 import { addExtEvent, isExtEvent } from "./extends";
 
 const MODI_EV_DEBOUNCE = /,|^(debounce:.+)|(debounce$)/;
@@ -42,39 +42,108 @@ const NeedBindCache = new WeakMap<Function, boolean>()
 function needBind(cbk: Function): boolean {
   let v = NeedBindCache.get(cbk)
   if (v === undefined) {
-    v = get(globalThis, cbk.name) !== cbk
+    v = fieldGet(globalThis, cbk.name) !== cbk
     NeedBindCache.set(cbk, v)
   }
   return v
 }
 
+const BindCache = new WeakMap<Function, WeakMap<object, Function>>()
+function bindOnce(cbk: Function, comp: object): any {
+  let m = BindCache.get(cbk)
+  if (!m) {
+    m = new WeakMap()
+    BindCache.set(cbk, m)
+  }
+  let b = m.get(comp)
+  if (!b) {
+    b = cbk.bind(comp) as Function
+    m.set(comp, b)
+  }
+  return b
+}
+
+const EvNameCache = new Map<string, { evName: string; parts: string[] }>()
 /**
  * "click.stop.prevent.debounce:100" → { evName: 'click', parts: [...] }
  */
 function parseEventName(fullName: string) {
-  let parts = fullName.split('.');
-  let evName = parts.shift()!;
-  return { evName, parts };
+  let r = EvNameCache.get(fullName)
+  if (r === undefined) {
+    if (EvNameCache.size > 512) EvNameCache.clear()
+    let parts = fullName.split('.');
+    r = { evName: parts.shift()!, parts };
+    EvNameCache.set(fullName, r)
+  }
+  return r;
+}
+
+interface ModiFlags {
+  prevent: boolean
+  stop: boolean
+  self: boolean
+  capture: boolean
+  once: boolean
+  passive: boolean
+  left: boolean
+  right: boolean
+  middle: boolean
+  ctrl: boolean
+  alt: boolean
+  shift: boolean
+  meta: boolean
+  /** debounce/throttle 参数毫秒，0=无 */
+  debounceMs: number
+  throttleMs: number
+  /** KeyboardEvent 过滤键（已映射 esc→escape，剔除四个组合修饰符）；null=不过滤 */
+  checkKeys: string[] | null
+}
+
+function parseModifiers(parts: string[]): ModiFlags {
+  let debounceMs = 0
+  let throttleMs = 0
+  let checkKeys: string[] | null = null
+  for (let i = 0; i < parts.length; i++) {
+    if (!debounceMs && MODI_EV_DEBOUNCE.test(parts[i])) {
+      debounceMs = parseInt(parts[i].split(MODI_PARAM_DIVIDER)[1]) || 100
+    }
+    if (!throttleMs && MODI_EV_THROTTLE.test(parts[i])) {
+      throttleMs = parseInt(parts[i].split(MODI_PARAM_DIVIDER)[1]) || 100
+    }
+    let p = parts[i]
+    if (p === MODI_EV_KEYBOARD_COMBO_CTRL || p === MODI_EV_KEYBOARD_COMBO_ALT || p === MODI_EV_KEYBOARD_COMBO_SHIFT || p === MODI_EV_KEYBOARD_COMBO_META) continue;
+    (checkKeys ?? (checkKeys = [])).push(MODI_EV_KEYBOARD_KEY_MAP[p] || p)
+  }
+  if (checkKeys && checkKeys.length === 0) checkKeys = null
+  return {
+    prevent: parts.includes(MODI_EV_PREVENT),
+    stop: parts.includes(MODI_EV_STOP),
+    self: parts.includes(MODI_EV_SELF),
+    capture: parts.includes(MODI_EV_CAPTURE),
+    once: parts.includes(MODI_EV_ONCE),
+    passive: parts.includes(MODI_EV_PASSIVE),
+    left: parts.includes(MODI_EV_MOUSE_LEFT),
+    right: parts.includes(MODI_EV_MOUSE_RIGHT),
+    middle: parts.includes(MODI_EV_MOUSE_MIDDLE),
+    ctrl: parts.includes(MODI_EV_KEYBOARD_COMBO_CTRL),
+    alt: parts.includes(MODI_EV_KEYBOARD_COMBO_ALT),
+    shift: parts.includes(MODI_EV_KEYBOARD_COMBO_SHIFT),
+    meta: parts.includes(MODI_EV_KEYBOARD_COMBO_META),
+    debounceMs,
+    throttleMs,
+    checkKeys
+  }
 }
 
 /**
  * 流程控制包装：debounce / throttle / once
  * 组件事件（addEmitEvent）与扩展事件（addExtEvent）共用
  */
-function wrapControlFn(cbk: EvHadler, parts: string[]) {
+function wrapControlFn(cbk: EvHadler, f: ModiFlags) {
   let c = cbk ?? VFN;
-  let modi
-  if (modi = find(parts, x => MODI_EV_DEBOUNCE.test(x))) {
-    let params = modi.split(MODI_PARAM_DIVIDER)
-    c = debounce(c, parseInt(params[1]) || 100)
-  }
-  if (modi = find(parts, x => MODI_EV_THROTTLE.test(x))) {
-    let params = modi.split(MODI_PARAM_DIVIDER)
-    c = throttle(c, parseInt(params[1]) || 100)
-  }
-  if (parts.includes(MODI_EV_ONCE)) {
-    c = once(c)
-  }
+  if (f.debounceMs) c = debounce(c, f.debounceMs)
+  if (f.throttleMs) c = throttle(c, f.throttleMs)
+  if (f.once) c = once(c)
   return c
 }
 
@@ -82,45 +151,44 @@ function wrapControlFn(cbk: EvHadler, parts: string[]) {
  * 纯修饰符监听器包装：stop/prevent/self/鼠标/键盘
  * @param delegated 委托模式下 self 由外层分发器（handleEvent）判定，此处跳过
  */
-function wrapListener(c: EvHadler, parts: string[], delegated = false): { handler: EvHadler; options: { capture: boolean; once: boolean; passive: boolean } } {
+function wrapListener(c: EvHadler, f: ModiFlags, delegated = false): { handler: EvHadler; options: { capture: boolean; once: boolean; passive: boolean } } {
+  let options = { capture: f.capture, once: f.once, passive: f.passive }
+  if (!f.prevent && !f.stop && !f.self && !f.left && !f.right && !f.middle && !f.ctrl && !f.alt && !f.shift && !f.meta && !f.checkKeys) {
+    return { handler: c, options }
+  }
   let handler = (e: Event) => {
-    if (parts.includes(MODI_EV_PREVENT)) e.preventDefault();
-    if (parts.includes(MODI_EV_STOP)) e.stopPropagation();
-    if (!delegated && parts.includes(MODI_EV_SELF) && e.target !== e.currentTarget) return;
+    if (f.prevent) e.preventDefault();
+    if (f.stop) e.stopPropagation();
+    if (!delegated && f.self && e.target !== e.currentTarget) return;
 
     if (e instanceof MouseEvent) {
-      if (parts.includes(MODI_EV_MOUSE_LEFT) && e.button != 0) return;
-      if (parts.includes(MODI_EV_MOUSE_RIGHT) && e.button != 2) return;
-      if (parts.includes(MODI_EV_MOUSE_MIDDLE) && e.button != 1) return;
+      if (f.left && e.button != 0) return;
+      if (f.right && e.button != 2) return;
+      if (f.middle && e.button != 1) return;
     } else if (e instanceof KeyboardEvent) {
-      let ks = parts.slice()
-      if (remove(ks, p => p == MODI_EV_KEYBOARD_COMBO_CTRL)[0] && !e.ctrlKey) return;
-      if (remove(ks, p => p == MODI_EV_KEYBOARD_COMBO_ALT)[0] && !e.altKey) return;
-      if (remove(ks, p => p == MODI_EV_KEYBOARD_COMBO_SHIFT)[0] && !e.shiftKey) return;
-      if (remove(ks, p => p == MODI_EV_KEYBOARD_COMBO_META)[0] && !e.metaKey) return;
+      if (f.ctrl && !e.ctrlKey) return;
+      if (f.alt && !e.altKey) return;
+      if (f.shift && !e.shiftKey) return;
+      if (f.meta && !e.metaKey) return;
 
-      let checkKeys = map(ks, k => MODI_EV_KEYBOARD_KEY_MAP[k] || k)
-      if (size(checkKeys) > 0 && !checkKeys.includes(e.key.toLowerCase())) return;
+      if (f.checkKeys && !f.checkKeys.includes(e.key.toLowerCase())) return;
     }
     c(e)
   }
-  let capture = parts.includes(MODI_EV_CAPTURE) || false
-  let passive = parts.includes(MODI_EV_PASSIVE) || false
-  let once = parts.includes(MODI_EV_ONCE) || false
-  return { handler, options: { capture, once, passive } }
+  return { handler, options }
 }
 
-function applyEventModifiers(cbk: EvHadler, parts: string[], delegated = false) {
-  let c = wrapControlFn(cbk, parts)
-  return wrapListener(c, parts, delegated)
+function applyEventModifiers(cbk: EvHadler, f: ModiFlags, delegated = false) {
+  let c = wrapControlFn(cbk, f)
+  return wrapListener(c, f, delegated)
 }
 
 export function addEvent(fullName: string, cbk: EvHadler, node: Element, component: CompElem<any>, signal?: AbortSignal) {
   let { evName, parts } = parseEventName(fullName);
-  let c = wrapControlFn(cbk, parts)
-  let isOnce = parts.includes(MODI_EV_ONCE);
+  let f = parseModifiers(parts)
+  let c = wrapControlFn(cbk, f)
 
-  let ctor = DefinitionComponentMap[node.tagName?.toLowerCase()]
+  let ctor = DefinitionComponentMap[tagNameLower(node.tagName) as string]
   if (ctor) {
     let declared = matchEmit(ctor, evName)
     if (declared) {
@@ -130,10 +198,10 @@ export function addEvent(fullName: string, cbk: EvHadler, node: Element, compone
   }
 
   if (isExtEvent(evName)) {
-    return addExtEvent(evName, node, c, parts, component, isOnce)
+    return addExtEvent(evName, node, c, parts, component, f.once)
   }
 
-  let { handler, options } = wrapListener(c, parts)
+  let { handler, options } = wrapListener(c, f)
   let opts: AddEventListenerOptions = { capture: options.capture, passive: options.passive }
   if (signal) opts.signal = signal
   node.addEventListener(evName, handler, opts)
@@ -188,8 +256,8 @@ interface EventState {
   bindList: Array<[string, Function, Node, Function?]>
   //{ name@fnName : fn }
   docoEventMap: Map<string, Function>
-  //node -> evName -> [{ handler, parts }]
-  handlerMap: WeakMap<Element, Map<string, Array<{ handler: EvHadler; parts: string[] }>>>
+  //node -> evName -> [{ handler, flags }]
+  handlerMap: WeakMap<Element, Map<string, Array<{ handler: EvHadler; flags: ModiFlags }>>>
   //无法 signal 化的注册（扩展事件全局监听）释放函数集合
   releaseList: Array<Function>
   //'b:'|'c:' + evName
@@ -247,7 +315,8 @@ export function bindEvents(comp: CompElem<any>) {
       let evName = v[0], cbk = v[1], node = v[2]
       if (!node) continue
       if (v[3]) continue
-      let handler = cbk && needBind(cbk) ? cbk.bind(comp) : cbk
+      if (!cbk || cbk === noop) continue
+      let handler = needBind(cbk) ? bindOnce(cbk, comp) : cbk
       registerEvent(comp, evName, handler, node)
       v[3] = noop
     }
@@ -255,33 +324,53 @@ export function bindEvents(comp: CompElem<any>) {
 
   //2. @event
   let events = DefinitionCompEventMap.get(comp.constructor) ?? DefinitionCompEventMap.get(_getSuper(comp.constructor as any))
-  if (events && size(events) > 0) {
-    each(events!, ({ name, targetFn, fnName }: any) => {
-      let key = name + "@" + fnName
-      if (s.docoEventMap.has(key)) return
+  if (events && events.length > 0) {
+    for (let i = 0; i < events.length; i++) {
+      const { name, targetFn, fnName } = events[i]
+      let key = name + '@' + fnName
+      if (s.docoEventMap.has(key)) continue
       let eventTarget = targetFn ? targetFn(comp) : comp
-      let cbk = get(comp, fnName) as Function
-      let handler = cbk && needBind(cbk) ? cbk.bind(comp) : cbk
+      let cbk = fieldGet(comp, fnName) as Function
+      let handler = cbk && needBind(cbk) ? bindOnce(cbk, comp) : cbk
       registerEvent(comp, name, handler, eventTarget)
       s.docoEventMap.set(key, handler)
-    })
+    }
   }
 }
 
 /**
  * 匹配组件声明的 emit 事件（精确名或 'update:*' 通配符），沿继承链向上查找
  */
-export function matchEmit(ctor: Function, evName: string): boolean {
+const EmitMatchCache = new WeakMap<Function, { exact: Set<string>; prefixes: string[] }>()
+function emitIndexOf(ctor: Function): { exact: Set<string>; prefixes: string[] } | undefined {
+  let cached = EmitMatchCache.get(ctor)
+  if (cached !== undefined) return cached
+  const exact = new Set<string>()
+  const prefixes: string[] = []
   let c: Function | undefined = ctor
+  let found = false
   while (c && c !== CompElem) {
-    let set = DefinitionCompEmitMap.get(c)
+    const set = DefinitionCompEmitMap.get(c)
     if (set) {
-      if (set.has(evName)) return true
-      for (let n of set) {
-        if (n.endsWith(':*') && evName.startsWith(n.slice(0, -1))) return true
+      found = true
+      for (const n of set) {
+        if (n.endsWith(':*')) prefixes.push(n.slice(0, -1))
+        else exact.add(n)
       }
     }
     c = _getSuper(c as any)
+  }
+  cached = { exact, prefixes }
+  if (found || ctor !== CompElem) EmitMatchCache.set(ctor, cached)
+  return cached
+}
+
+export function matchEmit(ctor: Function, evName: string): boolean {
+  const idx = emitIndexOf(ctor)
+  if (idx === undefined) return false
+  if (idx.exact.has(evName)) return true
+  for (let i = 0; i < idx.prefixes.length; i++) {
+    if (evName.startsWith(idx.prefixes[i])) return true
   }
   return false
 }
@@ -293,6 +382,57 @@ export function emitEvent(comp: CompElem, evSrc: number, evName: string, arg: Re
 }
 
 /**
+ * 父端是否给本节点注册过 `evName` 组件事件监听
+ *
+ * @param comp 父组件（事件的接收方）；无父组件时传 undefined
+ * @param node 子节点（注册监听时挂了 `__c_emit_event_` 序号）
+ * @param evName 事件全名，如 `update:value`
+ */
+export function hasEmitListener(comp: CompElem | undefined, node: Element, evName: string): boolean {
+  if (!comp) return false
+  let evSrc = get<number>(node, '__c_emit_event_')
+  // 无序号 = 从未注册过任何组件事件监听
+  if (evSrc === undefined) return false
+  return isFunction(get(comp._subComponentEventMap.get(evSrc), evName))
+}
+
+/**
+ * 宿主是否接了本 model prop 的变更通知（父端注册过 `update:<key>` 组件事件监听）。
+ *
+ * @param propertyKey model prop 名，如 `value`
+ * @param context 子组件实例（自身既是事件源节点、也持有 wrapperComponent 引用）
+ */
+export function hasModelListener(propertyKey: string, context: CompElem): boolean {
+  return hasEmitListener(context.wrapperComponent, context, 'update:' + propertyKey)
+}
+
+/**
+ * 是否走原生 CustomEvent 通道
+ *
+ */
+function hasEmitNative(context: CompElem): boolean {
+  return context.hasAttribute('emit-native')
+}
+
+/**
+ * 对 `model: true` 的 prop 赋值处理
+ * 没有父组件监听时，值落在本地；有父组件监听时，触发 `update:<key>` 事件
+ *
+ * @param propertyKey model prop 名，如 `value`
+ * @param v 待写入的值
+ * @param context 子组件实例
+ */
+export function writeModelProp(propertyKey: string, v: any, context: CompElem): void {
+  const evName = 'update:' + propertyKey
+  if (hasEmitListener(context.wrapperComponent, context, evName)) {
+    context.emit(evName, { value: v })
+    return
+  }
+  context.__s[propertyKey].value = v
+  if (hasEmitNative(context)) context.emit(evName, { value: v })
+}
+
+/**
  * 统一注册入口（组件事件不代理 / 扩展事件全局 / 委托或独立监听）
  * @param fullName 事件全名，含修饰符，如 "click.stop.prevent"
  * @param cbk 回调（已绑定 this）
@@ -300,14 +440,15 @@ export function emitEvent(comp: CompElem, evSrc: number, evName: string, arg: Re
  */
 export function registerEvent(comp: CompElem<any>, fullName: string, cbk: EvHadler, node: Element | Window | Document) {
   let { evName, parts } = parseEventName(fullName)
+  let f = parseModifiers(parts)
 
   //1. 组件事件（不代理）
   if (node instanceof Element) {
-    let ctor = DefinitionComponentMap[node.tagName?.toLowerCase()]
+    let ctor = DefinitionComponentMap[tagNameLower(node.tagName) as string]
     if (ctor) {
       let declared = matchEmit(ctor, evName)
       if (declared) {
-        addEmitEvent(node, comp, evName, wrapControlFn(cbk, parts))
+        addEmitEvent(node, comp, evName, wrapControlFn(cbk, f))
         return
       }
     }
@@ -315,7 +456,7 @@ export function registerEvent(comp: CompElem<any>, fullName: string, cbk: EvHadl
 
   //2. 扩展事件（全局注册，unbinder 进释放列表）
   if (isExtEvent(evName)) {
-    let unbinder = addExtEvent(evName, node as Element, wrapControlFn(cbk, parts), parts, comp, parts.includes('once'))
+    let unbinder = addExtEvent(evName, node as Element, wrapControlFn(cbk, f), parts, comp, f.once)
     if (unbinder) getState(comp).releaseList.push(unbinder)
     return
   }
@@ -327,10 +468,10 @@ export function registerEvent(comp: CompElem<any>, fullName: string, cbk: EvHadl
 
   if (delegate) {
     //显式 .capture 修饰符优先于分类默认
-    let capture = parts.includes('capture') || CAPTURE_EVENTS.has(evName)
-    registerDelegation(comp, evName, cbk, parts, node as Element, capture)
+    let capture = f.capture || CAPTURE_EVENTS.has(evName)
+    registerDelegation(comp, evName, cbk, f, node as Element, capture)
   } else {
-    registerElementEvent(comp, evName, cbk, parts, node)
+    registerElementEvent(comp, evName, cbk, f, node)
   }
 }
 
@@ -341,13 +482,13 @@ function isInRenderTree(comp: CompElem<any>, node: Element | Window | Document):
   return node === root || root.contains(node)
 }
 
-function registerDelegation(comp: CompElem<any>, evName: string, cbk: EvHadler, parts: string[], node: Element, capture: boolean) {
+function registerDelegation(comp: CompElem<any>, evName: string, cbk: EvHadler, f: ModiFlags, node: Element, capture: boolean) {
   if (!ensureDelegationListener(comp, evName, capture)) {
     //防御降级（正常流程 isInRenderTree 已保证可委托）
-    registerElementEvent(comp, evName, cbk, parts, node)
+    registerElementEvent(comp, evName, cbk, f, node)
     return
   }
-  let { handler } = applyEventModifiers(cbk, parts, true)
+  let { handler } = applyEventModifiers(cbk, f, true)
   let s = getState(comp)
   let map = s.handlerMap.get(node)
   if (!map) {
@@ -359,7 +500,7 @@ function registerDelegation(comp: CompElem<any>, evName: string, cbk: EvHadler, 
     entries = []
     map.set(evName, entries)
   }
-  entries.push({ handler, parts })
+  entries.push({ handler, flags: f })
 }
 
 /**
@@ -378,9 +519,9 @@ function ensureDelegationListener(comp: CompElem<any>, evName: string, capture: 
   return true
 }
 
-function registerElementEvent(comp: CompElem<any>, evName: string, cbk: EvHadler, parts: string[], node: Element | Window | Document) {
+function registerElementEvent(comp: CompElem<any>, evName: string, cbk: EvHadler, f: ModiFlags, node: Element | Window | Document) {
   initEventHandlers(comp)
-  let { handler, options } = applyEventModifiers(cbk, parts)
+  let { handler, options } = applyEventModifiers(cbk, f)
     ; (node as EventTarget).addEventListener(evName, handler, {
       capture: options.capture,
       once: options.once,
@@ -407,15 +548,15 @@ function dispatchDelegated(comp: CompElem<any>, e: Event) {
 
     for (let i = 0; i < entries.length; i++) {
       let entry = entries[i]
-      if (entry.parts.includes('self') && e.target !== el) continue
-      if (entry.parts.includes('once')) {
+      if (entry.flags.self && e.target !== el) continue
+      if (entry.flags.once) {
         entries.splice(i, 1)
         i--
         if (entries.length < 1) s.handlerMap.get(el)?.delete(type)
       }
       entry.handler(e)
 
-      if (entry.parts.includes('stop')) break outer
+      if (entry.flags.stop) break outer
     }
   }
 }

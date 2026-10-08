@@ -3,10 +3,54 @@
  */
 import { CompElem } from "./CompElem";
 import { Template } from "./render/Template";
+import type { UpdatePoint } from "./render/UpdatePoint";
 
 export type Constructor<T> = new (...args: any[]) => T;
 export type Getter = () => any;
-export type Updater = (...args: any[]) => any;
+
+/**
+ * @compelem/compiler 注入的编译期静态元数据契约。
+ */
+export type CompiledStatic = {
+    // prop 定义集合
+    props?: Record<string, PropOption>,
+    // state 定义集合
+    states?: Record<string, StateOption>,
+    // computed 定义集合
+    computedGetters?: Record<string, Getter>,
+    /**
+     * 编译器生成
+     */
+    buildTemplate?: (this: CompElem<any>) => {
+        fragment: DocumentFragment,
+        ups: any[],
+        emptyEvents?: Record<number, string[]>,
+        // 升序排列DOM
+        nodes?: Node[],
+        // 快速路径
+        updateSns?: number[],
+        updatePaths?: number[][],
+    },
+    /**
+     * 结构指令模板回调的子视图
+     */
+    subViews?: Record<number, {
+        buildTemplate?: (this: CompElem<any>) => {
+            fragment: DocumentFragment,
+            ups: any[],
+            emptyEvents?: Record<number, string[]>,
+            nodes?: Node[],
+            updateSns?: number[],
+            updatePaths?: number[][],
+        },
+        pointEffects?: any[],
+        fx?: any[],
+    }>,
+    /**
+     * 无视图组件标记
+     */
+    noView?: boolean,
+};
 
 /**
  * 插槽配置对象
@@ -49,33 +93,11 @@ export type WatchOptions = {
      */
     once?: boolean
 }
-/**
- * 事件选项
- */
-export type QueryOption = {
-    /**
-     * 指示是否返回任何可用子<slot>元素的指定节点（true）或不返回（false）
-     */
-    flatten?: boolean,
-    /**
-     * 对节点列表进行过滤
-     */
-    selector?: string,
-    /**
-     * 缓存标识
-     */
-    cache?: string
-}
-
 export type StateOption = {
     /**
      * 是否浅层监控，默认false
      */
     shallow?: boolean,
-    /**
-     * 指定prop进行初始化，如果时对象类型时
-     */
-    prop?: string,
     /**
      * 是否发生变更，如果未指定使用严格相等
      * @param newValue 
@@ -83,6 +105,10 @@ export type StateOption = {
      * @returns 
      */
     hasChanged?: (newValue: any, oldValue: any, changeChain: string[], subNewValue: any, subOldValue: any) => boolean
+};
+
+export type StateDefInternal = StateOption & {
+    prop?: string,
 };
 
 
@@ -97,7 +123,7 @@ export type PropOption = {
     /**
      * 参数类型
      */
-    type: Constructor<any> | Array<Constructor<any>>,
+    type?: Constructor<any> | Array<Constructor<any>>,
     /**
      * 是否必填，默认false
      */
@@ -124,6 +150,7 @@ export type PropOption = {
      */
     converter?: (stringValue: string) => any,
     _defaultValue?: any
+    _typeAry?: Array<Constructor<any>>,
     /**
      * 属性校验器，可动态校验值是否合法
      * @param value 
@@ -132,14 +159,13 @@ export type PropOption = {
     isValid?: (value: any, props?: Record<string, any>) => boolean
 }
 
-export type DirectiveExecutor = (node: Node, newArgs: any[], oldArgs: any[] | undefined, meta?: { pointType?: string, renderComponent?: CompElem, slotComponent?: CompElem, varChain?: string[], attrName?: string, updatedMap?: Record<string, UpdatedSource> }) => [DirectiveUpdateTag, ...any] | void
+export type DirectiveExecutor = (node: Node, newArgs: any[], oldArgs: any[] | undefined, meta?: { pointType?: string, renderComponent?: CompElem, slotComponent?: CompElem, varChain?: string[], attrName?: string, updatedMap?: Record<string, UpdatedSource>, up?: UpdatePoint }) => [DirectiveUpdateTag, ...any] | void
 
 export type DirectiveInstance = [
     // symbol,
     DirectiveExecutor,// executor
     Array<any>,// args
-    Function,// scope checker
-    any[] // varChain
+    Function// scope checker
 ]
 
 export enum DirectiveUpdateTag {
@@ -149,44 +175,6 @@ export enum DirectiveUpdateTag {
     REPLACE = 'REPLACE',//删除已有节点后插入
     UPDATE = 'UPDATE',//对比更新
     INIT = 'INIT'//首次渲染
-}
-
-//////////////////////////////////////////////////// transition
-/**
- * 新旧内容交替模式
- * - default：离场与入场同时进行
- * - out-in：旧内容离场完成后新内容再入场
- * - in-out：新内容入场完成后旧内容再离场
- */
-export type TransitionMode = 'default' | 'out-in' | 'in-out'
-
-/**
- * transition指令选项
- */
-export type TransitionOptions = Record<string, Function> & {
-    /**
-     * 新旧内容交替模式，默认default
-     */
-    mode?: TransitionMode,
-    /**
-     * 首次渲染时是否播放入场动画，默认false
-     */
-    appear?: boolean,
-    /**
-     * 显式动画时长(ms)，设置后不再自动探测transition/animation时长
-     */
-    duration?: number
-}
-
-/**
- * 解析后的过渡动画配置
- */
-export type TransitionCfg = {
-    name: string,
-    mode?: TransitionMode,
-    appear?: boolean,
-    duration?: number,
-    hooks?: Record<string, Function>,
 }
 
 export type DefaultProps = Partial<{

@@ -1,9 +1,28 @@
-import { isBlank, isElement, isNil } from "myfx";
+import { isBlank, isElement, isNil, isString, kebabCase } from "myfx";
 import { CompElem } from "../CompElem";
+import { DefinitionTagMap } from "../constants";
 import { directive } from "../directive/index";
-import { convertHTML } from "../render/render";
 import { EnterPointType } from "../types";
 import { DomUtil } from "../utils";
+
+const EXP_TAG_CONVERT = /(<\/?)\s*([A-Z][A-Za-z0-9]*)([\s>])/gm
+const EXP_ATTR_CONVERT = /\s+([\.?@*])?((?:[a-zA-Z]*[A-Z][^\s<>="']+))(?=[\s=>])/gm
+const HAS_UPPER_RE = /[A-Z]/
+
+function convertHTML(html: string) {
+  if (!isString(html)) return html + ''
+  if (!HAS_UPPER_RE.test(html)) return html
+  //attr convert
+  html = html.replace(EXP_ATTR_CONVERT, (a: string, b: string, c: string) => {
+    return ` ${b ?? ''}${kebabCase(c)}`
+  })
+  //tag convert
+  html = html.replace(EXP_TAG_CONVERT, (a: string, b: string, c: string, d: string) => {
+    let tag = DefinitionTagMap[c]
+    return b + tag + d
+  })
+  return html
+}
 
 let compiler = document.createElement('template')
 let startNodeMap = new WeakMap()

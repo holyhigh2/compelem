@@ -1,6 +1,7 @@
-import { assign, camelCase, isBlank, isString, isUndefined, kebabCase, some } from "myfx";
+import { camelCase, get, isBlank, isString, isUndefined, kebabCase, parseJSON, set, some } from "myfx";
 import { CompElem } from "./CompElem";
 import { ComponentUninitializedSubComponentPropMap, CssVarKeyCacheMap, DefinitionComponentMap } from "./constants";
+import { Constructor } from "./types";
 
 export function showError(msg: string): void {
   console.error(`[CompElem]`, msg);
@@ -12,9 +13,6 @@ export function showTagError(tagName: string, msg: string): void {
 
 export function showWarn(...args: unknown[]): void {
   console.warn(`[CompElem]`, ...args);
-}
-export function showTagWarn(tagName: string, msg: string): void {
-  console.warn(`[CompElem <${tagName}>]`, msg);
 }
 
 //获取父类构造
@@ -36,24 +34,32 @@ export function getBooleanValue(v: any) {
   return val
 }
 
-export const DomUtil = {
-  getNodes(startNode: Node, endNode: Node) {
-    let nextNode = startNode.nextSibling
-    if (!endNode) return [nextNode] as Node[]
-    let rs: Node[] = []
-    while (nextNode && nextNode !== endNode) {
-      rs.push(nextNode)
-      nextNode = nextNode?.nextSibling
+export function convertValue(v: string, types: Array<Constructor<any>>) {
+  let val: any = v
+  try {
+    for (let i = 0; i < types.length; i++) {
+      const t = types[i];
+      if (t === Boolean) {
+        val = getBooleanValue(v)
+      } else if (t === Number) {
+        val = Number(v)
+      } else if (t === String) {
+        val = String(v)
+      } else if (t === Object || t === Array) {
+        val = parseJSON(v)
+      } else if (t === Date) {
+        val = new Date(v)
+      } else {
+        val = new t(v)
+      }
     }
-    return rs;
-  },
-  insertBefore: function (node: Node, newNodes: any[]) {
-    if (!node.parentNode) return;
+  } catch (error) {
+    throw new Error(`Convert attribute error with ` + v)
+  }
+  return val
+}
 
-    let fragment = document.createDocumentFragment();
-    fragment.append(...newNodes);
-    node.parentNode!.insertBefore(fragment, node);
-  },
+export const DomUtil = {
   remove: function (startNode: Node, endNode: Node) {
     if (startNode === endNode) {
       startNode?.parentNode?.removeChild(startNode)
@@ -88,7 +94,7 @@ export const DomUtil = {
 }
 
 export function isCompElemNode(node: Element) {
-  return !!DefinitionComponentMap[node.tagName?.toLowerCase()]
+  return !!DefinitionComponentMap[tagNameLower(node.tagName) as string]
 }
 
 export function addUninitializedSubComponentProp(wrapperComponent: CompElem, node: Element, props: Record<string, any>) {
@@ -98,7 +104,7 @@ export function addUninitializedSubComponentProp(wrapperComponent: CompElem, nod
     ComponentUninitializedSubComponentPropMap.set(wrapperComponent, propMap)
   }
   let p = propMap.get(node) ?? {}
-  propMap.set(node, assign(p, props))
+  propMap.set(node, Object.assign(p, props))
 }
 
 export function getCssVarKey(ctor: Function, k: string): string {
@@ -115,18 +121,88 @@ export function getCssVarKey(ctor: Function, k: string): string {
   return v
 }
 
-//camelCase结果缓存
-const CamelCaseCache = new Map<string, string>()
-export function camelCaseCached(name: string): string {
-  let v = CamelCaseCache.get(name)
-  if (v !== undefined) return v
-  if (CamelCaseCache.size > 1024) CamelCaseCache.clear()
-  v = camelCase(name)
-  CamelCaseCache.set(name, v)
-  return v
+const QueryCacheMap = new WeakMap<CompElem, Map<string, any>>()
+/**
+ * @query/@queryAll
+ */
+export function _queryGet(selector: string, all: boolean, once: boolean, context: CompElem): any {
+  if (!context.isMounted) return undefined
+  let cMap = QueryCacheMap.get(context)
+  if (!cMap) {
+    cMap = new Map()
+    QueryCacheMap.set(context, cMap)
+  }
+  if (once && cMap.has(selector)) return cMap.get(selector)
+  const root = context.shadowRoot
+  const el = all ? root?.querySelectorAll(selector) : root?.querySelector(selector)
+  cMap.set(selector, el)
+  return el
 }
 
-//构造函数名小写缓存（prop类型检查用，避免每次更新构造正则）
+/**
+ * observedAttributes 的推导实现
+ */
+export function _observedAttrs(ctor: Function): string[] {
+  const cs = (ctor as any)?.__ce_static__
+  const props = cs?.props
+  const out: string[] = []
+  if (props) {
+    for (const k of Object.keys(props)) {
+      const def = props[k]
+      if (def && def.attribute === false) continue
+      out.push(kebabCaseCached(k))
+    }
+  }
+  return out
+}
+
+/**
+ * 单参数纯函数的记忆化包装：返回行为等价的函数，命中缓存直接返回，未命中算一次后写入。
+ *
+ * 缓存是强引用 `Map`，故只适用于**值类型键**（string/number/boolean 等）；对象键会被
+ * 缓存强引用住而阻止回收，那种场景得用 `WeakMap` 手写（见 `typeNameLower`）。
+ * 满 `maxSize` 后整表清空（非 LRU：clear 是 O(1)，重排成本高于重算这些廉价函数的收益）。
+ *
+ * 约定：命中判定为 `!== undefined`，故 `fn` 返回 `undefined` 时**不缓存**（每次重算）。
+ */
+export function memo<A, R>(fn: (a: A) => R, maxSize = 512): (a: A) => R {
+  const cache = new Map<A, R>()
+  return (a: A): R => {
+    let v = cache.get(a)
+    if (v !== undefined) return v
+    if (cache.size >= maxSize) cache.clear()
+    v = fn(a)
+    cache.set(a, v)
+    return v
+  }
+}
+
+//kebabCase结果缓存
+export const kebabCaseCached: (name: string) => string = memo(kebabCase, 1024)
+
+///////////////////////////////////////////////////////// 快路径
+export function fieldGet(obj: any, name: string): any {
+  if (name.indexOf('.') < 0 && name.indexOf('[') < 0) return obj[name]
+  return get(obj, name)
+}
+
+export function fieldSet(obj: any, name: string, value: any): void {
+  if (name.indexOf('.') < 0 && name.indexOf('[') < 0) {
+    obj[name] = value
+    return
+  }
+  set(obj, name, value)
+}
+
+//小写缓存
+export const tagNameLower: (tagName: string | undefined) => string | undefined = memo(
+  (tagName: string | undefined) => tagName?.toLowerCase(),
+  512
+)
+//camelCase结果缓存
+export const camelCaseCached: (name: string) => string = memo(camelCase, 1024)
+
+//构造函数名小写缓存
 const TypeNameLowerCache = new WeakMap<Function, string>()
 export function typeNameLower(et: Function): string {
   let v = TypeNameLowerCache.get(et)

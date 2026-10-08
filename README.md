@@ -214,11 +214,22 @@ export class PageTest extends CompElem {
   @prop round = true;//通过默认值自动推断属性类型
   @prop({ type: [Boolean,String] }) round = true;//多种类型使用数组定义
   @prop({ type: Array }) datalist: Array<string>;//没有默认值必须显式指定属性类型
-  @prop({ type: [String, Number], model: true }) value;//model为true时，对该属性赋值自动触发 update:value 事件
+  @prop({ type: [String, Number], model: true }) value;//model为true时，对该属性赋值按宿主类型自动处理（见下）
   ```
 
   想要修改属性值可以通过 emit `update:xxx` 事件 通知父组件进行更新或显示声明某个属性为model，然后通过赋值自动触发 emit `update:xxx`
   全部注解参数见 `PropOption`
+
+  **`model: true` 的 prop 赋值语义按宿主类型三路分派**（`writeModelProp`）：
+
+  | 宿主 | 行为 | 理由 |
+  |---|---|---|
+  | 父端接了 `update:xxx`（`model` 指令 / `@update:value`） | **只 emit，不写本地** | 父端是权威，可能对值做校验/clamp/格式化。抢先写本地会白渲染一次，用户还会看到中间值闪烁（子写 15 → 显示 15 → 父 clamp 到 10 → 回灌 → 又变 10）。值由父端回写后落回本地，`Object.is` 去重使其不会重复渲染 |
+  | 没人接 | **本地兜底** | 只 emit 会让值彻底蒸发：`CompElem#emit` 在无 `wrapperComponent` 时直接 return，事件丢弃且本地不落值 |
+  | 没人接，但宿主声明了 `emit-native` | **本地兜底 + 发原生 `CustomEvent`** | 该宿主用 `addEventListener` 接，走的不是组件事件通道，但通知必须真的发出去 |
+
+  判据是「**有没有人注册监听**」而不是「有没有父组件」。宿主是 compelem 之外的代码时，
+  组件内赋值应当让值留在自己身上 —— 否则纯 HTML 页面里 `<my-input>` 的用户输入会凭空消失。
 
 - ### 状态
   状态是仅由组件内部初始化的响应变量，可通过`@state`注解定义

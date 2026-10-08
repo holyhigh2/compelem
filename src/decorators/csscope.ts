@@ -1,7 +1,6 @@
 import { each, isArray } from "myfx";
 import { CssScopeCacheMap, CssStyleSheetCacheMap } from "../constants";
 import { CssTemplate } from "../render/CssTemplate";
-import { showTagError } from "../utils";
 
 /**
  * 样式应用区域范围
@@ -18,13 +17,6 @@ export enum Csscope {
  */
 export function csscope(...scopes: string[]): any {
   return (target: any, name: any, descriptor: PropertyDescriptor) => {
-    if (process.env.DEV) {
-      if (typeof target !== 'function' || !descriptor.get) {
-        showTagError(target.constructor.name, `@csscope can only be used on a static getter`)
-        return
-      }
-    }
-
     let getterRs = descriptor.get!()
     let css = isArray(getterRs) ? getterRs : [getterRs]
     css.forEach(cs => {

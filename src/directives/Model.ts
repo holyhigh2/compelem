@@ -1,11 +1,10 @@
-import { find, get, isObject, isString, last, set, split, toPath, trim } from "myfx";
+import { find, isObject, isString, last, set, toPath, trim } from "myfx";
 import { CompElem } from "../CompElem";
 import { DefinitionComponentMap } from "../constants";
 import { directive } from "../directive/index";
 import { addEmitEvent, getEventBindList } from "../events/event";
-import { OBJECT_VAR_ROOT_PATH_IN_CONTEXT } from "../reactive";
 import { EnterPointType } from "../types";
-import { addUninitializedSubComponentProp, showError } from "../utils";
+import { addUninitializedSubComponentProp } from "../utils";
 
 export const enum ModelTriggerType {
   CHANGE = 'change',
@@ -80,17 +79,6 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
       path = last(varChain)
     }
 
-    const rootPath = split(path, '.')[0]
-    let contextVarPathMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(renderComponent)
-    let rootPathInContext = ''
-    if (contextVarPathMap) {
-      rootPathInContext = contextVarPathMap[rootPath]
-    }
-
-    if (!(rootPath in renderComponent) && (rootPathInContext && !(rootPathInContext in renderComponent))) {
-      showError(`model - property '${rootPath}' is not defined on the instance of ` + renderComponent.tagName)
-    }
-
     let evList: Array<[string, Function, Node, Function?]> = getEventBindList(renderComponent)
 
     if (!isObject(modelValue) && !trim(modelValue)) modelValue = ''
@@ -101,15 +89,7 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
 
       let evName = 'update:' + updateProp
       addEmitEvent(node, renderComponent, evName, function (obj: Record<string, any>) {
-        if (process.env.DEV)
-          console.debug('Model =>', path)
         let ctx = this
-        let rootPathInCtxMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(ctx) ?? {}
-        let pathFromWrapperComponent = rootPathInCtxMap[rootPath]
-        let hasPath = rootPath in ctx
-        if (!hasPath && pathFromWrapperComponent && get(ctx.wrapperComponent, rootPath) === get(ctx, pathFromWrapperComponent)) {
-          ctx = ctx.wrapperComponent || ctx
-        }
         set(ctx, path, obj.value)
       })
     } else if (node instanceof HTMLTextAreaElement) {
@@ -117,8 +97,6 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
 
       let evName = 'input'
       evList.push([evName, function (e: Event) {
-        if (process.env.DEV)
-          console.debug('Model =>', path)
         let t = e.target as any
         set(this, path, t.value)
       }, node])
@@ -150,24 +128,14 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
       node.setAttribute(updateProp ?? propName, modelValue + '');
 
       evList.push([evName, function (e: Event) {
-        if (process.env.DEV)
-          console.debug('Model =>', path)
         let t = e.target as any
         set(this, path, t.value)
       }, node])
     } else if (node instanceof HTMLSelectElement) {
       node.setAttribute(updateProp, modelValue + '');
       evList.push(['change', function (e: Event) {
-        if (process.env.DEV)
-          console.debug('Model =>', path)
         let t = e.target as any
         let ctx = this;
-        let rootPathInCtxMap = OBJECT_VAR_ROOT_PATH_IN_CONTEXT.get(ctx) ?? {}
-        let pathFromWrapperComponent = rootPathInCtxMap[rootPath]
-        let hasPath = rootPath in ctx;
-        if (!hasPath && pathFromWrapperComponent && get(ctx.wrapperComponent, rootPath) === get(ctx, pathFromWrapperComponent)) {
-          ctx = ctx.wrapperComponent || ctx;
-        }
         set(ctx, path, t.value)
       }, node])
     }

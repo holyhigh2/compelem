@@ -1,6 +1,6 @@
 import { closest } from "myfx";
 import { CompElem } from "../CompElem";
-import { TransitionCfg } from "../types";
+import type { EffectNode, SignalNode } from "../signal";
 import { DomUtil } from "../utils";
 import { UpdatePointMeta } from "./UpdatePointMeta";
 
@@ -31,12 +31,8 @@ export class UpdatePoint {
     __subViewId: number | undefined
     //父级子视图key映射（__c-*属性）
     __parentViewsIdMap: Record<string, string> | undefined
-    //transition()指令附着的过渡配置（<transition>伪标签的配置存于metaInfo.transitionCfg）
-    __transition?: TransitionCfg
-    //<transition>伪标签钩子经vars解析后的配置（每次更新重算，严禁写入共享的metaInfo.transitionCfg）
-    __resolvedTransition?: TransitionCfg
-    //过渡批次序号：每次结构切换递增，用于使已被取代的延迟插入失效
-    __transitionSn?: number
+    subEffects?: EffectNode[]
+    subCells?: Record<string, SignalNode<any>>
 
     constructor(varIndex: number) {
         this.varIndex = varIndex
@@ -67,6 +63,13 @@ export class UpdatePoint {
     destroy(contextComponent?: CompElem<any>) {
         if (this.__destroyed) return;
         this.__destroyed = true
+        const se = this.subEffects
+        if (se !== undefined && se.length > 0) {
+            for (let i = 0; i < se.length; i++) se[i].dispose()
+            se.length = 0
+        }
+        this.subEffects = undefined
+        this.subCells = undefined
         let node = this.node
         let children = this.children
         //clean up

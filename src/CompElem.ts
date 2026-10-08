@@ -3,60 +3,68 @@ import {
   cloneDeep,
   closest,
   each,
-  filter,
   first,
-  flatMap,
   get,
   groupBy,
   has,
   isArray,
   isBlank,
-  isBoolean,
   isDefined,
   isEmpty,
   isNil,
   isNull,
   isObject,
-  isString,
-  isUndefined,
-  kebabCase,
   keys,
   last,
   merge,
-  parseJSON,
   reject,
   remove,
-  set,
   size,
-  some,
-  toArray,
-  trim,
-  walkTree
+  toArray
 } from "myfx";
 import { getBaseSheets } from "./config";
-import { ComponentDynamicCssUpdaterMap, ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, ComputedMapCache, ComputedUpdateDepsMap, CssScopeCacheMap, CssTemplateSheetMap, CssUpdateDepsMap, DATA_KEY, DefinitionComputedMap, DefinitionDecoratorMap, DefinitionPropMap, DefinitionStateMap, HasChangedPropOrStateMap, PATH_SEPARATOR, PropShallowKeySetMap, PropTypeMap, SLOT_NAME_DEFAULT, ViewDepMap, WatchImmediateListMap, WatchKeyRootMap, WatchKeysOnceMap } from "./constants";
-import { DecoratorWrapper } from "./decorator";
+import { ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, CssScopeCacheMap, CssTemplateSheetMap, PropTypeMap, SLOT_NAME_DEFAULT } from "./constants";
 import { Csscope } from "./decorators/csscope";
-import { _getObservedAttrs } from "./decorators/prop";
-import { bindEvents, emitEvent, EvHadler, matchEmit, registerEvent, releaseEventHandlers } from "./events/event";
+import { bindEvents, emitEvent, EvHadler, registerEvent, releaseEventHandlers } from "./events/event";
+import { CompElemHelper } from "./helpers";
 import { IComponent } from "./IComponent";
-import { appendUpdate, Collector, getterValue, notifyUpdate, OBJECT_VAR_PATH, Queue, requestUpdate, setterValue } from "./reactive";
 import { CssTemplate } from "./render/CssTemplate";
-import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildVars, buildView, updateSubScopeView, updateView } from "./render/render";
+import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildStaticView } from "./render/render";
 import { Template } from "./render/Template";
 import { UpdatePoint } from "./render/UpdatePoint";
-import { Constructor, Getter, PropOption, SlotOptions, StateOption, TplFn, UpdatedSource } from "./types";
-import { _getSuper, camelCaseCached, DomUtil, getBooleanValue, getCssVarKey, isBooleanProp, showTagError, typeNameLower } from "./utils";
+import { walkSplitText } from "./render/walk";
+import { batch, effect, EffectNode, signal, SignalNode } from "./signal";
+import { PropOption, SlotOptions, StateDefInternal, StateOption, TplFn } from "./types";
+import { _getSuper, camelCaseCached, DomUtil, getBooleanValue, isBooleanProp, kebabCaseCached, showTagError } from "./utils";
 
 let CompElemSn = 0
 const SlotCompMap = new WeakMap()
 const EMPTY_SLOTS = {}
-const PROP_NAME_SLOTS = 'slots'
 const EMPTY_PARENT_PROPS: Record<string, any> = {}
+/** varChain 兜底的空值：共享同一个冻结数组，缺路径时指令拿到的是空链而非 undefined */
+const EMPTY_VAR_CHAIN: string[] = []
 
 /**
- * CompElem基类，意为组件元素。提供了基本内置属性及生命周期等必备接口
- * 每个组件都需要继承自该类
+ * slots 内容浅比较
+ */
+function sameSlots(a: Record<string, Node[]>, b: Record<string, Node[]>): boolean {
+  const ka = keys(a)
+  if (ka.length !== size(b)) return false
+  for (let i = 0; i < ka.length; i++) {
+    const k = ka[i]
+    const av = a[k]
+    const bv = b[k]
+    if (av === bv) continue
+    if (!av || !bv || av.length !== bv.length) return false
+    for (let j = 0; j < av.length; j++) {
+      if (av[j] !== bv[j]) return false
+    }
+  }
+  return true
+}
+
+/**
+ * CompElem基类（见 utils.ts：静态元数据 helper 已下沉）。
  *
  * @author holyhigh2
  */
@@ -64,20 +72,27 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   #cid: number
   #slotPropsMap: Record<string, Partial<SlotOptions>> = {}
   __data_: Record<string, any> = {};
-  #updateSources: Record<string, UpdatedSource> = {};
   #shadow: ShadowRoot;
   //保存所有渲染上下文 {CompElem/Directive}
   __updateTree: Array<UpdatePoint>
+  // 每实例信号存储
+  __s: Record<string, SignalNode<any>>
 
-  __updateSubViewDeps: Map<string, Set<UpdatePoint>>
+  // 强制刷新标志
+  __f = false
 
-  _cssUpdateInNextTick = false
-  _cssVarOldValueMap: Record<string, string | number>
+  // cssVars
+  __cssVarVals: Record<string, string> | undefined
 
-  _watchUpdateSetInNextTick: Set<Function>
-  _watchUpdateArgsInNextTick: Map<Function, Record<string, any>>
+  #viewEffects: EffectNode[] = []
 
-  _computedUpdateSetInNextTick: Set<Function>
+  __propDefs: Record<string, PropOption> | undefined
+  __stateDefs: Record<string, StateOption> | undefined
+
+  /**
+   * 宿主标签上属于本组件实例的更新点
+   */
+  _hostUps: UpdatePoint[] | undefined
 
   _subComponentEventSn = 0
   _subComponentEventMap = new Map<number, Record<string, Function>>()
@@ -129,10 +144,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   #slotNodes: Record<string, Node[]> = {};
   #mounted: boolean = false
 
-  #updateViewImmediately = false
   #updateNextImmediatelyQ: Function[]
-  //上次主视图渲染的vars，用于值级变更索引（见updateView）
-  #lastViewVars: any[] | undefined
 
   //////////////////////////////////// styles
   get cssVars(): Record<string, string | number | undefined> {
@@ -154,6 +166,15 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
     this.__superComp = _getSuper(this.constructor as any)
 
+    // 编译器注入
+    this.__s = {} as Record<string, SignalNode<any>>
+
+    const ceStatic = (this.constructor as any).__ce_static__
+
+    // prop/state 定义表
+    this.__propDefs = ceStatic?.props
+    this.__stateDefs = ceStatic?.states
+
     this.#onSlotChangeHookBindThis = this.#onSlotChangeHook.bind(this)
 
     //init props via constructor
@@ -166,19 +187,17 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     if (!Reflect.getOwnPropertyDescriptor(this.constructor.prototype, 'slots')) {
       Reflect.defineProperty(this.constructor.prototype, 'slots', {
         get() {
-          return getterValue('slots', this)
+          if (this.isDestroyed) return EMPTY_SLOTS
+          return this.#slotsSig().value
         },
         set(v) {
-          setterValue('slots', v, this)
+          if (this.isDestroyed) return
+          this.#slotsSig().value = v
         }
       })
     }
 
-    /////////////////////////////////////////////////// decorators create
-    let ary: DecoratorWrapper[] = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(this.__superComp)!
-    ary && ary.sort((a, b) => b.priority - a.priority).forEach(dw => dw.create(this))
-
-    this.#updatedD = this.#update.bind(this)
+    /////////////////////////////////////////////////// 方法装饰器
   }
   insertStyleSheet(sheet: CssTemplate | CSSStyleSheet): CSSStyleSheet | null {
     if (!this.#shadow) return null
@@ -213,7 +232,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     }
     return comp;
   }
-  #updatedD
 
   connectedCallback() {
     //parent
@@ -267,39 +285,31 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
     this.#destroyed = true
 
-    let ary: DecoratorWrapper[] = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(this.__superComp)!
-    ary?.forEach(dw => {
-      dw.destroy(this)
-    })
-
     this.beforeDestroyed()
 
     //events
     releaseEventHandlers(this)
-
-    //styles
-    ComponentDynamicCssUpdaterMap.get(this)?.clear()
-    ComponentDynamicCssUpdaterMap.delete(this)
-
-    //reactive
-    this._watchUpdateArgsInNextTick?.clear()
-    this._watchUpdateSetInNextTick?.clear()
-
-    this._computedUpdateSetInNextTick?.clear()
-    this._computedUpdateSetInNextTick = null as any
-
-    this.__updateSubViewDeps?.clear()
+    //effects
+    const viewEffects = this.#viewEffects
+    for (let i = 0; i < viewEffects.length; i++) {
+      viewEffects[i].dispose()
+    }
+    viewEffects.length = 0
+    this.__f = false
 
     //sup scope
-    if (this.#parentComponent) {
+    const hostUps = this._hostUps
+    this._hostUps = undefined
+    if (hostUps && this.#parentComponent) {
       let pComp = this.#parentComponent.deref()
-      pComp && walkTree(pComp.__updateTree, (up) => {
-        if (up.__destroyed) return
-        if (up.node === this) {
+      if (pComp) {
+        for (let i = 0; i < hostUps.length; i++) {
+          const up = hostUps[i]
+          if (up.__destroyed) continue
           up.destroy(pComp)
           remove(up.parent ? up.parent.children! : pComp.__updateTree, c => c === up)
         }
-      })
+      }
     }
     //sub scopes
     //shadow 树内一次性清理全部嵌套子组件（含无插值覆盖的静态子组件，它们没有对应的更新点）
@@ -314,30 +324,28 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     each(this.#slotNodes, (nodes) => {
       each(nodes, (node: Element) => node.remove())
     })
-    each(this.__data_.slots, (nodes: Node[], k) => {
+    each(this.__s?.slots?.value, (nodes: Node[], k) => {
       each(nodes, (node: Element) => node.remove())
     })
     this.#updateSlots.clear();
     this.#onSlotChangeHookBindThis = this.__thisRef =
-      this.#slotNodes = this.#slotsEl = this.#updateSlots = this.#slotPropsMap = this.__data_.slots = null as any
+      this.#slotNodes = this.#slotsEl = this.#updateSlots = this.#slotPropsMap = null as any
+    if (this.__s?.slots) this.__s.slots = null as any
 
     this.remove()
 
     //data
     this.#renderRoot = this.#renderRoots = this.#shadow =
-      this.#updateSources =
       this.#attrs =
       this.#props =
       this.#renderRoot =
       this.#renderRoots =
       this.#slotHooks =
-      this.#updatedD =
       this.__data_ =
       this.__updateTree =
       this.#parentComponent =
       this._asyncDirectives =
       this.#wrapperComponent = null as any
-    this.#lastViewVars = null as any
     //unmount
 
     this.destroyed()
@@ -347,109 +355,64 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   //********************************** 首次渲染
   setup() {
     if (this.__inited) return;
-    //防止在钩子中出现重新挂载的情况
+    //防止在钩子中出现重新挂载
     if (this.#initiating) return;
     this.#initiating = true;
 
-    ////////////////////////////////////////////////// Props & States
+    ////////////////////////////////////////////// Props & States
     const props = this.#initProps();
     this.#props = {}
-    assign(this.#props, props)
-    this.propsReady(props)
+    Object.assign(this.#props, props)
     for (const key in props) {
       const v = props[key];
       this.__data_[key] = v;
     }
 
     this.#initStates();
+    this.propsReady(props)
 
     //2. Data
-    this.__data_.slots = {}
+    this.#slotsSig().value = {}
 
     Reflect.defineProperty(this.__data_, '__isData', {
       enumerable: false,
       value: true
     })
 
-    //3. Watch
-    let superComp = this.__superComp
-    let watchKeyMap = WatchKeyRootMap.get(this.constructor) ?? WatchKeyRootMap.get(superComp)
-    if (watchKeyMap) {
-      this._watchUpdateSetInNextTick = new Set()
-      this._watchUpdateArgsInNextTick = new Map()
-      let onceMap = WatchKeysOnceMap.get(this.constructor) ?? WatchKeysOnceMap.get(superComp)!
-      let watchImmediateList = WatchImmediateListMap.get(this.constructor) ?? WatchImmediateListMap.get(superComp)!
-      each(watchImmediateList, (fns, k) => {
-        let nv = get(this, k);
-        fns.forEach(fn => {
-          fn.call(this, nv, undefined, k);
-        })
-        if (onceMap.has(k)) {
-          onceMap.set(k, true)
-        }
-      })
-    }
-
-    //4. Computed
-    let computedMap = ComputedMapCache.get(this.constructor)
-    if (computedMap === undefined) {
-      computedMap = assign<Record<string, Getter>>({}, DefinitionComputedMap.get(this.constructor), DefinitionComputedMap.get(superComp))
-      ComputedMapCache.set(this.constructor, computedMap)
-    }
-    if (computedMap) {
-      this._computedUpdateSetInNextTick = new Set()
-      let depMap = ComputedUpdateDepsMap.get(this.constructor)!
-      if (!depMap) {
-        depMap = new Map()
-        ComputedUpdateDepsMap.set(this.constructor, depMap)
-        each(computedMap, (getter, propKey) => {
-          set(getter, 'key', propKey)
-
-          Collector.start(this);
-          this[DATA_KEY][propKey] = getter.call(this)
-          Collector.end();
-          let computedDeps = Collector.popVarPathList()
-          computedDeps.forEach(dep => {
-            let list = depMap.get(dep)
-            if (!list) {
-              list = new Set()
-              depMap.set(dep, list)
-            }
-            list.add(getter)
-          })
-        })
-      } else {
-        each(computedMap, (getter, propKey) => {
-          this[DATA_KEY][propKey] = getter.call(this)
-        })
-      }
-    }
-
-    //5. Render
-    Collector.start(this);
-    let tmpl = this.render()
-    Collector.end();
-    let viewDeps = Collector.popVarPathList()
-    if (!ViewDepMap.has(this.constructor)) {
-      ViewDepMap.set(this.constructor, new Set(viewDeps))
-    }
-
+    //3. Render
+    const ceStatic = (this.constructor as any).__ce_static__
     let fragment: DocumentFragment | undefined
-    if (tmpl === null) {
+    if (ceStatic?.noView) {
+      //无视图组件
       this.#renderRoots = []
       this.#renderRoot = undefined
-    } else {
-      /////////////////////////////////////////////////// shadow dom
-      this.#shadow = this.attachShadow({
-        mode: "open"
-      });
-
+    } else if (ceStatic?.buildTemplate) {
+      this.#shadow = this.attachShadow({ mode: "open" });
       this.#shadow.adoptedStyleSheets = getBaseSheets(this.constructor);
-      fragment = buildView(tmpl, this)
-      if (fragment && size(fragment.children) > 0) {
-        this.#renderRoots = filter<HTMLElement>(fragment.children, (n: Node) => n.nodeType === Node.ELEMENT_NODE).map<WeakRef<HTMLElement>>(n => new WeakRef(n))
-        this.#renderRoot = this.#renderRoots[0]
+      fragment = buildStaticView(this)
+      if (ceStatic.watchEffects) {
+        for (const factory of ceStatic.watchEffects) {
+          effect(factory(this))
+        }
       }
+      if (ceStatic.cssEffect) {
+        const cssEffectFn = ceStatic.cssEffect(this)
+        effect(cssEffectFn)
+      }
+      if (fragment && fragment.children.length > 0) {
+        const els = fragment.children
+        const roots: Array<WeakRef<HTMLElement>> = []
+        for (let i = 0, l = els.length; i < l; i++) {
+          const n = els[i]
+          if (n.nodeType === Node.ELEMENT_NODE) roots.push(new WeakRef(n as HTMLElement))
+        }
+        this.#renderRoots = roots
+        this.#renderRoot = roots[0]
+      }
+    } else {
+      throw new Error(
+        `[compelem] <${this.tagName}> Component is not compiled @compelem/compiler plugin is required`,
+      )
     }
 
     this.__inited = true;
@@ -466,15 +429,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       this.#updateSlot(k)
     })
 
-    const that = this
-    let ary: DecoratorWrapper[] = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(this.__superComp)!
-    ary?.forEach(dw => {
-      dw.beforeMount(this, (key, value) => {
-        that.__data_[key] = value
-        return that.__data_[key]
-      })
-    })
-
     this.beforeMount();
     if (this.isDestroyed) {
       console.debug('Component is destroyed before mount', this.tagName)
@@ -483,47 +437,13 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
     this.#mounted = true;
 
-    //instance dynamic style
-    Collector.start(this)
-    let cssVarObj = this.cssVars
-    Collector.end()
-
-    if (!isEmpty(cssVarObj)) {
-      this._cssVarOldValueMap = {}
-      let deps = CssUpdateDepsMap.get(this.constructor)
-      if (!deps) {
-        deps = new Set(Collector.popVarPathList())
-        CssUpdateDepsMap.set(this.constructor, deps)
-      }
-      let cssStr = ''
-      each(cssVarObj, (v, k) => {
-        let cssVarKey = getCssVarKey(this.constructor, k)
-        if (isBlank(v) || isNil(v)) {
-          v = 'initial'// invalid value
-        }
-        this._cssVarOldValueMap[cssVarKey] = v
-        cssStr += ';' + cssVarKey + ':' + v
-      })
-      this.style.cssText += cssStr
-    }
-
-    if (fragment && size(fragment.children) > 0) {
+    if (fragment && fragment.children.length > 0) {
       this.#shadow.append(fragment)
       ComponentUninitializedSubComponentPropMap.delete(this)
     }
 
-    ary && ary.forEach(dw => {
-      dw.mounted(this, (key, value) => {
-        that.__data_[key] = value
-        return that.__data_[key]
-      })
-    })
-
     if (this.#updateNextImmediatelyQ) {
-      this.#updateNextImmediatelyQ.forEach((cbk) => Queue.pushNext(cbk as any))
-    }
-    if (this.#updateViewImmediately) {
-      Queue.pushNext(this.#updatedD)
+      this.#updateNextImmediatelyQ.forEach((cbk) => Promise.resolve().then(cbk as any))
     }
 
     bindEvents(this)
@@ -532,6 +452,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   }
 
   propsReady(props: Record<string, any>) { }
+
   render(): Template | null {
     return null
   }
@@ -601,10 +522,9 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     }
 
     let propName = camelCaseCached(attributeName)
-    let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(this.__superComp)
-    let propDef: PropOption = get(propDefs, propName)
+    let propDef = this.__propDefs?.[propName]
 
-    if (isBooleanProp(propDef.type)) {
+    if (propDef && isBooleanProp(propDef.type)) {
       let v = isNull(newValue) ? false : getBooleanValue(newValue)
       if (get<boolean>(this, propName) === v) return
     }
@@ -629,152 +549,13 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   updated(changed: Record<string, any>) { }
 
   /**
-   * 由监控变量调用
-   * @param stateKey
-   * @param ov
-   * @param rootStateKey 如果是对象内部属性变更，会返回根属性名
-   * @returns
-   */
-  _notify(nv: any = undefined, ov: any, chain: string[], subNewValue?: any, subOldValue?: any) {
-    let varPath: string[] = [];
-    let cur: any = this
-    let pathStr = ''
-    for (let i = 0; i < chain.length; i++) {
-      const seg = chain[i];
-      varPath.push(seg);
-      cur = cur == null ? cur : cur[seg]
-      let v = cur ?? nv;
-      pathStr = i === 0 ? seg : pathStr + PATH_SEPARATOR + seg;
-      this.#updateSources[pathStr] = { value: v, chain: pathStr === PROP_NAME_SLOTS ? [PROP_NAME_SLOTS] : varPath, oldValue: ov, end: varPath.length === chain.length, subNewValue, subOldValue };
-    }
-
-    if (!this.isMounted) {
-      this.#updateViewImmediately = true
-      return
-    }
-    Queue.pushNext(this.#updatedD)
-  }
-
-  requestUpdate(nv: any, ov: any, chain: string[], subNewValue?: any, subOldValue?: any): void {
-    notifyUpdate(this, nv, ov, chain, subNewValue, subOldValue)
-  }
-
-  #update() {
-    if (size(this.#updateSources) < 1) return
-    if (!this.isMounted) return
-
-    const changed = this.#updateSources
-    this.#updateSources = {}
-
-    let toBreak = !this.shouldUpdate(changed)
-    if (toBreak) return
-
-    //update decorators
-    let ary: DecoratorWrapper[] = DefinitionDecoratorMap.get(this.constructor) ?? DefinitionDecoratorMap.get(this.__superComp)!
-    ary?.forEach(dw => {
-      dw.updated(this, changed)
-    })
-
-    //update watch
-    this._watchUpdateSetInNextTick?.forEach((fn) => {
-      let { newValue, oldValue, chain, rootObjNew, rootObjOld, fullMatch } = this._watchUpdateArgsInNextTick.get(fn)!
-      let nv = fullMatch ? newValue : rootObjNew
-      let ov = fullMatch ? oldValue : rootObjOld
-      fn.call(this, nv, ov, chain, newValue, oldValue)
-    })
-    this._watchUpdateSetInNextTick?.clear()
-    this._watchUpdateArgsInNextTick?.clear()
-    // update computed
-    let computedGuard = 0
-    while (this._computedUpdateSetInNextTick?.size > 0 && computedGuard < 10) {
-      computedGuard++
-      let fns = Array.from(this._computedUpdateSetInNextTick)
-      this._computedUpdateSetInNextTick.clear()
-      fns.forEach(fn => {
-        let k = get<string>(fn, 'key')
-        let oldValue = this.__data_[k]
-        let newValue = fn.call(this)
-        if (!isObject(newValue) && newValue === oldValue) return
-
-        this.__data_[k] = newValue
-        appendUpdate(this, newValue, oldValue, [k])
-        changed[k] = { value: newValue, chain: [k], oldValue: oldValue, end: true }
-      })
-    }
-    // update css
-    if (this._cssUpdateInNextTick) {
-      let cssVarObj = this.cssVars
-      each(cssVarObj, (v, k) => {
-        let cssVarKey = getCssVarKey(this.constructor, k)
-        if (this._cssVarOldValueMap[cssVarKey] == v) {
-          return
-        }
-        if (isBlank(v) || isNil(v)) {
-          v = 'initial'// invalid value
-        }
-        this._cssVarOldValueMap[cssVarKey] = v
-        this.style.setProperty(cssVarKey, v + '')
-      })
-    }
-
-    //1. filter update
-    let toUpdateView = false
-    let toUpdateUps: Set<UpdatePoint> | undefined
-    let viewDeps = ViewDepMap.get(this.constructor)
-    each(changed, (x, k: string) => {
-      if (!toUpdateView && viewDeps?.has(k)) {
-        toUpdateView = true
-      }
-      if (this.__updateSubViewDeps?.has(k)) {
-        let ups = this.__updateSubViewDeps.get(k)
-        if (ups) {
-          if (!toUpdateUps) toUpdateUps = new Set<UpdatePoint>()
-          ups.forEach(up => {
-            toUpdateUps!.add(up)
-          })
-        }
-      }
-    });
-
-    //2. update view
-    if (this.#renderRoot?.deref()) {
-      if (toUpdateView) {
-        let newVars = buildVars(this, this.render()!)
-        //缓存上次渲染vars用于值级变更索引
-        let oldVars = this.#lastViewVars
-        this.#lastViewVars = newVars
-        updateView(newVars, this, this.__updateTree, toUpdateUps, changed, oldVars);
-        //oldVars已消费完毕，截断对象槽位引用，缩短大对象生命周期
-        if (oldVars) {
-          for (let oi = 0; oi < oldVars.length; oi++) {
-            let ov = oldVars[oi]
-            if (ov !== null && typeof ov === 'object') oldVars[oi] = undefined
-          }
-        }
-      }
-      if (toUpdateUps && toUpdateUps.size > 0) {
-        toUpdateUps.forEach(up => {
-          updateSubScopeView(up, this, undefined, changed)
-        })
-      }
-    }
-
-    //update slot view
-    this.#updateSlots.forEach((v) => {
-      this.#updateSlot(v)
-    })
-
-    this.updated(changed);
-  }
-
-  /**
-   * 1. 初始props中并未包含的属性，可从attributes取，且定义类型不是string时自动转换
+   * 1. 初始props中并未包含的属性，可从attributes取，且定义类型不是string时自动转
    * 2. 如果attributes中也未出现且必填报错
-   * 3. 否则设置默认值
+   * 3. 否则设置默认
    * @returns 非props的attr集合
    */
   #initProps() {
-    let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(this.__superComp)
+    let propDefs = this.__propDefs
     let attrs = this.attributes;
     let tagName = this.tagName;
     let wrapperProps = ComponentUninitializedSubComponentPropMap.get(this.wrapperComponent!)?.get(this) ?? null
@@ -804,18 +585,16 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     let size = keys.length
     for (let i = 0; i < size; i++) {
       const key = keys[i]
-      const kbKey = kebabCase(key)
+      const kbKey = kebabCaseCached(key)
       const hasAttr = this.hasAttribute(kbKey)
       let propDef = propDefs[key];
       let isInited = has(parentProps, key);
-      let defaultVal = get(this, key);
+      const sig = this.__s[key]
+      let defaultVal = sig !== undefined ? sig.value : this.__data_[key]
       if (!('_defaultValue' in propDef)) {
         //在构造结束后
         propDef._defaultValue = defaultVal
         if (!propDef.type) {
-          if (isUndefined(defaultVal)) {
-            showTagError(tagName, "Prop '" + key + "' has neither propType nor defaultValue be used for type inference");
-          }
           let type = typeof defaultVal as string
           if (isArray(defaultVal)) type = 'array'
           let inferredType = PropTypeMap[type]
@@ -845,216 +624,95 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         break
       }
 
-      val = this.#propTypeCheck(propDefs, key, val, hasAttr)
+      val = CompElemHelper.propTypeCheck(this, propDefs, key, val, hasAttr)
 
-      if (propDef.attribute && isDefined(val) && !isObject(val)) {
-        this.#updateAttribute(propDef, key, val)
+      if (propDef.attribute !== false && isDefined(val) && !isObject(val)) {
+        CompElemHelper.updateAttribute(this, propDef, key, val)
       }
 
       this.__data_[key] = val;
+      if (sig !== undefined) sig.value = val
       if (hasAttr)
         rs[key] = val;
-
-      //use prototype
-      delete (this as any)[key]
     }
 
     return rs
   }
-  #updateAttribute(propDef: PropOption, key: string, val: string | null) {
-    let k = kebabCase(key)
-    let v = trim(val)
-    if (isBooleanProp(propDef.type)) {
-      v = getBooleanValue(val)
-      if (isBoolean(v)) {
-        if (v && !this.hasAttribute(k)) {
-          this.toggleAttribute(k, true)
-        } else if (!v && this.hasAttribute(k)) {
-          this.toggleAttribute(k, false)
-        }
-      } else if (this.getAttribute(k) !== v) {
-        this.setAttribute(k, v)
-      }
-    } else if (this.getAttribute(k) !== v) {
-      this.setAttribute(k, v)
-    }
-  }
-  #convertValue(v: string, types: Array<Constructor<any>>) {
-    let val: any = v
-    try {
-      for (let i = 0; i < types.length; i++) {
-        const t = types[i];
-        if (t === Boolean) {
-          val = getBooleanValue(v)
-        } else if (t === Number) {
-          val = Number(v)
-        } else if (t === String) {
-          val = String(v)
-        } else if (t === Object || t === Array) {
-          val = parseJSON(v)
-        } else if (t === Date) {
-          val = new Date(v)
-        } else {
-          val = new t(v)
-        }
-      }
-    } catch (error) {
-      showTagError(this.tagName, `Convert attribute error with ` + v);
-    }
-    return val
-  }
-  //属性值检测
-  #propTypeCheck(propDefs: Record<string, PropOption>, propKey: string, newValue: string | null, hasAttr?: boolean) {
-    let propDef = propDefs[propKey]
-    if (!propDef) return newValue
 
-    let validator = propDef.isValid
-    let expectType = propDef.type
-    let expectTypeAry = isArray<Constructor<any>>(expectType) ? expectType : [expectType]
-    let typeConverter = propDef.converter
-    let val: any = newValue
-    if (!some(expectTypeAry, (et) => et === String) && isString(val) && !isNull(val)) {
-      try {
-        val = typeConverter ? typeConverter(val) : this.#convertValue(val, expectTypeAry)
-      } catch (error) {
-        showTagError(this.tagName, `Convert attribute '${propKey}' error with ` + val)
-      }
-    } //endif
-
-    //extra work
-    for (let i = 0; i < expectTypeAry.length; i++) {
-      const et = expectTypeAry[i];
-      if (et.name === 'Boolean' && hasAttr) {
-        val = getBooleanValue(val)
-      }
-    }
-
-    if (isNil(val)) {
-      return val
-    }
-
-    let realType = typeof val;
-    let matched = isDefined(val) ? false : true;
-    for (let i = 0; i < expectTypeAry.length; i++) {
-      const et = expectTypeAry[i];
-      if (
-        //base form
-        realType === typeNameLower(et) ||
-        //object form
-        val instanceof et || (Object.prototype.toString.call(val) === Object.prototype.toString.call(et.prototype))
-      ) {
-        matched = true
-        break
-      }
-    }
-
-    if (!matched) {
-      showTagError(
-        this.tagName,
-        `Invalid prop '${propKey}'. expected '${expectTypeAry.map(
-          (t) => t.name || t
-        )}' but got '${realType}'`
-      );
-    }
-    if (validator) {
-      if (!validator.call(this, val, this.__data_)) {
-        showTagError(
-          this.tagName,
-          `Invalid prop '${propKey}'. IsValid() check failed`
-        );
-      }
-    }
-
-    return val;
-  }
   #initStates() {
-    let stateDefs = DefinitionStateMap.get(this.constructor) ?? DefinitionStateMap.get(this.__superComp)
+    let stateDefs = this.__stateDefs
     if (stateDefs)
-      each<StateOption, string>(stateDefs, (def, key) => {
-        let stateDef = stateDefs[key];
-        let val = get(this, key);
-        if (stateDef) {
-          let propName = stateDef.prop;
-          val = propName ? cloneDeep(this.__data_[propName]) : get(this, key);
+      each<StateDefInternal, string>(stateDefs, (def, key) => {
+        let stateDef = stateDefs[key] as StateDefInternal
+        const sig = this.__s[key]
+        if (stateDef && stateDef.prop) {
+          const val = cloneDeep(this.__data_[stateDef.prop])
+          this.__data_[key] = val
+          if (sig !== undefined) sig.value = val
+        } else {
+          this.__data_[key] = sig !== undefined ? sig.value : undefined
         }
-
-        this.__data_[key] = val;
-        delete (this as any)[key]
       });
   }
   updateProps(props: Record<string, any>, force = false) {
-    let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(this.__superComp)
+    let propDefs = this.__propDefs
     if (!propDefs) return
     if (!this.__inited) {
       assign(this.#props, props)
+      for (const k in props) {
+        if (!Object.prototype.hasOwnProperty.call(props, k)) continue
+        const ck = camelCaseCached(k)
+        if (this.__s[ck]) this.__s[ck].value = props[k]
+      }
       return
     }
 
-    let need2UpdateAttrs: Array<any> = []
-    //存在attrs表示已初始化完成
-    each(props, (v, k: string) => {
-      let ck = camelCaseCached(k)
-      let propDef = propDefs[ck]
-      if (!propDef) return
-      v = this.#propTypeCheck(propDefs, ck, v)
+    //单键快路径
+    let singleK: string | undefined
+    let keyCount = 0
+    for (const k in props) {
+      if (!Object.prototype.hasOwnProperty.call(props, k)) continue
+      singleK = k
+      keyCount++
+      if (keyCount > 1) break
+    }
+    if (keyCount === 1) {
+      CompElemHelper.updatePropOne(this, singleK!, props[singleK!], force)
+      return
+    }
+    const pendingAttrs: Array<any> = []
+    batch(() => {
+      for (const k in props) {
+        if (!Object.prototype.hasOwnProperty.call(props, k)) continue
+        let v = props[k]
+        let ck = camelCaseCached(k)
+        let propDef = propDefs[ck]
+        if (!propDef) continue
+        v = CompElemHelper.propTypeCheck(this, propDefs, ck, v)
 
-      let oldValue = this.__data_[ck]
+        const oldValue = this.__s[ck] ? this.__s[ck].value : this.__data_[ck]
+        if (!force && Object.is(oldValue, v)) continue
 
-      if (!force) {
-        let stateMap = HasChangedPropOrStateMap.get(this.constructor)
-        let hasChanged = stateMap?.get(ck)
-        if (hasChanged) {
-          if (!hasChanged.call(this, v, oldValue, [ck], v, oldValue)) return true;
-        } else {
-          if (isObject(v)) {
-            let shallowMap = PropShallowKeySetMap.get(this.constructor)
-            if (shallowMap?.has(ck)) {
-              //默认对比算法
-              if (Object.is(oldValue, v)) {
-                return true;
-              }
-            }
-          } else {
-            //默认对比算法
-            if (Object.is(oldValue, v)) {
-              return true;
-            }
-          }
+        if (propDef.attribute !== false && isDefined(v) && !isObject(v)) {
+          pendingAttrs.push([propDef, ck, v])
         }
-      }
 
-      if (propDef.attribute && isDefined(v) && !isObject(v)) {
-        need2UpdateAttrs.push([propDef, ck, v])
+        this.__data_[ck] = v
+        props[ck] = v
+        if (this.__s[ck]) this.__s[ck].value = v
       }
-
-      set(this.__data_, ck, v)
-      props[ck] = v
-      requestUpdate(this, v, oldValue, [ck])
     })
+    const need2UpdateAttrs = pendingAttrs.length ? pendingAttrs : null
     assign(this.#props, props)
 
-    need2UpdateAttrs.forEach(([propDef, key, v]) => {
-      this.#updateAttribute(propDef, key, v)
-    })
-  }
-  _initProps(props: Record<string, any>, attrs?: Record<string, any>) {
-    this.#props = merge(this.#props || {}, props);
-    this.#attrs = merge(this.#attrs || {}, attrs);
-
-    each(props, (v, k: string) => {
-      if (isObject(v)) {
-        let fromPath = OBJECT_VAR_PATH.get(v)
-        if (fromPath) {
-          let parentStateDefs = this.wrapperComponent ? DefinitionStateMap.get(this.wrapperComponent?.constructor) : null
-          let parentStateKey = fromPath[0]
-          if (parentStateDefs && parentStateDefs[parentStateKey]) {
-            let propDefs = DefinitionPropMap.get(this.constructor)
-            set(propDefs!, [k, 'shallow'], parentStateDefs[parentStateKey].shallow)
-          }
-        }
+    if (need2UpdateAttrs) {
+      for (let i = 0; i < need2UpdateAttrs.length; i++) {
+        const [propDef, key, v] = need2UpdateAttrs[i]
+        CompElemHelper.updateAttribute(this, propDef, key, v)
       }
-    })
+    }
   }
+
   /**
    * 绑定slot标签，render时调用
    */
@@ -1104,17 +762,37 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       }
     }
   }
+
+  /**
+   * 编译器产物 `buildTemplate()` 的 innerHTML 快路径入口：把片段里的占位符文本节点
+   * 原位拆分并按文档序收集进 `nodes`。
+   *
+   * 暴露为实例方法（而非让产物 import 一个自由函数）是因为 `buildTemplate` 与
+   * `subs[id].buildTemplate` 都以 `buildTemplate.call(component)` 调用 —— `this`
+   * 恒为组件实例，无需给产物引入额外的模块级标识符。
+   */
+  _ceWalkSplit(f: Node, nodes: Node[]): void {
+    walkSplitText(f, nodes)
+  }
+
   #updateSlotsAry() {
     if (!this.#renderRoot) return
     let slotKeys = keys(this.#slotsEl)
     if (isEmpty(slotKeys)) return
 
-    const cs = flatMap(this.childNodes, node => {
-      if (node.nodeType === Node.COMMENT_NODE) return []
-      if (node.nodeType === Node.TEXT_NODE && isBlank(node.textContent)) return []
-      if (node instanceof HTMLSlotElement) return node.assignedNodes({ flatten: true })
-      return node
-    })
+    const cs: Node[] = []
+    const childNodes = this.childNodes
+    for (let ci = 0; ci < childNodes.length; ci++) {
+      const node = childNodes[ci]
+      if (node.nodeType === Node.COMMENT_NODE) continue
+      if (node.nodeType === Node.TEXT_NODE && isBlank(node.textContent)) continue
+      if (node instanceof HTMLSlotElement) {
+        const assigned = node.assignedNodes({ flatten: true })
+        for (let ai = 0; ai < assigned.length; ai++) cs.push(assigned[ai])
+        continue
+      }
+      cs.push(node)
+    }
 
     let groups = groupBy<Node>(cs, node => {
       if (node.nodeType === Node.TEXT_NODE && slotKeys.includes(SLOT_NAME_DEFAULT)) return SLOT_NAME_DEFAULT
@@ -1125,7 +803,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       }
     })
     if (isEmpty(groups)) {
-      (this as any).slots = {};
+      this.#setSlots({})
       return;
     }
 
@@ -1160,14 +838,25 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       }
     })
 
-      ; (this as any).slots = rs;
+    this.#setSlots(rs)
+  }
+
+
+  #slotsSig() {
+    const s = this.__s || (this.__s = {} as Record<string, SignalNode<any>>)
+    return (s.slots || (s.slots = signal<Record<string, Node[]>>({})))
+  }
+  #setSlots(next: Record<string, Node[]>) {
+    const sig = this.#slotsSig()
+    if (sameSlots(sig.value, next)) return
+    sig.value = next
   }
   #updateSlot(name: string) {
     let hook = this.#slotHooks[name]
     if (!hook) return;
     let slotMap = this.#slotPropsMap[name]
-    if (!this.__data_.slots) return
-    let slot = this.__data_.slots[name]
+    const slotsMap = this.#slotsSig().value
+    let slot = slotsMap[name]
     //slot not ready yet
     //1. 可能是if/each等指令还未插入
     if (!slot) return
@@ -1200,35 +889,14 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
   #attrChanged(name: string, oldValue: string | null, newValue: string | null) {
     if (!this.__inited) return;
-    let observedAttrs = _getObservedAttrs(this.constructor)
-    if (observedAttrs.has(name)) {
-      let camelName = camelCaseCached(name)
-      if (isNull(newValue)) {
-        let propDefs = DefinitionPropMap.get(this.constructor) ?? DefinitionPropMap.get(this.__superComp)
-        //使用默认值
-        if (propDefs)
-          newValue = propDefs[camelName]._defaultValue
-      }
-      this.updateProps({ [camelName]: newValue })
+    const propDef = this.__propDefs?.[camelCaseCached(name)]
+    if (!propDef) return;
+    let camelName = camelCaseCached(name)
+    if (isNull(newValue)) {
+      //使用默认值
+      newValue = propDef._defaultValue
     }
-  }
-
-  _regSubViewDeps(props: string[], up: UpdatePoint) {
-    if (!this.__updateSubViewDeps) {
-      this.__updateSubViewDeps = new Map()
-    }
-    props.forEach(prop => {
-      let depSet = this.__updateSubViewDeps.get(prop)
-      if (!depSet) {
-        depSet = new Set()
-        this.__updateSubViewDeps.set(prop, depSet)
-      }
-      depSet.add(up)
-    })
-
-  }
-  _getPrivateData() {
-    return this.__data_
+    this.updateProps({ [camelName]: newValue })
   }
 
   ////////////////////----------------------------/////////////// APIs
@@ -1246,11 +914,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       arg.event = event;
     }
     arg.target = this;
-
-    if (process.env.DEV && !has(this.#attrs, 'emit-native') && !matchEmit(this.constructor, evName)) {
-      showTagError(this.tagName, `'${evName}' was not declared in @emits`)
-      return
-    }
 
     if (has(this.#attrs, 'emit-native')) {
       this.dispatchEvent(
@@ -1283,27 +946,43 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       return
     }
 
-    Queue.pushNext(cbk)
+    Promise.resolve().then(cbk)
   }
   /**
-   * 强制更新一次视图
+   * 声明一个运行时命名的响应式字段，返回其信号
+   * @param key 
+   * @param init 
+   * @returns 
+   */
+  defineSignalField<T = any>(key: string, init: T): { value: T } {
+    const s = this.__s || (this.__s = {} as Record<string, SignalNode<any>>)
+    return (s[key] || (s[key] = signal(init)))
+  }
+  // 编译器调用
+  _regViewEffect(e: EffectNode) {
+    this.#viewEffects.push(e)
+  }
+
+  /**
+   * 强制重渲染一次视图
    */
   forceUpdate() {
-    let viewDeps = ViewDepMap.get(this.constructor)
-    if (viewDeps && viewDeps.size > 0) {
-      viewDeps.forEach((k: string) => {
-        this.#updateSources[k] = {
-          value: undefined,
-          chain: undefined,
-        };
-      })
-    } else {
-      //force update for non-UI components‌ 
-      this.#updateSources['__force__'] = {
-        value: undefined,
-        chain: undefined,
-      };
+    if (!this.shouldUpdate({})) return
+    const effects = this.#viewEffects
+    if (effects.length > 0) {
+      this.__f = true
+      try {
+        for (let i = 0; i < effects.length; i++) {
+          const e = effects[i]
+          if (!e.disposed) e.run()
+        }
+      } finally {
+        this.__f = false
+      }
     }
-    this.#update();
+    this.#updateSlots.forEach((v) => {
+      this.#updateSlot(v)
+    })
+    this.updated({});
   }
 }

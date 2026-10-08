@@ -1,14 +1,3 @@
-import {
-  ComputedMapCache,
-  ComputedUpdateDepsMap,
-  CssUpdateDepsMap,
-  DefinitionComputedMap,
-  DefinitionPropMap,
-  DefinitionStateMap,
-  ViewDepMap,
-  WatchKeyRootMap,
-} from "./constants";
-
 /**
  * CompElem DevTools 接入点
  *
@@ -17,7 +6,8 @@ import {
  *  1. 零运行时开销 —— install 只挂载函数引用，不做任何遍历/计算；
  *     所有数据在被 devtools 调用时才现算。
  *  2. 零公开 API 面 —— 本模块不从 index.ts 导出，只挂到 globalThis。
- *  3. 只读 —— 全部返回副本或新数组，调用方无法改写框架内部 WeakMap。
+ *  3. 只读 —— 全部返回副本或新数组，调用方无法改写框架内部状态。
+ *
  */
 
 export interface CompElemCoreMeta {
@@ -25,14 +15,6 @@ export interface CompElemCoreMeta {
   version: number
   /** 类上声明的 computed 键名（含继承链） */
   computedKeys(ctor: Function): string[]
-  /** computed 键 -> 它依赖的 prop/state 路径（含继承链） */
-  computedDeps(ctor: Function): Record<string, string[]>
-  /** @watch 监听的变量路径（含继承链，已去重） */
-  watchKeys(ctor: Function): string[]
-  /** render() 收集到的视图依赖路径 */
-  viewDeps(ctor: Function): string[]
-  /** css 模板里用到的变量路径 */
-  cssDeps(ctor: Function): string[]
   /** @prop 声明的键名（含继承链） */
   propKeys(ctor: Function): string[]
   /** @state 声明的键名（含继承链） */
@@ -47,109 +29,33 @@ function superOf(ctor: any): any {
   }
 }
 
-// 沿继承链收集所有命中值（子类在前）
-function allOnChain<T>(ctor: any, read: (c: any) => T | undefined | null): T[] {
-  const out: T[] = [];
-  let c = ctor;
-  const guard = 32;
-  for (let i = 0; i < guard && c; i++) {
-    if (c === Function.prototype) break;
-    let v: any;
-    try { v = read(c); } catch (e) { v = undefined; }
-    if (v) out.push(v);
-    c = superOf(c);
+/** ctor 的编译期家族元数据（未编译组件为 undefined）。 */
+function familyOf(ctor: any, name: 'props' | 'states' | 'computedGetters'): Record<string, any> | undefined {
+  try {
+    return superOf(ctor) ? ctor?.__ce_static__?.[name] : undefined;
+  } catch (e) {
+    return undefined;
   }
-  return out;
-}
-
-function unique(list: string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (let i = 0; i < list.length; i++) {
-    if (!seen.has(list[i])) {
-      seen.add(list[i]);
-      out.push(list[i]);
-    }
-  }
-  return out;
 }
 
 function computedKeys(ctor: Function): string[] {
-  const fromCache = allOnChain(ctor, c => ComputedMapCache.get(c));
-  const fromDef = fromCache.length ? [] : allOnChain(ctor, c => DefinitionComputedMap.get(c));
-  const keys: string[] = [];
-  fromCache.concat(fromDef).forEach(m => {
-    Object.keys(m).forEach(k => keys.push(k));
-  });
-  return unique(keys);
-}
-
-// ComputedUpdateDepsMap 是「数据路径 -> computed getter 集合」的正向索引，
-// 反推即得到「computed 键 -> 依赖路径」。getter 上的 key 由 CompElem 首次实例化时写入。
-function computedDeps(ctor: Function): Record<string, string[]> {
-  const out: Record<string, string[]> = {};
-  allOnChain(ctor, c => ComputedUpdateDepsMap.get(c)).forEach(depMap => {
-    depMap.forEach((getters, dep) => {
-      getters.forEach((g: any) => {
-        const k = g && g.key;
-        if (typeof k !== "string") return;
-        (out[k] || (out[k] = [])).push(dep);
-      });
-    });
-  });
-  Object.keys(out).forEach(k => { out[k] = unique(out[k]); });
-  return out;
-}
-
-function watchKeys(ctor: Function): string[] {
-  const out: string[] = [];
-  allOnChain(ctor, c => WatchKeyRootMap.get(c)).forEach(rootMap => {
-    rootMap.forEach(list => {
-      for (let i = 0; i < list.length; i++) out.push(list[i]);
-    });
-  });
-  return unique(out);
-}
-
-function viewDeps(ctor: Function): string[] {
-  const out: string[] = [];
-  allOnChain(ctor, c => ViewDepMap.get(c)).forEach(set => {
-    set.forEach(p => out.push(p));
-  });
-  return unique(out);
-}
-
-function cssDeps(ctor: Function): string[] {
-  const out: string[] = [];
-  allOnChain(ctor, c => CssUpdateDepsMap.get(c)).forEach(set => {
-    set.forEach(p => out.push(p));
-  });
-  return unique(out);
+  const m = familyOf(ctor, 'computedGetters');
+  return m ? Object.keys(m) : [];
 }
 
 function propKeys(ctor: Function): string[] {
-  const out: string[] = [];
-  allOnChain(ctor, c => DefinitionPropMap.get(c)).forEach(m => {
-    Object.keys(m).forEach(k => out.push(k));
-  });
-  return unique(out);
+  const m = familyOf(ctor, 'props');
+  return m ? Object.keys(m) : [];
 }
 
 function stateKeys(ctor: Function): string[] {
-  const out: string[] = [];
-  allOnChain(ctor, c => DefinitionStateMap.get(c)).forEach(m => {
-    Object.keys(m).forEach(k => out.push(k));
-  });
-  return unique(out);
+  const m = familyOf(ctor, 'states');
+  return m ? Object.keys(m) : [];
 }
 
 const CORE_META: CompElemCoreMeta = {
-  version: 1,
+  version: 2,
   computedKeys,
-  computedDeps,
-  watchKeys,
-  viewDeps,
-  cssDeps,
   propKeys,
   stateKeys,
 };
@@ -176,13 +82,12 @@ function docEl(): any {
  * 浏览器没有「查询扩展是否安装」的 API，只能靠扩展自己打标 —— 这与 Vue DevTools
  * 依赖 __VUE_DEVTOOLS_GLOBAL_HOOK__ 是同一思路。标记由 content script 在
  * document_start 同步写入，早于任何页面脚本，因此模块加载期即可读到。
- * bridge 兜底是为了兼容旧版本扩展（不打标但会挂 window.__COMPELEM_DEVTOOLS__）。
  */
 function devtoolsInstalled(): boolean {
   try {
     const de = docEl();
     if (de && de.getAttribute(DEVTOOLS_MARK)) return true;
-    return !!(globalThis as any).__COMPELEM_DEVTOOLS__;
+    return false;
   } catch (e) {
     return true; // 判定不了就当已装，宁可不提示也不误报
   }
@@ -242,14 +147,21 @@ export function notifyDevtoolsMissing(): void {
  */
 export function installCompElemDevtools(): CompElemCoreMeta | undefined {
   try {
-    const g = globalThis as any;
-    if (!g) return undefined;
-    const ns = g.__COMPELEM_ECOSYSTEM__ || (g.__COMPELEM_ECOSYSTEM__ = {});
-    if (!ns.core) ns.core = CORE_META;
-    stampPage();
-    notifyDevtoolsMissing();
-    return ns.core;
+    if (!process.env.DEV) {
+      const g = globalThis as any
+      if (!g) return undefined
+      const ns = g.__COMPELEM_ECOSYSTEM__ || (g.__COMPELEM_ECOSYSTEM__ = {})
+      if (!ns.core) ns.core = CORE_META
+      return ns.core
+    }
+    const g = globalThis as any
+    if (!g) return undefined
+    const ns = g.__COMPELEM_ECOSYSTEM__ || (g.__COMPELEM_ECOSYSTEM__ = {})
+    if (!ns.core) ns.core = CORE_META
+    stampPage()
+    notifyDevtoolsMissing()
+    return ns.core
   } catch (e) {
-    return undefined;
+    return undefined
   }
 }

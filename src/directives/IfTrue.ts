@@ -1,6 +1,6 @@
-import { CompElem } from "../CompElem";
+﻿import { CompElem } from "../CompElem";
 import { directive } from "../directive/index";
-import { TemplateMeta } from "../render/TemplateMeta";
+import { resolveSubTemplateMeta } from "../render/render";
 import { DirectiveUpdateTag, EnterPointType, TplFn } from "../types";
 
 const TmplMap = new WeakMap()
@@ -10,27 +10,37 @@ const TmplMap = new WeakMap()
  * @param tmpl 模板
  */
 export const ifTrue = directive(function IfTrue(condition: boolean, tplFn: TplFn) {
-  return (pointNode: Node, [condi, render]: any[], oldArgs: any[] | undefined, { renderComponent }: { renderComponent: CompElem }) => {
-    let tmplM = TmplMap.get(pointNode)
-    if (condi && !TmplMap.has(pointNode)) {
-      tmplM = new TemplateMeta(render.call(renderComponent), renderComponent)
-      TmplMap.set(pointNode, tmplM)
-    }
+  const executor = (pointNode: Node, newArgs: any[], oldArgs: any[] | undefined, { renderComponent }: { renderComponent: CompElem }): [DirectiveUpdateTag, ...any[]] | void => {
+    const condi = newArgs[0]
+    const render = newArgs[1]
     if (oldArgs) {
       if (oldArgs[0]) {
         if (!condi) {
           return [DirectiveUpdateTag.REMOVE]
-        } else {
-          return [DirectiveUpdateTag.REFRESH, render]
         }
+        return [DirectiveUpdateTag.REFRESH, render]
       } else {
         if (condi) {
+          let tmplM = TmplMap.get(pointNode)
+          if (!TmplMap.has(pointNode)) {
+            tmplM = resolveSubTemplateMeta(renderComponent, render)
+            TmplMap.set(pointNode, tmplM)
+          }
           return [DirectiveUpdateTag.REPLACE, render, tmplM]
         }
       }
       return [DirectiveUpdateTag.NONE]
     }
 
-    return [DirectiveUpdateTag.INIT, ...(condi ? [render, tmplM] : [])]
-  };
+    if (condi) {
+      let tmplM = TmplMap.get(pointNode)
+      if (!TmplMap.has(pointNode)) {
+        tmplM = resolveSubTemplateMeta(renderComponent, render)
+        TmplMap.set(pointNode, tmplM)
+      }
+      return [DirectiveUpdateTag.INIT, render, tmplM]
+    }
+    return [DirectiveUpdateTag.INIT]
+  }
+  return executor
 }, [EnterPointType.TEXT, EnterPointType.SLOT])

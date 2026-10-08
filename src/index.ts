@@ -3,14 +3,10 @@ import { DefinitionComponentMap } from "./constants";
 import { installCompElemDevtools } from "./devtools";
 import { createRef, css, h } from "./render/render";
 import { Template } from './render/Template';
-export { reactive as createReactiveState, getCurrentRenderComponent } from "./reactive";
-
 // DevTools 接入点：模块加载期即挂载（扩展据此判断核心库是否已加载）
 installCompElemDevtools();
 
 //decorators
-export * from "./decorator/Decorator";
-export * from "./decorator/index";
 export * from "./decorators/computed";
 export * from "./decorators/csscope";
 export * from "./decorators/debounced";
@@ -36,10 +32,8 @@ export * from "./directives/Show";
 export * from "./directives/Slot";
 export * from "./directives/Styles";
 export * from "./directives/When";
-//transition
-export * from "./transition";
-export * from "./viewTransition";
 
+export { batch, effect, flushSync, onCleanup, signal, computed as signalComputed, untrack } from './signal';
 export { createRef, css, h, Template };
 export function defineComponents() {
     each(DefinitionComponentMap, (clz, name) => {
@@ -63,9 +57,10 @@ export function defineComponentsSubset(names: string[]) {
 
 export * from './CompElem';
 export * from './config';
+export { hasEmitListener, hasModelListener, writeModelProp } from './events/event';
 export * from './types';
 
-export * from './utils';
-
 export * from './helpers';
+export * from './render/write';
+export * from './utils';
 

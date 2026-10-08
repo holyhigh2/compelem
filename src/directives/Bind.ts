@@ -1,6 +1,5 @@
 import { camelCase, each } from "myfx";
 import { CompElem } from "../CompElem";
-import { DefinitionPropMap } from "../constants";
 import { directive } from "../directive/index";
 import { EnterPointType } from "../types";
 import { addUninitializedSubComponentProp, isCompElemNode } from "../utils";
@@ -91,8 +90,7 @@ export const bind = directive(function Bind(obj: Record<string, any>) {
     if (isCompElemNode(el)) {
       //判断是否prop
       let props: Record<string, any> = {};
-      // let attrs: Record<string, string> = {}
-      let propDefs = DefinitionPropMap.get(el.constructor)
+      let propDefs = (el.constructor as any).__ce_static__?.props
 
       let oldVals: Record<string, any> = {}
       LastValsMap.set(el, oldVals)
