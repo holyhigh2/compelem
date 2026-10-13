@@ -36,7 +36,7 @@ export function normalizeClass(val: Record<string, boolean> | string | Array<Rec
  * @param styles 对象/数组/字符串
  */
 export const classes = directive(function Classes(clazz: Record<string, boolean | string> | Array<string> | string) {
-  return (pointNode: Node, [clazz]: [Record<string, boolean> | Array<string> | string], oldArgs: any[] | undefined) => {
+  return (pointNode: Node, [clazz]: [Record<string, boolean> | Array<string> | string]) => {
     const el = pointNode as Element
     const newClass = normalizeClass(clazz);
     const oldClass = ClassLastMap.get(el) ?? '';

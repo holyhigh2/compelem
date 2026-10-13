@@ -1,4 +1,4 @@
-import { camelCase, get, isBlank, isString, isUndefined, kebabCase, parseJSON, set, some } from "myfx";
+import { camelCase, get, isBlank, isString, isUndefined, kebabCase, parseJSON, some } from "myfx";
 import { CompElem } from "./CompElem";
 import { ComponentUninitializedSubComponentPropMap, CssVarKeyCacheMap, DefinitionComponentMap } from "./constants";
 import { Constructor } from "./types";
@@ -184,14 +184,6 @@ export const kebabCaseCached: (name: string) => string = memo(kebabCase, 1024)
 export function fieldGet(obj: any, name: string): any {
   if (name.indexOf('.') < 0 && name.indexOf('[') < 0) return obj[name]
   return get(obj, name)
-}
-
-export function fieldSet(obj: any, name: string, value: any): void {
-  if (name.indexOf('.') < 0 && name.indexOf('[') < 0) {
-    obj[name] = value
-    return
-  }
-  set(obj, name, value)
 }
 
 //小写缓存

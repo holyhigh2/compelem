@@ -10,6 +10,9 @@
  *
  */
 
+import { CssScopeCacheMap, CssStyleSheetCacheMap, CssTemplateSheetMap, DefinitionCompEmitMap } from "./constants";
+import { CssTemplate } from "./render/CssTemplate";
+
 export interface CompElemCoreMeta {
   /** 契约版本，扩展据此判断可用能力 */
   version: number
@@ -19,6 +22,25 @@ export interface CompElemCoreMeta {
   propKeys(ctor: Function): string[]
   /** @state 声明的键名（含继承链） */
   stateKeys(ctor: Function): string[]
+  /** @emits 声明的事件名（含继承链） */
+  emitKeys(ctor: Function): string[]
+  /** @csscope 声明的静态样式及其 scope（含继承链） */
+  cssScopeDecls(ctor: Function): CssScopeDecl[]
+}
+
+/** 一条静态样式 getter 的 @csscope 声明 */
+export interface CssScopeDecl {
+  /** 静态 getter 名 */
+  getter: string
+  /** 声明文本（CssTemplate.getCssText() 或 CSSStyleSheet 序列化） */
+  text: string
+  /** 装饰器声明的 scope 列表，inner/host/global 的子集（可多选） */
+  scopes: string[]
+  /**
+   * 解析出的样式表对象。仅限页面世界内做 identity 比较（与 adoptedStyleSheets
+   * 比对判 live），**不可结构化克隆**过 postMessage。
+   */
+  sheet: CSSStyleSheet | null
 }
 
 function superOf(ctor: any): any {
@@ -53,12 +75,108 @@ function stateKeys(ctor: Function): string[] {
   return m ? Object.keys(m) : [];
 }
 
+/**
+ * @emits 声明的事件名（含继承链）。
+ */
+function emitKeys(ctor: Function): string[] {
+  const out: string[] = [];
+  let c: any = ctor;
+  while (c && c !== Function.prototype) {
+    try {
+      const set = DefinitionCompEmitMap.get(c);
+      if (set) {
+        for (const n of set) if (out.indexOf(n) < 0) out.push(n);
+      }
+    } catch (e) { /* noop */ }
+    c = superOf(c);
+  }
+  return out;
+}
+
 const CORE_META: CompElemCoreMeta = {
-  version: 2,
+  version: 4,
   computedKeys,
   propKeys,
   stateKeys,
+  emitKeys,
+  cssScopeDecls,
 };
+
+/**
+ * @csscope 声明的静态样式（含继承链）
+ *
+ */
+function cssScopeDecls(ctor: Function): CssScopeDecl[] {
+  const out: CssScopeDecl[] = [];
+  const seenGetters = new Set<string>();
+  const sheetsByScope: Record<string, CSSStyleSheet[]> = { inner: [], host: [] };
+  let c: any = ctor;
+  while (c && c !== Function.prototype) {
+    try {
+      const m = CssScopeCacheMap.get(c);
+      if (m) {
+        const inner = m.get('inner');
+        const host = m.get('host');
+        if (inner) for (const s of inner) sheetsByScope.inner.push(s);
+        if (host) for (const s of host) sheetsByScope.host.push(s);
+      }
+    } catch (e) { /* noop */ }
+    c = superOf(c);
+  }
+  const docSheets: CSSStyleSheet[] = [];
+  try {
+    docSheets.push(...(globalThis.document?.adoptedStyleSheets || []));
+  } catch (e) { /* noop */ }
+  c = ctor;
+  while (c && c !== Function.prototype) {
+    let names: string[] = [];
+    try {
+      names = Object.getOwnPropertyNames(c);
+    } catch (e) { /* noop */ }
+    for (const name of names) {
+      if (['length', 'name', 'prototype', 'observedAttributes'].includes(name)) continue;
+      if (seenGetters.has(name)) continue; // 子类 override 优先，链上只收首次
+      let desc: PropertyDescriptor | undefined;
+      try { desc = Object.getOwnPropertyDescriptor(c, name); } catch (e) { /* noop */ }
+      if (!desc || typeof desc.get !== 'function') continue;
+      let rs: any;
+      try { rs = desc.get.call(c); } catch (e) { continue; }
+      const arr = Array.isArray(rs) ? rs : [rs];
+      for (const it of arr) {
+        if (it instanceof CssTemplate) {
+          seenGetters.add(name);
+          const text = String(it.getCssText());
+          let sheet: CSSStyleSheet | null = CssTemplateSheetMap.get(it) ?? CssStyleSheetCacheMap.get(it.strings) ?? null;
+          const scopes: string[] = [];
+          if (sheet) {
+            if (sheetsByScope.inner.includes(sheet)) scopes.push('inner');
+            if (sheetsByScope.host.includes(sheet)) scopes.push('host');
+            if (docSheets.includes(sheet)) scopes.push('global');
+          }
+          out.push({ getter: name, text, scopes, sheet });
+        } else if (typeof CSSStyleSheet !== 'undefined' && it instanceof CSSStyleSheet) {
+          seenGetters.add(name);
+          const text = sheetText(it);
+          const scopes: string[] = [];
+          if (sheetsByScope.inner.includes(it)) scopes.push('inner');
+          if (sheetsByScope.host.includes(it)) scopes.push('host');
+          if (docSheets.includes(it)) scopes.push('global');
+          out.push({ getter: name, text, scopes, sheet: it });
+        }
+      }
+    }
+    c = superOf(c);
+  }
+  return out;
+}
+
+function sheetText(sheet: CSSStyleSheet): string {
+  try {
+    return Array.from(sheet.cssRules).map((r: any) => r.cssText).join('\n');
+  } catch (e) {
+    return '';
+  }
+}
 
 // ---------------- 页面标记与「未安装扩展」提示 ----------------
 

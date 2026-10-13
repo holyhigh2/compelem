@@ -22,7 +22,11 @@ export function wText(node: any, v: any): void {
 
 //设置属性
 export function wAttr(node: any, attrName: string, v: any): void {
-  node.setAttribute(attrName, v + '')
+  if (v == null) {
+    node.removeAttribute(attrName)
+  } else {
+    node.setAttribute(attrName, v + '')
+  }
 }
 
 //设置混合模板属性点：`pre + (v + '') + post`（pre/post 是编译器切好的常量）

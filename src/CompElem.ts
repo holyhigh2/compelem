@@ -14,13 +14,13 @@ import {
   isNil,
   isNull,
   isObject,
+  isUndefined,
   keys,
   last,
   merge,
   reject,
   remove,
-  size,
-  toArray
+  size
 } from "myfx";
 import { getBaseSheets } from "./config";
 import { ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, CssScopeCacheMap, CssTemplateSheetMap, PropTypeMap, SLOT_NAME_DEFAULT } from "./constants";
@@ -29,20 +29,32 @@ import { bindEvents, emitEvent, EvHadler, registerEvent, releaseEventHandlers } 
 import { CompElemHelper } from "./helpers";
 import { IComponent } from "./IComponent";
 import { CssTemplate } from "./render/CssTemplate";
-import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildStaticView } from "./render/render";
+import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildStaticView, buildSubTemplateView } from "./render/render";
+import { resolveSubTemplateOwner } from "./render/slot-provenance";
 import { Template } from "./render/Template";
 import { UpdatePoint } from "./render/UpdatePoint";
 import { walkSplitText } from "./render/walk";
-import { batch, effect, EffectNode, signal, SignalNode } from "./signal";
+import { batch, effect, EffectNode, onCleanup, signal, SignalNode } from "./signal";
 import { PropOption, SlotOptions, StateDefInternal, StateOption, TplFn } from "./types";
-import { _getSuper, camelCaseCached, DomUtil, getBooleanValue, isBooleanProp, kebabCaseCached, showTagError } from "./utils";
+import { _getSuper, camelCaseCached, DomUtil, getBooleanValue, isBooleanProp, kebabCaseCached, showTagError, showWarn } from "./utils";
 
 let CompElemSn = 0
 const SlotCompMap = new WeakMap()
-const EMPTY_SLOTS = {}
+const EMPTY_SLOTS: Record<string, Node[]> = Object.freeze({})
 const EMPTY_PARENT_PROPS: Record<string, any> = {}
-/** varChain 兜底的空值：共享同一个冻结数组，缺路径时指令拿到的是空链而非 undefined */
-const EMPTY_VAR_CHAIN: string[] = []
+/** 已就 own 字段默认值的类：告警每类只发一次 */
+const FieldOverrideWarned = new WeakSet<Function>()
+
+/** 原型链上是否存在同名访问器（own 属性遮蔽的判定前提） */
+function hasAccessor(obj: object, key: string): boolean {
+  let p = Object.getPrototypeOf(obj)
+  while (p) {
+    const d = Object.getOwnPropertyDescriptor(p, key)
+    if (d) return d.get !== undefined || d.set !== undefined
+    p = Object.getPrototypeOf(p)
+  }
+  return false
+}
 
 /**
  * slots 内容浅比较
@@ -64,11 +76,31 @@ function sameSlots(a: Record<string, Node[]>, b: Record<string, Node[]>): boolea
 }
 
 /**
+ * 视图无关的 effect 装配：`@watch` 与 `cssVars`。
+ */
+function setupViewIndependentEffects(comp: CompElem<any>, ceStatic: any): void {
+  if (!ceStatic) return
+  if (ceStatic.watchEffects) {
+    for (const factory of ceStatic.watchEffects) {
+      effect(factory(comp), { asChild: false })
+    }
+  }
+  if (ceStatic.cssEffect) {
+    effect(ceStatic.cssEffect(comp), { asChild: false })
+  }
+}
+
+/**
  * CompElem基类（见 utils.ts：静态元数据 helper 已下沉）。
  *
  * @author holyhigh2
  */
 export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent<T> {
+  /**
+   * 运行时基类自声明 `noView`。
+   */
+  static __ce_static__ = { noView: true }
+
   #cid: number
   #slotPropsMap: Record<string, Partial<SlotOptions>> = {}
   __data_: Record<string, any> = {};
@@ -121,9 +153,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   get wrapperComponent(): CompElem | undefined {
     return this.#wrapperComponent?.deref();
   }
-  get slots(): Record<string, Array<Node>> {
-    return EMPTY_SLOTS
-  }
+  declare slots: Record<string, Node[]>
   get slotHooks() {
     return this.#slotHooks;
   }
@@ -324,7 +354,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     each(this.#slotNodes, (nodes) => {
       each(nodes, (node: Element) => node.remove())
     })
-    each(this.__s?.slots?.value, (nodes: Node[], k) => {
+    each(this.__s?.slots?.value, (nodes: Node[], _k) => {
       each(nodes, (node: Element) => node.remove())
     })
     this.#updateSlots.clear();
@@ -344,7 +374,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       this.__data_ =
       this.__updateTree =
       this.#parentComponent =
-      this._asyncDirectives =
       this.#wrapperComponent = null as any
     //unmount
 
@@ -380,25 +409,20 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     })
 
     //3. Render
-    const ceStatic = (this.constructor as any).__ce_static__
+    const ctor = this.constructor as any
+    const ceStatic = ctor.__ce_static__
     let fragment: DocumentFragment | undefined
     if (ceStatic?.noView) {
       //无视图组件
       this.#renderRoots = []
       this.#renderRoot = undefined
+      // noView 同样需要 @watch / cssVars
+      setupViewIndependentEffects(this, ceStatic)
     } else if (ceStatic?.buildTemplate) {
       this.#shadow = this.attachShadow({ mode: "open" });
       this.#shadow.adoptedStyleSheets = getBaseSheets(this.constructor);
       fragment = buildStaticView(this)
-      if (ceStatic.watchEffects) {
-        for (const factory of ceStatic.watchEffects) {
-          effect(factory(this))
-        }
-      }
-      if (ceStatic.cssEffect) {
-        const cssEffectFn = ceStatic.cssEffect(this)
-        effect(cssEffectFn)
-      }
+      setupViewIndependentEffects(this, ceStatic)
       if (fragment && fragment.children.length > 0) {
         const els = fragment.children
         const roots: Array<WeakRef<HTMLElement>> = []
@@ -425,7 +449,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       this.#slotHooks = slotMap
       ComponentUninitializedSlotFunctionMap.delete(this)
     }
-    each(this.#slotHooks, (v, k: string) => {
+    each(this.#slotHooks, (_v, k: string) => {
       this.#updateSlot(k)
     })
 
@@ -477,7 +501,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     //2. 设置attrs
     let props = get<Record<string, any>>(this.#slotPropsMap[name], 'props')
     if (props) {
-      each(this.slots, (nodeAry, k: string) => {
+      each(this.slots, (nodeAry, _k: string) => {
         nodeAry.filter(node => node.nodeType === Node.ELEMENT_NODE).forEach((node: Element) => {
           if (node instanceof CompElem) {
             node.updateProps(props)
@@ -549,6 +573,50 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   updated(changed: Record<string, any>) { }
 
   /**
+   * 收编「子类以**裸类字段**覆盖继承自父类的 prop 默认值」这一写法
+   */
+  #adoptOwnFieldDefaults(propDefs: Record<string, PropOption>) {
+    const ctor = this.constructor as any
+    const ceStatic = ctor.__ce_static__ as any
+    if (!ceStatic) return
+    const adopted: string[] = []
+    for (const key in propDefs) {
+      // hasOwn 而非 `key in this`：后者会命中原型链上的访问器，等于没判断
+      if (!Object.prototype.hasOwnProperty.call(this, key)) continue
+      // 必须确认原型链上确有访问器，才说明这是「遮蔽」而非「同名私有字段」。
+      // 没有访问器时 own 属性是该 key 的唯一存储，删掉就是丢数据 —— 不动它。
+      if (!hasAccessor(this, key)) continue
+      const ownVal = (this as any)[key]
+      delete (this as any)[key]
+      if (!isUndefined(ownVal)) {
+        const sig = this.__s[key]
+        if (sig !== undefined) sig.value = ownVal
+        else this.__data_[key] = ownVal
+      }
+      adopted.push(key)
+    }
+    if (!adopted.length) return
+
+    let table = ceStatic.props
+    const superCtor = Reflect.getPrototypeOf(ctor) as any
+    const superStatic = superCtor?.__ce_static__ as any
+    if (table === superStatic?.props) {
+      table = ceStatic.props = { ...table }
+    }
+    this.__propDefs = table
+    if (FieldOverrideWarned.has(ctor)) return
+    FieldOverrideWarned.add(ctor)
+    for (let i = 0; i < adopted.length; i++) {
+      const key = adopted[i]
+      table[key] = { ...table[key] }
+    }
+    showWarn(
+      `<${this.tagName}> 字段 ${adopted.join(', ')} 以裸类字段覆盖了继承的 prop 默认值，` +
+      `已自动收编。改写成 @prop 声明可消除此警告。`
+    )
+  }
+
+  /**
    * 1. 初始props中并未包含的属性，可从attributes取，且定义类型不是string时自动转
    * 2. 如果attributes中也未出现且必填报错
    * 3. 否则设置默认
@@ -581,6 +649,10 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     let rs: Record<string, any> = {}
     if (!propDefs) return rs;
 
+    // 子类以裸类字段覆盖继承自父类的 prop 默认值 ⇒ 收编（见 #adoptOwnFieldDefaults）
+    this.#adoptOwnFieldDefaults(propDefs)
+    propDefs = this.__propDefs!
+
     let keys = Object.keys(propDefs)
     let size = keys.length
     for (let i = 0; i < size; i++) {
@@ -589,6 +661,11 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       const hasAttr = this.hasAttribute(kbKey)
       let propDef = propDefs[key];
       let isInited = has(parentProps, key);
+      let parentVal = parentProps[key]
+      if (!isInited && has(parentProps, kbKey)) {
+        isInited = true;
+        parentVal = parentProps[kbKey]
+      }
       const sig = this.__s[key]
       let defaultVal = sig !== undefined ? sig.value : this.__data_[key]
       if (!('_defaultValue' in propDef)) {
@@ -602,9 +679,9 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         }
       }
 
-      let val = undefined;
+      let val: any = undefined;
       if (isInited) {
-        val = isNil(parentProps[key]) ? defaultVal : parentProps[key];
+        val = isNil(parentVal) ? defaultVal : parentVal;
       } else {
         val = defaultVal;
         let attr =
@@ -642,7 +719,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   #initStates() {
     let stateDefs = this.__stateDefs
     if (stateDefs)
-      each<StateDefInternal, string>(stateDefs, (def, key) => {
+      each<StateDefInternal, string>(stateDefs, (_def, key) => {
         let stateDef = stateDefs[key] as StateDefInternal
         const sig = this.__s[key]
         if (stateDef && stateDef.prop) {
@@ -753,6 +830,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     }
     if (!!hook) {
       this.#updateSlots.add(name)
+      this.#updateSlot(name)
     } else {
       //update nodes
       let els = slotEl.assignedElements({ flatten: true })
@@ -851,43 +929,87 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     if (sameSlots(sig.value, next)) return
     sig.value = next
   }
+  /**
+   * 重算某个**函数型插槽**的 DOM，并整体替换上一次的结果
+   */
+  #slotViews: Record<string, EffectNode> = {}
   #updateSlot(name: string) {
     let hook = this.#slotHooks[name]
     if (!hook) return;
     let slotMap = this.#slotPropsMap[name]
-    const slotsMap = this.#slotsSig().value
-    let slot = slotsMap[name]
-    //slot not ready yet
-    //1. 可能是if/each等指令还未插入
-    if (!slot) return
+    if (!this.#slotsEl[name]) return
+    const owner = resolveSubTemplateOwner(hook)!
 
-    //组件通知渲染异步指令
-    this.renderAsync(hook, get(slotMap, 'props'))
-    const rc = this._asyncDirectives.get(hook)
-
-    let nodes = rc?.buildView(hook(get(slotMap, 'props')))!
-    let nnodes = reject(toArray<Node>(nodes), n => n.nodeType === Node.COMMENT_NODE);
-
-    if (nnodes) {
-      let slottedNodes = this.#slotNodes[name]
-      if (!isEmpty(slottedNodes)) {
-
-        for (let i = 0; i < slottedNodes.length; i++) {
-          const n = slottedNodes[i];
-          n.parentNode?.removeChild(n)
-        }
-      }
-      this.#slotNodes[name] = nnodes;
-      this.append(...nnodes)
-      this.#updateSlots.clear();
+    let view = this.#slotViews[name]
+    if (view !== undefined && !view.disposed) {
+      view.run()
+    } else {
+      // 上一代快照的 UpdatePoint 树（item effect 的挂靠点），由 onCleanup 回收
+      let prevUpAry: UpdatePoint[] | undefined
+      const eff = effect(() => {
+        // 上一代 scope 回收：effect 重跑前（replace）与 dispose 时（组件销毁）都会执行
+        onCleanup(() => {
+          if (prevUpAry !== undefined) {
+            // 必须在 up.destroy() 把 up.node 置 null 之前摘除 __dirNodeMap 条目
+            //（Map 强引用节点，旧节点被拆下后条目不摘就连带子树一起泄漏）
+            purgeDirNodeMap(owner, prevUpAry)
+            for (let i = 0; i < prevUpAry.length; i++) prevUpAry[i].destroy()
+            prevUpAry = undefined
+          }
+        })
+        const nodes = buildSubTemplateView(owner, hook, get(slotMap, 'props'))
+        // 先摘本代 upAry（buildSubTemplateView 挂在首个产出节点的 __ceUpAry 上），
+        // 再滤注释节点 —— 顺序反了会把载体节点一起滤掉
+        prevUpAry = (nodes[0] as any)?.__ceUpAry as UpdatePoint[] | undefined
+        this.#swapSlotNodes(name, reject(nodes, (n: Node) => n.nodeType === Node.COMMENT_NODE))
+      }, { asChild: false })
+      this._regViewEffect(eff)
+      this.#slotViews[name] = eff
     }
-
-  }
-  _asyncDirectives = new WeakMap<TplFn, any>()
-  renderAsync(cbk: TplFn, ...args: any[]) {
+    this.#updateSlots.delete(name);
   }
 
-  #attrChanged(name: string, oldValue: string | null, newValue: string | null) {
+  /**
+   * 拆掉上一次的插槽内容并挂上这一代的（replace 契约）。
+   * 从 #updateSlot 抽出：常驻 effect 每次重跑与首屏创建走同一条替换路径。
+   */
+  #swapSlotNodes(name: string, nnodes: Node[]) {
+    let slottedNodes = this.#slotNodes[name]
+    if (!isEmpty(slottedNodes)) {
+      // replace 契约：先拆干净上一次的作用域（节点），再挂新的
+      for (let i = 0; i < slottedNodes.length; i++) {
+        const n = slottedNodes[i];
+        n.parentNode?.removeChild(n)
+      }
+    }
+    this.#slotNodes[name] = nnodes;
+    if (name && name !== SLOT_NAME_DEFAULT) {
+      for (let i = 0; i < nnodes.length; i++) {
+        const n = nnodes[i]
+        if (n.nodeType === Node.ELEMENT_NODE) (n as Element).setAttribute('slot', name)
+      }
+    }
+    this.append(...nnodes)
+  }
+
+  /**
+   * 把**已编译的**子模板回调渲染成节点数组
+   *
+   * @param tmplFn 子模板回调**本体**（不是它的返回值）
+   * @param args   透传给回调形参的实参
+   */
+  getSubViewNodes(tmplFn: TplFn, ...args: any[]): Node[] {
+    const owner = resolveSubTemplateOwner(tmplFn)
+    if (!owner) {
+      if (process.env.DEV) {
+        showTagError(this.tagName, `getSubViewNodes: 回调缺少 provenance（未经 slot() 指令登记），无法定位其编译产物`)
+      }
+      return []
+    }
+    return buildSubTemplateView(owner, tmplFn, ...args)
+  }
+
+  #attrChanged(name: string, _oldValue: string | null, newValue: string | null) {
     if (!this.__inited) return;
     const propDef = this.__propDefs?.[camelCaseCached(name)]
     if (!propDef) return;
@@ -960,7 +1082,11 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   }
   // 编译器调用
   _regViewEffect(e: EffectNode) {
-    this.#viewEffects.push(e)
+    const arr = this.#viewEffects
+    for (let i = arr.length - 1; i >= 0; i--) {
+      if (arr[i].disposed) arr.splice(i, 1)
+    }
+    arr.push(e)
   }
 
   /**
@@ -985,4 +1111,24 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     })
     this.updated({});
   }
+}
+
+/**
+ * 从 owner 的 `__dirNodeMap` 摘除一代快照的指令节点条目
+ *
+ * @param comp  快照的 owner（指令 up 注册在它的 __dirNodeMap 上，见 renderTemplate）
+ * @param upAry buildSubTemplateView 产出的本代 UpdatePoint 树（含 children 递归）
+ */
+function purgeDirNodeMap(comp: CompElem<any>, upAry: UpdatePoint[] | undefined) {
+  if (upAry === undefined || upAry.length === 0) return
+  const map = (comp as any).__dirNodeMap as Map<Node, UpdatePoint> | undefined
+  if (!map) return
+  const walk = (ups: UpdatePoint[]) => {
+    for (let i = 0; i < ups.length; i++) {
+      const up = ups[i]
+      if (up.node) map.delete(up.node)
+      if (up.children) walk(up.children)
+    }
+  }
+  walk(upAry)
 }

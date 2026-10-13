@@ -6,10 +6,6 @@ import { addEmitEvent, getEventBindList } from "../events/event";
 import { EnterPointType } from "../types";
 import { addUninitializedSubComponentProp } from "../utils";
 
-export const enum ModelTriggerType {
-  CHANGE = 'change',
-  INPUT = 'input',
-}
 /**
  * 实现双向绑定（仅支持静态路径，动态增加的属性路径无法识别）
  * 当用于组件时，监控 @update:value 事件

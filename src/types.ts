@@ -8,44 +8,60 @@ import type { UpdatePoint } from "./render/UpdatePoint";
 export type Constructor<T> = new (...args: any[]) => T;
 export type Getter = () => any;
 
+/** 一次建树的返回结构：主 buildTemplate 与 subViews 元素同形。 */
+export type BuiltTemplateResult = {
+    fragment: DocumentFragment,
+    ups: any[],
+    emptyEvents?: Record<number, string[]>,
+    // 升序排列DOM
+    nodes?: Node[],
+    // 快速路径
+    updateSns?: number[],
+    updatePaths?: number[][],
+};
+
+/** 一个结构指令回调的子视图产物 */
+export type CompiledSubView = {
+    buildTemplate?: (this: CompElem<any>) => BuiltTemplateResult,
+    pointEffects?: any[],
+    fx?: any[],
+};
+
 /**
- * @compelem/compiler 注入的编译期静态元数据契约。
+ * `@compelem/compiler` 注入的编译期静态元数据契约
+ *
  */
 export type CompiledStatic = {
-    // prop 定义集合
+    /**
+     * 编译器生成的纯 document 建 DOM 函数，以首个组件实例为 this 调用。
+     */
+    buildTemplate?: (this: CompElem<any>) => BuiltTemplateResult,
+    /**
+     * 结构指令模板回调的子视图
+     */
+    subViews?: Record<number, CompiledSubView>,
+    // prop 定义集合（沿构造器原型链浅替换合并后的**完整**表）
     props?: Record<string, PropOption>,
-    // state 定义集合
+    // state 定义集合（同上，合并语义）
     states?: Record<string, StateOption>,
     // computed 定义集合
     computedGetters?: Record<string, Getter>,
     /**
-     * 编译器生成
+     * `@watch` 产物：每个 watch 一个 effect 工厂
      */
-    buildTemplate?: (this: CompElem<any>) => {
-        fragment: DocumentFragment,
-        ups: any[],
-        emptyEvents?: Record<number, string[]>,
-        // 升序排列DOM
-        nodes?: Node[],
-        // 快速路径
-        updateSns?: number[],
-        updatePaths?: number[][],
-    },
+    watchEffects?: Array<(comp: CompElem<any>) => () => void>,
     /**
-     * 结构指令模板回调的子视图
+     * `cssVars` 的响应式 effect 工厂
      */
-    subViews?: Record<number, {
-        buildTemplate?: (this: CompElem<any>) => {
-            fragment: DocumentFragment,
-            ups: any[],
-            emptyEvents?: Record<number, string[]>,
-            nodes?: Node[],
-            updateSns?: number[],
-            updatePaths?: number[][],
-        },
-        pointEffects?: any[],
-        fx?: any[],
-    }>,
+    cssEffect?: (comp: CompElem<any>) => () => void,
+    /**
+     * 值点 per-point effect 工厂表
+     */
+    pointEffects?: Array<number | ((rc: any, nodes: any[], ...params: any[]) => () => void)>,
+    /**
+     * 逐实例产物工厂表（指令实例 / 事件 handler / ref 等）；下标 = up.ux
+     */
+    fx?: any[],
     /**
      * 无视图组件标记
      */
@@ -69,8 +85,6 @@ export type UpdatedSource = { value: any; chain?: string[], oldValue?: any, end?
  * 属性定义
  */
 export enum EnterPointType {
-    ATTR = "attr", //属性，文本内容，可以内嵌多插值
-    PROP = "prop", //参数，智能内嵌一个插值
     TEXT = "text",
     SLOT = "slot",
     TAG = 'tag' //在标签内但不是属性内

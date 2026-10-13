@@ -11,7 +11,7 @@ export enum QueryCache {
  *  @query('l-popup', QueryCache.ONCE)
  */
 export function query(selector: string, cache?: QueryCache): (target: any, propertyKey: any) => void;
-export function query(...args: any[]): any {
+export function query(..._args: any[]): any {
   // Implemented by the compiler
   return (_target: any, _propertyKey: any) => { }
 }
@@ -22,7 +22,7 @@ export function query(...args: any[]): any {
  *  @queryAll('.item')
  */
 export function queryAll(selector: string): (target: any, propertyKey: any) => void;
-export function queryAll(...args: any[]): any {
+export function queryAll(..._args: any[]): any {
   // Implemented by the compiler
   return (_target: any, _propertyKey: any) => { }
 }

@@ -19,20 +19,6 @@ export class CssHelper {
     }), ';') + ';'
   }
 
-  /**
-   * 设置样式
-   * @param styles 样式字符串或样式对象
-   * @param node HTML元素
-   * @returns 每个样式的旧值map
-   */
-  static setStyle(styles: Record<string, string> | string, node: HTMLElement) {
-    if (isString(styles) && !trim(styles)) return
-    let css = CssHelper.getCssText(styles)
-    // cssText 整写会清掉组件宿主上的 cssVars 自定义属性 → 失效其旧值镜像
-    const comp = node as any
-    if (comp.__cssVarVals !== undefined) comp.__cssVarVals = undefined
-    node.style.cssText = css
-  }
 }
 
 export class CompElemHelper {
@@ -106,6 +92,11 @@ export class CompElemHelper {
     return val;
   }
   static updateAttribute(comp: CompElem<any>, propDef: PropOption, key: string, val: string | null) {
+    if (val == null || Number.isNaN(val as any)) {
+      const k0 = kebabCaseCached(key)
+      if (comp.hasAttribute(k0)) comp.removeAttribute(k0)
+      return
+    }
     let k = kebabCaseCached(key)
     let v = trim(val)
     if (isBooleanProp(propDef.type)) {

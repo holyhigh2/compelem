@@ -12,6 +12,7 @@ import { effect, signal, SignalNode } from "../signal";
 import { DirectiveInstance, KeyFn, TplFn } from "../types";
 import { addUninitializedSubComponentProp, isCompElemNode, showTagError } from "../utils";
 import { CssTemplate } from "./CssTemplate";
+import { slotOriginOf } from "./slot-provenance";
 import { Template } from "./Template";
 import { TemplateMeta } from "./TemplateMeta";
 import { UpdatePoint } from "./UpdatePoint";
@@ -20,8 +21,6 @@ import { resolveVarChain, UpdatePointMeta } from "./UpdatePointMeta";
 export const ATTR_PREFIX_EVENT = "@";
 export const ATTR_PREFIX_PROP = ".";
 export const ATTR_PREFIX_BOOLEAN = "?";
-export const ATTR_PREFIX_REF = "*";
-export const ATTR_PROP_DELIMITER = ":";
 export const ATTR_REF = "ref";
 
 const EXP_TAG = new RegExp(`${PLACEHOLDER}\\d+`)
@@ -272,6 +271,93 @@ export function buildStaticView(component: CompElem<any>): DocumentFragment {
 const NO_CHILD_EFFECT = { asChild: false } as const
 
 /**
+ * 子模板 TemplateMeta 缓存：`__ce_static__` → subId → meta。
+ */
+const SUB_TMPL_CACHE: WeakMap<object, Map<number, TemplateMeta>> = new WeakMap()
+
+/**
+ * 解析回调的 `subId`：优先 provenance（slot 钩子，由 `slot()` 指令登记），
+ * 否则读回调实例上的内联 `__subId`（同一模板内的字面量回调 —— 结构指令的模板实参）。
+ */
+function subIdOf(tmplFn: Function | undefined): number | undefined {
+  const origin = slotOriginOf(tmplFn)
+  if (origin && typeof origin.subId === 'number') return origin.subId
+  const inline = (tmplFn as any)?.__subId
+  return typeof inline === 'number' ? inline : undefined
+}
+
+/**
+ * 获取渲染元数据快捷方式
+ */
+function ceStaticFor(component: CompElem<any>): any {
+  return (component.constructor as any).__ce_static__
+}
+
+/**
+ * 按回调的 `subId` 查 `__ce_static__.subViews` 取子模板结构元数据
+ *
+ * @param component **回调所属组件**（subViews 挂在其 constructor 上）——
+ *                  用 `resolveSubTemplateOwner(fn)` 解析，不要用插槽所在组件。
+ */
+export function resolveSubTemplateMeta(component: CompElem<any>, tmplFn: Function): TemplateMeta | undefined {
+  const subId = subIdOf(tmplFn)
+  if (typeof subId === 'number') {
+    const cs = ceStaticFor(component)
+    const sub = cs?.subViews?.[subId]
+    if (sub?.buildTemplate) {
+      let map = SUB_TMPL_CACHE.get(cs)
+      if (!map) {
+        map = new Map()
+        SUB_TMPL_CACHE.set(cs, map)
+      }
+      let tmplM = map.get(subId)
+      if (!tmplM) {
+        tmplM = convertTemplateMeta(sub.buildTemplate.call(component))
+        map.set(subId, tmplM)
+      }
+      return tmplM
+    }
+  }
+  if (process.env.DEV) {
+    showTagError(component.tagName, `Structural sub-template is not compiled — ${typeof subId === 'number' ? `__ce_static__.subViews[${subId}].buildTemplate missing` : 'subId missing (@compelem/compiler required)'}`)
+  }
+  return undefined
+}
+
+/**
+ * 按子模板回调取本副本的产物
+ */
+export function buildSubTemplate(component: CompElem<any>, tmplFn: Function | undefined): BuiltTemplate | undefined {
+  if (!tmplFn) return undefined
+  const subId = subIdOf(tmplFn)
+  if (typeof subId !== 'number') return undefined
+  const cs = ceStaticFor(component)
+  if (!cs?.subViews?.[subId]?.buildTemplate) return undefined
+  const tmplM = resolveSubTemplateMeta(component, tmplFn)
+  return tmplM ? cloneBuiltTemplate(tmplM) : undefined
+}
+
+/**
+ * 子模板的 per-point effect 工厂数组
+ */
+export function getSubPointEffects(component: CompElem<any>, tmplFn: Function | undefined): ((rc: any, nodes: Node[], get: (vi: number) => any, dep: { value: any }) => () => void)[] | undefined {
+  const local = slotOriginOf(tmplFn)?.fx ?? (tmplFn as any)?.__fx
+  if (local) return local.pe
+  const subId = subIdOf(tmplFn)
+  if (typeof subId !== 'number') return undefined
+  return ceStaticFor(component)?.subViews?.[subId]?.pointEffects
+}
+
+/** 子模板内联 fx：优先回调的 provenance / 实例上的 `__fx.fx`（跨层内联），否则 `subs[subId].fx`。 */
+export function getSubFx(component: CompElem<any>, tmplFn: Function | undefined): any[] | undefined {
+  const local = slotOriginOf(tmplFn)?.fx ?? (tmplFn as any)?.__fx
+  if (local) return local.fx
+  const subId = subIdOf(tmplFn)
+  if (typeof subId !== 'number') return undefined
+  return ceStaticFor(component)?.subViews?.[subId]?.fx
+}
+
+/**
  * 重跑指令点下所有子项的合并 effect（分支 REFRESH 的驱动入口）。
  */
 export function rerunSubViewEffects(up: UpdatePoint): void {
@@ -289,8 +375,9 @@ export function rerunSubViewEffects(up: UpdatePoint): void {
 
 /**
  * 将编译数据 convert 成 TemplateMeta，供运行时渲染使用
- * @param out 
- * @returns 
+ *
+ * @param out 编译产物（buildTemplate 的一次调用结果）
+ * @returns
  */
 export function convertTemplateMeta(out: {
   fragment: DocumentFragment
@@ -323,79 +410,42 @@ export function convertTemplateMeta(out: {
   return tmplM
 }
 
-const SUB_TMPL_CACHE: WeakMap<Function, Map<number, TemplateMeta>> = new WeakMap()
-let EMPTY_TmplM: TemplateMeta | undefined
 /**
- * 空子模板 TemplateMeta
- * 用于 `when` 无匹配 case 且未提供 `default` 时运行时合成的空分支 ——
- * 该分支直接按空模板渲染。
+ * 把**已编译的**子模板回调渲染成节点数组（一次性静态快照）。
+ *
+ * @param ctx    **回调所属组件**（subViews 挂在其类上，见 slot 指令登记的 `fn.__owner`）
+ * @param tmplFn 已编译的子模板回调（结构指令回调 / slot 回调本体，非其返回值）
+ * @param args   透传给回调形参的实参（如插槽 props）
  */
-export function getEmptyTemplateMeta(): TemplateMeta {
-  if (!EMPTY_TmplM) {
-    EMPTY_TmplM = convertTemplateMeta({ fragment: document.createDocumentFragment(), ups: [], emptyEvents: {} })
+export function buildSubTemplateView(ctx: CompElem<any>, tmplFn: TplFn, ...args: any[]): Node[] {
+  const tmplM = resolveSubTemplateMeta(ctx, tmplFn)
+  if (!tmplM) return []
+  const built = cloneBuiltTemplate(tmplM)
+  const nodes = (built.nodes ?? []) as Node[]
+  const [rs, upAry] = renderTemplate(ctx, tmplM, built, {
+    deferValueFill: true,
+    fx: getSubFx(ctx, tmplFn),
+    itemArgs: args,
+  })
+  // 子模板的取值一律写在 per-point 合并工厂里（结构指令与插槽同一条路径）。
+  // 工厂签名为 (rc, nodes, get, dep, ov, ...回调形参)，ov 是旧值槽 ——
+  // 快照场景不存在历史值，给一次性数组即可。
+  const factories = getSubPointEffects(ctx, tmplFn)
+  if (factories && factories.length > 0) {
+    const ov: any[] = []
+      ; (factories[0] as any)(ctx, nodes, undefined, undefined, ov, ...args)()
   }
-  return EMPTY_TmplM
-}
-
-/**
- * 按回调 `fn.__subId` 查 `__ce_static__.subViews` 取子模板结构元数据
- */
-export function resolveSubTemplateMeta(component: CompElem<any>, tmplFn: Function): TemplateMeta | undefined {
-  const subId = (tmplFn as any)?.__subId
-  if (typeof subId === 'number') {
-    const ceStatic = (component.constructor as any).__ce_static__
-    const sub = ceStatic?.subViews?.[subId]
-    if (sub?.buildTemplate) {
-      let map = SUB_TMPL_CACHE.get(component.constructor)
-      if (!map) {
-        map = new Map()
-        SUB_TMPL_CACHE.set(component.constructor, map)
-      }
-      let tmplM = map.get(subId)
-      if (!tmplM) {
-        tmplM = convertTemplateMeta(sub.buildTemplate.call(component))
-        map.set(subId, tmplM)
-      }
-      return tmplM
-    }
+  const out: Node[] = []
+  const cn = rs.childNodes
+  for (let i = 0, l = cn.length; i < l; i++) out.push(cn[i])
+  // 本代 UpdatePoint 树挂到首个产出节点上（内部机制，业务勿读写）：
+  // #updateSlot 的常驻 effect 在 replace/dispose 时经 onCleanup 摘取回收。
+  // owner 一并挂出：purgeDirNodeMap 定位 `__dirNodeMap` 条目需要它。
+  if (upAry.length > 0 && out.length > 0) {
+    (out[0] as any).__ceUpAry = upAry
+      ; (out[0] as any).__ceUpOwner = ctx
   }
-  if (process.env.DEV) {
-    showTagError(component.tagName, `Structural sub-template is not compiled — ${typeof subId === 'number' ? `__ce_static__.subViews[${subId}].buildTemplate missing` : 'fn.__subId missing'} (@compelem/compiler required)`)
-  }
-  return undefined
-}
-
-/**
- * 按子模板回调取本副本的产物
- */
-export function buildSubTemplate(component: CompElem<any>, tmplFn: Function | undefined): BuiltTemplate | undefined {
-  if (!tmplFn) return undefined
-  const subId = (tmplFn as any)?.__subId
-  if (typeof subId !== 'number') return undefined
-  const ceStatic = (component.constructor as any).__ce_static__
-  if (!ceStatic?.subViews?.[subId]?.buildTemplate) return undefined
-  const tmplM = resolveSubTemplateMeta(component, tmplFn)
-  return tmplM ? cloneBuiltTemplate(tmplM) : undefined
-}
-
-/**
- * 子模板的 per-point effect 工厂数组
- */
-export function getSubPointEffects(component: CompElem<any>, tmplFn: Function | undefined): ((rc: any, nodes: Node[], get: (vi: number) => any, dep: { value: any }) => () => void)[] | undefined {
-  const local = (tmplFn as any)?.__fx
-  if (local) return local.pe
-  const subId = (tmplFn as any)?.__subId
-  if (typeof subId !== 'number') return undefined
-  return (component.constructor as any).__ce_static__?.subViews?.[subId]?.pointEffects
-}
-
-/** 子模板内联 fx：优先回调实例上的 `__fx.fx`（跨层内联），否则 `subs[subId].fx`。 */
-export function getSubFx(component: CompElem<any>, tmplFn: Function | undefined): any[] | undefined {
-  const local = (tmplFn as any)?.__fx
-  if (local) return local.fx
-  const subId = (tmplFn as any)?.__subId
-  if (typeof subId !== 'number') return undefined
-  return (component.constructor as any).__ce_static__?.subViews?.[subId]?.fx
+  return out
 }
 
 //  为一个已插入的子项注册 **1 个** per-point effect

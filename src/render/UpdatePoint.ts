@@ -82,7 +82,7 @@ export class UpdatePoint {
 
         //sub scopes
         let updatePoints = children
-        updatePoints?.forEach((up, i) => {
+        updatePoints?.forEach((up, _i) => {
             up.destroy(contextComponent);
         });
 

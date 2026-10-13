@@ -1,6 +1,7 @@
 import { CompElem } from "../CompElem";
 import { ComponentUninitializedSlotFunctionMap } from "../constants";
 import { directive } from "../directive/index";
+import { registerSlotOrigin } from "../render/slot-provenance";
 import { EnterPointType, TplFn } from "../types";
 
 /**
@@ -9,10 +10,17 @@ import { EnterPointType, TplFn } from "../types";
  * @param slotName 插槽名词，默认default
  */
 export const slot = directive(function Slot(cbk: TplFn, slotName?: string) {
-  return (pointNode: Node, [cbk, slotName]: any[], oldArgs: any[] | undefined, { renderComponent, slotComponent }: { renderComponent: CompElem, slotComponent: CompElem }) => {
+  return (_pointNode: Node, [cbk, slotName]: any[], oldArgs: any[] | undefined, { renderComponent, slotComponent }: { renderComponent: CompElem, slotComponent: CompElem }) => {
     if (oldArgs) return
 
-    cbk = cbk.bind(renderComponent)
+    const owner = renderComponent
+    const bound = registerSlotOrigin(cbk.bind(owner) as TplFn, {
+      owner,
+      subId: (cbk as any).__subId,
+      fx: (cbk as any).__fx,
+      bv: (cbk as any).__bv,
+    })
+    cbk = bound
     let slotMap = ComponentUninitializedSlotFunctionMap.get(slotComponent)
     if (!slotMap) {
       slotMap = {}

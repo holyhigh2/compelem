@@ -1,12 +1,22 @@
 {
   "name": "compelem",
-  "version": "0.30.0-beta.1",
+  "version": "0.30.0-beta.2",
   "description": "A modern, reactive, fast, lightweight and flexible lib for building web components",
   "main": "dist/index.js",
   "module": "dist/index.js",
   "types": "index.d.ts",
   "exports": {
     ".": {
+      "development": {
+        "types": "./dist-dev/index.d.ts",
+        "import": "./dist-dev/index.esm.js",
+        "require": "./dist-dev/index.cjs.js"
+      },
+      "production": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.esm.js",
+        "require": "./dist/index.cjs.js"
+      },
       "import": {
         "types": "./dist/index.d.ts",
         "default": "./dist/index.esm.js"
@@ -14,26 +24,6 @@
       "require": {
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs.js"
-      },
-      "development": {
-        "import": {
-          "types": "./dist-dev/index.d.ts",
-          "default": "./dist-dev/index.esm.js"
-        },
-        "require": {
-          "types": "./dist-dev/index.d.cts",
-          "default": "./dist-dev/index.cjs.js"
-        }
-      },
-      "production": {
-        "import": {
-          "types": "./dist/index.d.ts",
-          "default": "./dist/index.esm.js"
-        },
-        "require": {
-          "types": "./dist/index.d.cts",
-          "default": "./dist/index.cjs.js"
-        }
       }
     }
   },
@@ -66,7 +56,11 @@
     "typecheck": "tsc --noEmit",
     "pack": "npm pack"
   },
+  "peerDependencies": {
+    "myfx": ">2.0.0-beta.2"
+  },
   "devDependencies": {
+    "@compelem/compiler": "^0.30.0-beta.2",
     "@types/node": "^26.4.1",
     "@typescript-eslint/eslint-plugin": "8.23.0",
     "@typescript-eslint/parser": "^8.23.0",

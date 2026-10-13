@@ -42,7 +42,7 @@ const resizeObserver: ResizeObserver | undefined = typeof ResizeObserver !== "un
     }
   })
   : undefined;
-function addResize(node: Element, cbk: EvHadler, component: CompElem<any>, isOnce: boolean) {
+function addResize(node: Element, cbk: EvHadler, _component: CompElem<any>, isOnce: boolean) {
   if (!resizeObserver) {
     if (process.env.DEV) {
       showError(`ResizeObserver is not defined`)
@@ -101,7 +101,7 @@ const mutationObserver: MutationObserver | undefined = typeof MutationObserver !
       let detail: Record<string, any> = {
         target: mutation.target
       }
-      let cbk = null
+      let cbk: ((detail: Record<string, any>) => void) | null = null
       switch (mutation.type as string) {
         case 'subtree':
           detail.type = MutationType.Tree
@@ -132,7 +132,7 @@ const mutationObserver: MutationObserver | undefined = typeof MutationObserver !
     }
   })
   : undefined;
-function addMutation(node: Element, cbk: EvHadler, parts: string[], component: CompElem<any>) {
+function addMutation(node: Element, cbk: EvHadler, parts: string[], _component: CompElem<any>) {
   if (!mutationObserver) {
     if (process.env.DEV) {
       showError(`MutationObserver is not defined`)
@@ -206,25 +206,25 @@ if (typeof document !== "undefined") {
     })
   }, false)
 }
-function addOutsideMouseDown(node: Element, cbk: EvHadler, component: CompElem<any>) {
+function addOutsideMouseDown(node: Element, cbk: EvHadler, _component: CompElem<any>) {
   AllOutsideDownEls.push([node, cbk])
 
   //record
-  return (remove = false) => {
+  return (_remove = false) => {
     myfx.remove(AllOutsideDownEls, el => el[0] === node && el[1] === cbk)
   }
 }
-function addOutsideClick(node: Element, cbk: EvHadler, component: CompElem<any>) {
+function addOutsideClick(node: Element, cbk: EvHadler, _component: CompElem<any>) {
   AllOutsideClickEls.push([node, cbk])
   //record
-  return (remove = false) => {
+  return (_remove = false) => {
     myfx.remove(AllOutsideClickEls, el => el[0] === node && el[1] === cbk)
   }
 }
-function addOutsideDblClick(node: Element, cbk: EvHadler, component: CompElem<any>) {
+function addOutsideDblClick(node: Element, cbk: EvHadler, _component: CompElem<any>) {
   AllOutsideDblClickEls.push([node, cbk])
   //record
-  return (remove = false) => {
+  return (_remove = false) => {
     myfx.remove(AllOutsideDblClickEls, el => el[0] === node && el[1] === cbk)
   }
 }

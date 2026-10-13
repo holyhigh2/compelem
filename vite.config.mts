@@ -116,6 +116,5 @@ export default defineConfig(({ mode }) => {
         copyDtsFiles: true,
       }),
     ],
-    optimizeDeps: { exclude: ['myfx'] },
   }
 })

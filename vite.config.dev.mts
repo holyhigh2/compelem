@@ -1,7 +1,7 @@
+import { compelemCompiler } from '@compelem/compiler'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
-import { compelemCompiler } from '../compelem-compiler/dist/vite'
 
 /** 仓库根目录（配置以 ESM 加载，需用 import.meta 取得） */
 const root = fileURLToPath(new URL('.', import.meta.url))
@@ -38,9 +38,6 @@ export default defineConfig({
     replaceDevFlag(),
     compelemCompiler({ verbose: true, debugSourceMap: true }),
   ],
-  // myfx 是源码依赖，需要被预打包以走 ESM
-  optimizeDeps: { include: ['myfx'] },
-  // Vite 8 的转换层是 Rolldown(Oxc)，不是 esbuild。
   // legacy 装饰器（tsconfig experimentalDecorators: true）必须显式开启，
   // 否则 Oxc 会按标准装饰器处理，浏览器收到含 `export @tag(...) class` 的产物
   // 直接报 `Unexpected token 'export'`，dev 页面整体无法启动。

@@ -9,9 +9,9 @@ import { _getSuper } from "../utils";
  * @param eventTarget 事件绑定目标，默认this
  */
 export function event(eventName: string, eventTarget?: (comp: CompElem) => (HTMLElement | Promise<HTMLElement> | Window)) {
-  return (target: any, name: string, descriptor: PropertyDescriptor) => {
+  return (target: any, name: string, _descriptor: PropertyDescriptor) => {
     if (!DefinitionCompEventMap.has(target.constructor)) {
-      let mixinEvents = []
+      let mixinEvents: any[] = []
       let parentCtor = target.constructor
       while ((parentCtor = _getSuper(parentCtor)) !== CompElem) {
         mixinEvents = concat(mixinEvents, DefinitionCompEventMap.get(parentCtor) ?? [])

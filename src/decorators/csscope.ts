@@ -16,7 +16,7 @@ export enum Csscope {
  * @param immediate 立即注册，默认false
  */
 export function csscope(...scopes: string[]): any {
-  return (target: any, name: any, descriptor: PropertyDescriptor) => {
+  return (target: any, _name: any, descriptor: PropertyDescriptor) => {
     let getterRs = descriptor.get!()
     let css = isArray(getterRs) ? getterRs : [getterRs]
     css.forEach(cs => {

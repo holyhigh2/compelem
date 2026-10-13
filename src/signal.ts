@@ -70,13 +70,6 @@ const evalStack: Sub[] = []
 let batchDepth = 0
 let runId = 0
 let flushing = false
-/**
- * 当前依赖收集 run 的序号（每次 effect run / computed 求值自增）。
- */
-export function currentRunId(): number {
-  return runId
-}
-
 // 待运行队列：数组 + 每 effect 排队标记
 const queue: EffectNode[] = []
 let qHead = 0

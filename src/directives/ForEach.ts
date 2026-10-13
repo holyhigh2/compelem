@@ -22,23 +22,20 @@ const EachTmplMap = new WeakMap()
  * 2. 
  */
 export const forEach = directive(function ForEach(value: any[] | Record<string, any>, keyFn: KeyFn, tmpl: TplFn) {
-  return (pointNode: Node, newArgs: any[], oldArgs: any[] | undefined, { renderComponent, updatedMap, up }: { renderComponent: CompElem, varChain: string[], updatedMap: Record<string, UpdatedSource>, up?: UpdatePoint }) => {
+  return (pointNode: Node, newArgs: any[], oldArgs: any[] | undefined, { renderComponent }: { renderComponent: CompElem, varChain: string[], updatedMap: Record<string, UpdatedSource>, up?: UpdatePoint }) => {
     let newAryOrObj = newArgs[0]
     if (isEmpty(newAryOrObj) && isUndefined(oldArgs)) return [DirectiveUpdateTag.INIT]
 
     let oldKeys: string[] | undefined = LastKeysMap.get(pointNode)
 
     // REFRESH 载荷附加
-    const refreshWithCells = (keys: string[], coll: any): [DirectiveUpdateTag, ...any[]] => {
-      const vals: any[] = new Array(keys.length)
-      let vi = 0
-      each(coll, (v: any) => { if (vi < vals.length) vals[vi++] = v })
+    const refreshWithCells = (keys: string[], vals: any[]): [DirectiveUpdateTag, ...any[]] => {
       // rs[1] 恒为 null：forEach 的 REFRESH 只走 cells 路径（keys + vals）。
       return [DirectiveUpdateTag.REFRESH, null, keys, vals]
     }
 
-
     const newKeys: string[] = [];
+    const newVals: any[] = [];
     const checkSet = new Set<string>();
     let i = 0
     each(newAryOrObj, (v, k) => {
@@ -47,11 +44,12 @@ export const forEach = directive(function ForEach(value: any[] | Record<string, 
       const strKey = typeof key === 'string' ? key : String(key)
 
       if (checkSet.has(strKey)) {
-        showError(`forEach - duplicate key in '${newKeys}'`)
+        showError(`forEach - duplicate key '${strKey}', the later item is skipped`)
         return
       }
       checkSet.add(strKey)
       newKeys.push(strKey)
+      newVals.push(v)
     })
 
     LastKeysMap.set(pointNode, newKeys)
@@ -59,7 +57,7 @@ export const forEach = directive(function ForEach(value: any[] | Record<string, 
       if (isEmpty(newKeys)) return [DirectiveUpdateTag.REMOVE]
       if (oldKeys && newKeys.length === oldKeys.length && isStrictEqual(newKeys, oldKeys)) {
         // 只回写 cell
-        return refreshWithCells(newKeys, newAryOrObj)
+        return refreshWithCells(newKeys, newVals)
       }
     }
 
@@ -74,10 +72,10 @@ export const forEach = directive(function ForEach(value: any[] | Record<string, 
     }
 
     if (oldArgs) {
-      return [DirectiveUpdateTag.UPDATE, tmplM, newKeys, oldKeys, tmplFn, newAryOrObj]
+      return [DirectiveUpdateTag.UPDATE, tmplM, newKeys, oldKeys, tmplFn, newVals]
     }
 
-    return [DirectiveUpdateTag.INIT, tmpl, tmplM, newAryOrObj, keyFn]
+    return [DirectiveUpdateTag.INIT, tmpl, tmplM, newVals, keyFn]
   };
 }, [EnterPointType.TEXT, EnterPointType.SLOT])
 

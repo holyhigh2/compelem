@@ -183,36 +183,6 @@ function applyEventModifiers(cbk: EvHadler, f: ModiFlags, delegated = false) {
   return wrapListener(c, f, delegated)
 }
 
-export function addEvent(fullName: string, cbk: EvHadler, node: Element, component: CompElem<any>, signal?: AbortSignal) {
-  let { evName, parts } = parseEventName(fullName);
-  let f = parseModifiers(parts)
-  let c = wrapControlFn(cbk, f)
-
-  let ctor = DefinitionComponentMap[tagNameLower(node.tagName) as string]
-  if (ctor) {
-    let declared = matchEmit(ctor, evName)
-    if (declared) {
-      addEmitEvent(node, component, evName, c)
-      return noop
-    }
-  }
-
-  if (isExtEvent(evName)) {
-    return addExtEvent(evName, node, c, parts, component, f.once)
-  }
-
-  let { handler, options } = wrapListener(c, f)
-  let opts: AddEventListenerOptions = { capture: options.capture, passive: options.passive }
-  if (signal) opts.signal = signal
-  node.addEventListener(evName, handler, opts)
-
-  //record
-  return (remove = false) => {
-    if (!signal) node.removeEventListener(evName, handler, opts)
-    if (remove) node = null as any
-  }
-}
-
 export function addEmitEvent(node: Element, component: CompElem<any>, evName: string, c: EvHadler) {
   let eventSourceSn = get<number>(node, '__c_emit_event_') ?? component._subComponentEventSn++
   set(node, '__c_emit_event_', eventSourceSn)
@@ -484,7 +454,7 @@ function isInRenderTree(comp: CompElem<any>, node: Element | Window | Document):
 
 function registerDelegation(comp: CompElem<any>, evName: string, cbk: EvHadler, f: ModiFlags, node: Element, capture: boolean) {
   if (!ensureDelegationListener(comp, evName, capture)) {
-    //防御降级（正常流程 isInRenderTree 已保证可委托）
+    //防御性回退
     registerElementEvent(comp, evName, cbk, f, node)
     return
   }

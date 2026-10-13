@@ -1,5 +1,4 @@
 import { isBlank, isElement, isNil, isString, kebabCase } from "myfx";
-import { CompElem } from "../CompElem";
 import { DefinitionTagMap } from "../constants";
 import { directive } from "../directive/index";
 import { EnterPointType } from "../types";
@@ -32,7 +31,7 @@ let startNodeMap = new WeakMap()
  * @param htmlStr html内容
  */
 export const html = directive(function Html(htmlStr?: string) {
-  return (pointNode: Node, newArgs: any[], oldArgs: any[] | undefined, { renderComponent }: { renderComponent: CompElem }) => {
+  return (pointNode: Node, newArgs: any[], oldArgs: any[] | undefined) => {
     if (oldArgs && newArgs[0] == oldArgs[0]) return
     if (isNil(newArgs[0])) return
 
