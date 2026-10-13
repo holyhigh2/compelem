@@ -1,6 +1,6 @@
 {
   "name": "compelem",
-  "version": "0.30.0-beta.2",
+  "version": "0.30.0-beta.3",
   "description": "A modern, reactive, fast, lightweight and flexible lib for building web components",
   "main": "dist/index.js",
   "module": "dist/index.js",
@@ -57,10 +57,10 @@
     "pack": "npm pack"
   },
   "peerDependencies": {
-    "myfx": ">2.0.0-beta.2"
+    "myfx": ">=2.0.0-beta.2"
   },
   "devDependencies": {
-    "@compelem/compiler": "^0.30.0-beta.2",
+    "@compelem/compiler": "^0.30.0-beta.3",
     "@types/node": "^26.4.1",
     "@typescript-eslint/eslint-plugin": "8.23.0",
     "@typescript-eslint/parser": "^8.23.0",
