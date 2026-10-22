@@ -3,7 +3,6 @@ import {
   cloneDeep,
   closest,
   each,
-  first,
   get,
   groupBy,
   has,
@@ -16,34 +15,48 @@ import {
   isObject,
   isUndefined,
   keys,
-  last,
   merge,
   reject,
   remove,
   size
 } from "myfx";
-import { getBaseSheets } from "./config";
-import { ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, CssScopeCacheMap, CssTemplateSheetMap, PropTypeMap, SLOT_NAME_DEFAULT } from "./constants";
+import { getBaseSheets, getDefaultComponentProps } from "./config";
+import { ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, CssScopeCacheMap, CssTemplateSheetMap, NO_CHILD_EFFECT, PropTypeMap, SLOT_NAME_DEFAULT } from "./constants";
 import { Csscope } from "./decorators/csscope";
 import { bindEvents, emitEvent, EvHadler, registerEvent, releaseEventHandlers } from "./events/event";
 import { CompElemHelper } from "./helpers";
 import { IComponent } from "./IComponent";
 import { CssTemplate } from "./render/CssTemplate";
+import { purgeDirNodeMap } from "./render/dir-node-map";
 import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildStaticView, buildSubTemplateView } from "./render/render";
 import { resolveSubTemplateOwner } from "./render/slot-provenance";
 import { Template } from "./render/Template";
 import { UpdatePoint } from "./render/UpdatePoint";
 import { walkSplitText } from "./render/walk";
-import { batch, effect, EffectNode, onCleanup, signal, SignalNode } from "./signal";
-import { PropOption, SlotOptions, StateDefInternal, StateOption, TplFn } from "./types";
-import { _getSuper, camelCaseCached, DomUtil, getBooleanValue, isBooleanProp, kebabCaseCached, showTagError, showWarn } from "./utils";
+import { batch, effect, EffectNode, onCleanup, onFlushEnd, reportEffectError, signal, SignalNode, untrack } from "./signal";
+import { CompiledStatic, PropOption, SlotOptions, StateDefInternal, StateOption, TplFn } from "./types";
+import { _getSuper, camelCaseCached, DomUtil, getBooleanValue, isBooleanProp, kebabCaseCached, showTagError, tagNameLower } from "./utils";
 
 let CompElemSn = 0
 const SlotCompMap = new WeakMap()
 const EMPTY_SLOTS: Record<string, Node[]> = Object.freeze({})
 const EMPTY_PARENT_PROPS: Record<string, any> = {}
-/** 已就 own 字段默认值的类：告警每类只发一次 */
-const FieldOverrideWarned = new WeakSet<Function>()
+/** 已就 own 字段覆盖做过类级 static 表补丁的类（见 #adoptOwnFieldDefaults） */
+const FieldOverridePatched = new WeakSet<Function>()
+/** 已探测过 `slots` 访问器安装情况的类（安装是类级一次性动作，见构造器） */
+const SlotsInstalled = new WeakSet<Function>()
+
+/**
+ * flush 末段派发：本轮跑过 effect 的组件触发 `afterUpdate`
+ */
+onFlushEnd(owners => {
+  for (let i = 0; i < owners.length; i++) {
+    const comp = owners[i] as CompElem<any>
+    // 销毁过的组件与已挂载前（首屏 effect 也会记账）的实例都跳过
+    if (comp.isDestroyed || !comp.isMounted) continue
+    comp.afterUpdate()
+  }
+})
 
 /** 原型链上是否存在同名访问器（own 属性遮蔽的判定前提） */
 function hasAccessor(obj: object, key: string): boolean {
@@ -57,6 +70,18 @@ function hasAccessor(obj: object, key: string): boolean {
 }
 
 /**
+ * 单个插槽的节点数组浅比较（同一轮里 #updateSlotsAry 每次都会产出新数组，只能逐元素比）
+ */
+function sameNodeAry(a: Node[] | undefined, b: Node[] | undefined): boolean {
+  if (a === b) return true
+  if (!a || !b || a.length !== b.length) return false
+  for (let j = 0; j < a.length; j++) {
+    if (a[j] !== b[j]) return false
+  }
+  return true
+}
+
+/**
  * slots 内容浅比较
  */
 function sameSlots(a: Record<string, Node[]>, b: Record<string, Node[]>): boolean {
@@ -64,30 +89,9 @@ function sameSlots(a: Record<string, Node[]>, b: Record<string, Node[]>): boolea
   if (ka.length !== size(b)) return false
   for (let i = 0; i < ka.length; i++) {
     const k = ka[i]
-    const av = a[k]
-    const bv = b[k]
-    if (av === bv) continue
-    if (!av || !bv || av.length !== bv.length) return false
-    for (let j = 0; j < av.length; j++) {
-      if (av[j] !== bv[j]) return false
-    }
+    if (!sameNodeAry(a[k], b[k])) return false
   }
   return true
-}
-
-/**
- * 视图无关的 effect 装配：`@watch` 与 `cssVars`。
- */
-function setupViewIndependentEffects(comp: CompElem<any>, ceStatic: any): void {
-  if (!ceStatic) return
-  if (ceStatic.watchEffects) {
-    for (const factory of ceStatic.watchEffects) {
-      effect(factory(comp), { asChild: false })
-    }
-  }
-  if (ceStatic.cssEffect) {
-    effect(ceStatic.cssEffect(comp), { asChild: false })
-  }
 }
 
 /**
@@ -103,7 +107,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
   #cid: number
   #slotPropsMap: Record<string, Partial<SlotOptions>> = {}
-  __data_: Record<string, any> = {};
   #shadow: ShadowRoot;
   //保存所有渲染上下文 {CompElem/Directive}
   __updateTree: Array<UpdatePoint>
@@ -116,7 +119,15 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   // cssVars
   __cssVarVals: Record<string, string> | undefined
 
-  #viewEffects: EffectNode[] = []
+  /**
+   * 视图 effect 账本
+   */
+  #viewEffects: Set<EffectNode> = new Set()
+
+  /**
+   * `@watch` / `cssVars` 的 effect 账本，与视图 effect 分开记
+   */
+  #setupEffects: EffectNode[] = []
 
   __propDefs: Record<string, PropOption> | undefined
   __stateDefs: Record<string, StateOption> | undefined
@@ -183,6 +194,10 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
   __inited = false;
   #initiating = false;
+  /**
+   * setup 前就被 updateProps 写过信号的 prop key
+   */
+  #preSetProps: Set<string> | undefined
   #onSlotChangeHookBindThis: EvHadler
   __thisRef: WeakRef<any>
   __superComp!: Function
@@ -208,23 +223,26 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     this.#onSlotChangeHookBindThis = this.#onSlotChangeHook.bind(this)
 
     //init props via constructor
-    if (size(args) === 1) {
+    if (args.length === 1) {
       this.#props = {}
-      assign(this.#props, first(args))
+      assign(this.#props, args[0])
     }
 
     /////////////////////////////////////////////////// slots
-    if (!Reflect.getOwnPropertyDescriptor(this.constructor.prototype, 'slots')) {
-      Reflect.defineProperty(this.constructor.prototype, 'slots', {
-        get() {
-          if (this.isDestroyed) return EMPTY_SLOTS
-          return this.#slotsSig().value
-        },
-        set(v) {
-          if (this.isDestroyed) return
-          this.#slotsSig().value = v
-        }
-      })
+    if (!SlotsInstalled.has(this.constructor)) {
+      SlotsInstalled.add(this.constructor)
+      if (!Reflect.getOwnPropertyDescriptor(this.constructor.prototype, 'slots')) {
+        Reflect.defineProperty(this.constructor.prototype, 'slots', {
+          get() {
+            if (this.isDestroyed) return EMPTY_SLOTS
+            return this.#slotsSig().value
+          },
+          set(v) {
+            if (this.isDestroyed) return
+            this.#slotsSig().value = v
+          }
+        })
+      }
     }
 
     /////////////////////////////////////////////////// 方法装饰器
@@ -319,12 +337,20 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
     //events
     releaseEventHandlers(this)
-    //effects
-    const viewEffects = this.#viewEffects
+    //effects：视图 effect 在 dispose 时经 onDispose 自摘除，这里只需取快照逐个 dispose
+    const viewEffects = Array.from(this.#viewEffects)
+    this.#viewEffects.clear()
     for (let i = 0; i < viewEffects.length; i++) {
       viewEffects[i].dispose()
     }
-    viewEffects.length = 0
+    // setup effect（@watch / cssVars）在视图 effect 之后回收
+    const setupEffects = this.#setupEffects
+    this.#setupEffects = []
+    for (let i = 0; i < setupEffects.length; i++) {
+      const e = setupEffects[i]
+      e.onDispose = undefined
+      e.dispose()
+    }
     this.__f = false
 
     //sup scope
@@ -357,9 +383,13 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     each(this.__s?.slots?.value, (nodes: Node[], _k) => {
       each(nodes, (node: Element) => node.remove())
     })
-    this.#updateSlots.clear();
+    // slots 订阅 effect
+    if (this.#slotSync !== undefined) {
+      this.#slotSync.dispose()
+      this.#slotSync = undefined
+    }
     this.#onSlotChangeHookBindThis = this.__thisRef =
-      this.#slotNodes = this.#slotsEl = this.#updateSlots = this.#slotPropsMap = null as any
+      this.#slotNodes = this.#slotsEl = this.#slotPropsMap = null as any
     if (this.__s?.slots) this.__s.slots = null as any
 
     this.remove()
@@ -371,7 +401,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       this.#renderRoot =
       this.#renderRoots =
       this.#slotHooks =
-      this.__data_ =
       this.__updateTree =
       this.#parentComponent =
       this.#wrapperComponent = null as any
@@ -382,31 +411,50 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
   //////////////////////////////////// lifecycles
   //********************************** 首次渲染
+  /**
+   * 收编「视图无关」的 effect：`@watch`（`watchEffects`）与 `cssVars`（`cssEffect`）
+   */
+  #mountSetupEffects(ceStatic: CompiledStatic | undefined) {
+    if (!ceStatic) return
+    const watches = ceStatic.watchEffects
+    const css = ceStatic.cssEffect
+    if (watches === undefined && css === undefined) return
+    if (watches !== undefined) {
+      for (let i = 0, l = watches.length; i < l; i++) {
+        // 追加而非去重：setup 途中抛错会让 __inited 停在 false，重入时再建一条，destroy 一并回收
+        this.#setupEffects.push(effect(untrack(() => watches[i](this)), NO_CHILD_EFFECT))
+      }
+    }
+    if (css !== undefined) {
+      this.#setupEffects.push(effect(untrack(() => css(this)), NO_CHILD_EFFECT))
+    }
+  }
+
   setup() {
     if (this.__inited) return;
     //防止在钩子中出现重新挂载
     if (this.#initiating) return;
     this.#initiating = true;
-
-    ////////////////////////////////////////////// Props & States
-    const props = this.#initProps();
-    this.#props = {}
-    Object.assign(this.#props, props)
-    for (const key in props) {
-      const v = props[key];
-      this.__data_[key] = v;
+    try {
+      this.#doSetup();
+    } finally {
+      // 成功与抛错都复位：抛错时 __inited 仍为 false，重连后还能重试初始化；
+      // 进行中的重入（钩子里再次挂载）仍被上面的 #initiating 判定挡住
+      this.#initiating = false;
     }
+  }
+
+  #doSetup() {
+    ////////////////////////////////////////////// Props & States
+    const attrProps = this.#initProps();
+    this.#props = {}
+    Object.assign(this.#props, attrProps)
 
     this.#initStates();
-    this.propsReady(props)
+    this.propsReady(CompElemHelper.snapshotProps(this, this.__propDefs))
 
     //2. Data
     this.#slotsSig().value = {}
-
-    Reflect.defineProperty(this.__data_, '__isData', {
-      enumerable: false,
-      value: true
-    })
 
     //3. Render
     const ctor = this.constructor as any
@@ -417,12 +465,12 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       this.#renderRoots = []
       this.#renderRoot = undefined
       // noView 同样需要 @watch / cssVars
-      setupViewIndependentEffects(this, ceStatic)
+      this.#mountSetupEffects(ceStatic)
     } else if (ceStatic?.buildTemplate) {
       this.#shadow = this.attachShadow({ mode: "open" });
       this.#shadow.adoptedStyleSheets = getBaseSheets(this.constructor);
       fragment = buildStaticView(this)
-      setupViewIndependentEffects(this, ceStatic)
+      this.#mountSetupEffects(ceStatic)
       if (fragment && fragment.children.length > 0) {
         const els = fragment.children
         const roots: Array<WeakRef<HTMLElement>> = []
@@ -442,7 +490,6 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     this.__inited = true;
 
     /////////////////////////////////////////////////// slots
-    this.#updateSlotsAry()
     //slot hook
     let slotMap = ComponentUninitializedSlotFunctionMap.get(this)
     if (slotMap) {
@@ -454,6 +501,9 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     })
 
     this.beforeMount();
+    // 首屏 props 已由 #initProps 取走，清掉 wrapper 外层条目中的本节点登记。
+    // 放在早退之前：destroy() 在 beforeMount 里发生时，早退路径同样不能把条目留成强引用。
+    ComponentUninitializedSubComponentPropMap.get(this.wrapperComponent!)?.delete(this)
     if (this.isDestroyed) {
       console.debug('Component is destroyed before mount', this.tagName)
       return
@@ -463,8 +513,9 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
     if (fragment && fragment.children.length > 0) {
       this.#shadow.append(fragment)
-      ComponentUninitializedSubComponentPropMap.delete(this)
     }
+
+    this.#updateSlotsAry()
 
     if (this.#updateNextImmediatelyQ) {
       this.#updateNextImmediatelyQ.forEach((cbk) => Promise.resolve().then(cbk as any))
@@ -473,6 +524,8 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     bindEvents(this)
 
     this.mounted();
+
+    this.#mountSlotSync()
   }
 
   propsReady(props: Record<string, any>) { }
@@ -495,23 +548,33 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     if (this.__inited)
       this.#onSlotChange(t, name === SLOT_NAME_DEFAULT ? '' : name)
   }
+  /**
+   * 插槽内容变化入口
+   */
   #onSlotChange(slot: HTMLSlotElement, name: string) {
-    //1. 更新 _slotsPropMap & slots
     this.#updateSlotsAry()
-    //2. 设置attrs
-    let props = get<Record<string, any>>(this.#slotPropsMap[name], 'props')
+  }
+  /**
+   * 把某个具名插槽的 props 铺到它分配到的节点上，并派发 slotChange
+   */
+  #applySlotProps(slot: HTMLSlotElement, name: string) {
+    const slotPropsMap = this.#slotPropsMap
+    const props = get<Record<string, any>>(slotPropsMap[name], 'props')
     if (props) {
-      each(this.slots, (nodeAry, _k: string) => {
-        nodeAry.filter(node => node.nodeType === Node.ELEMENT_NODE).forEach((node: Element) => {
+      const nodeAry = this.#slotsSig().peek()[name]
+      if (nodeAry !== undefined) {
+        for (let i = 0; i < nodeAry.length; i++) {
+          const node = nodeAry[i] as Element
+          if (node.nodeType !== Node.ELEMENT_NODE) continue
           if (node instanceof CompElem) {
             node.updateProps(props)
-            return;
+            continue
           }
           each(props, (v, k: string) => {
             if (node instanceof HTMLSlotElement) {
-              let compOfSlot = SlotCompMap.get(node)
+              const compOfSlot = SlotCompMap.get(node)
               if (compOfSlot) {
-                let sname = node.name || SLOT_NAME_DEFAULT
+                const sname = node.name || SLOT_NAME_DEFAULT
                 let slotMap = compOfSlot.#slotPropsMap[sname]
                 if (!slotMap) {
                   slotMap = compOfSlot.#slotPropsMap[sname] = { props: {} }
@@ -520,21 +583,44 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
                   slotMap.props = {}
                 }
                 slotMap.props[k] = v
-                compOfSlot.#onSlotChange(node, sname)
+                compOfSlot.#applySlotProps(node, sname)
               } else {
                 //...
               }
             } else {
               node.setAttribute(k, v)
             }
-
           })
-        })
-      })
+        }
+      }
     }
-
-    //3. callback
-    this.slotChange(slot, name)
+    this.slotChange(slot, name === SLOT_NAME_DEFAULT ? '' : name)
+  }
+  /**
+   * slots 信号订阅 effect
+   */
+  #slotSync: EffectNode | undefined
+  /** 订阅 effect 的首跑标记：首屏对所有插槽铺 props + 派发（等价原生初始 slotchange） */
+  #slotSyncFirst = true
+  #mountSlotSync() {
+    if (this.#slotSync !== undefined) return
+    const sig = this.#slotsSig()
+    this.#slotSync = effect(() => {
+      const slots = sig.value
+      const changed = this.#changedSlots
+      this.#changedSlots = undefined
+      const first = this.#slotSyncFirst
+      this.#slotSyncFirst = false
+      const slotKeys = keys<string>(slots)
+      for (let i = 0; i < slotKeys.length; i++) {
+        const k = slotKeys[i]
+        // 此后只对**内容真的变了**的插槽派发：此前任何一处变动都会全表重铺 props + 全表 slotChange
+        if (!first && changed !== undefined && !changed.has(k)) continue
+        const slotEl = this.#slotsEl[k]
+        if (slotEl === undefined) continue
+        this.#applySlotProps(slotEl, k)
+      }
+    }, NO_CHILD_EFFECT)
   }
   slotChange(slot: HTMLSlotElement, name: string) { }
   attributeChangedCallback(attributeName: string, oldValue: string | null, newValue: string | null) {
@@ -557,23 +643,23 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   }
   //********************************** 更新
   /**
-   * 是否需要更新，可获取变更属性
-   * 返回true时更新
+   * 一轮 flush 结束后、且**本组件有视图 effect 真的跑过**时触发。
+   *
+   * 这是信号架构下「DOM 已落盘」的确定时点：更新单位是 effect，没有组件级 render
+   * pass，所以 `updated(changed)` 那种「更新完了」钩子不存在（变更 diff 也无从汇总）。
+   * 需要「某字段变了做某事」请直接用 `@watch('field')`，比全局时点精确得多。
+   *
+   * 触发范围：
+   * - 数据驱动更新与 `forceUpdate()` 都会触发；
+   * - 只有 `@watch` / `cssVars` 变化时**不**触发（它们的 effect 记在 `#setupEffects`，
+   *   不进 `#viewEffects`，`forceUpdate()` 也碰不到）；
+   * - 无视图组件（`render()` 返回 null）与模板无插值位的组件**永不触发**——没有视图
+   *   effect 可跑，也就没有「更新完」可言。
    */
-  shouldUpdate(changed: Record<string, any>): boolean {
-    return true;
-  }
-  /**
-   * 1. 调用render
-   * 2. 更新@query/all
-   * 3. 更新ref
-   * 4. 更新prop到attr的映射
-   * @param changed
-   */
-  updated(changed: Record<string, any>) { }
+  afterUpdate(): void { }
 
   /**
-   * 收编「子类以**裸类字段**覆盖继承自父类的 prop 默认值」这一写法
+   * 收编「子类以**裸类字段**覆盖继承自父类的 prop 默认值」——受支持的写法
    */
   #adoptOwnFieldDefaults(propDefs: Record<string, PropOption>) {
     const ctor = this.constructor as any
@@ -589,9 +675,12 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       const ownVal = (this as any)[key]
       delete (this as any)[key]
       if (!isUndefined(ownVal)) {
+        // 已有信号（编译器为继承来的 prop 建的）直接写值；没有则补建 ——
+        // 把「props 键 ⇒ __s 有信号」从编译器约定升级为运行时保证，
+        // #initProps 的默认值就只需读 `__s[k].peek()`，不必再兜一份镜像
         const sig = this.__s[key]
         if (sig !== undefined) sig.value = ownVal
-        else this.__data_[key] = ownVal
+        else this.defineSignalField(key, ownVal)
       }
       adopted.push(key)
     }
@@ -604,16 +693,12 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       table = ceStatic.props = { ...table }
     }
     this.__propDefs = table
-    if (FieldOverrideWarned.has(ctor)) return
-    FieldOverrideWarned.add(ctor)
+    if (FieldOverridePatched.has(ctor)) return
+    FieldOverridePatched.add(ctor)
     for (let i = 0; i < adopted.length; i++) {
       const key = adopted[i]
       table[key] = { ...table[key] }
     }
-    showWarn(
-      `<${this.tagName}> 字段 ${adopted.join(', ')} 以裸类字段覆盖了继承的 prop 默认值，` +
-      `已自动收编。改写成 @prop 声明可消除此警告。`
-    )
   }
 
   /**
@@ -653,6 +738,9 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     this.#adoptOwnFieldDefaults(propDefs)
     propDefs = this.__propDefs!
 
+    // setDefaults 登记的组件级默认 props（tag 名键）：在类字段默认值之后、外部 props 之前应用
+    const compDefaults = getDefaultComponentProps(tagNameLower(tagName)!)
+
     let keys = Object.keys(propDefs)
     let size = keys.length
     for (let i = 0; i < size; i++) {
@@ -667,13 +755,24 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         parentVal = parentProps[kbKey]
       }
       const sig = this.__s[key]
-      let defaultVal = sig !== undefined ? sig.value : this.__data_[key]
-      if (!('_defaultValue' in propDef)) {
+      // peek()：setup 可能跑在父组件的 effect 里，`.value` 会把依赖挂到父身上
+      let defaultVal = sig !== undefined ? sig.peek() : undefined
+      // 生效默认值：setDefaults 组件级默认覆盖类字段默认（仍低于外部传入）
+      let effDefault = defaultVal
+      if (compDefaults !== undefined) {
+        const cd = has(compDefaults, key) ? compDefaults[key] : compDefaults[kbKey]
+        if (!isUndefined(cd)) effDefault = cd
+      }
+      // _defaultValue 是类级共享表：只登记来自类字段初始声明的值。setup 前被
+      // updateProps 写过信号的 key（#preSetProps）此时 peek() 到的是外部传入值，
+      // 登记进去会污染后续所有实例的默认值 —— 跳过，留给未被污染的实例登记
+      if (!('_defaultValue' in propDef) && !this.#preSetProps?.has(key)) {
         //在构造结束后
         propDef._defaultValue = defaultVal
         if (!propDef.type) {
-          let type = typeof defaultVal as string
-          if (isArray(defaultVal)) type = 'array'
+          const inferSrc = isUndefined(defaultVal) ? effDefault : defaultVal
+          let type = typeof inferSrc as string
+          if (isArray(inferSrc)) type = 'array'
           let inferredType = PropTypeMap[type]
           propDef.type = inferredType
         }
@@ -681,9 +780,9 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
       let val: any = undefined;
       if (isInited) {
-        val = isNil(parentVal) ? defaultVal : parentVal;
+        val = isNil(parentVal) ? effDefault : parentVal;
       } else {
-        val = defaultVal;
+        val = effDefault;
         let attr =
           attrs.getNamedItem(kbKey) ||
           attrs.getNamedItem(ATTR_PREFIX_PROP + kbKey) ||
@@ -698,17 +797,19 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       let isRequired = propDef.required;
       if (isRequired && !isInited) {
         showTagError(tagName, "Prop '" + key + "' is required");
-        break
+        continue
       }
 
       val = CompElemHelper.propTypeCheck(this, propDefs, key, val, hasAttr)
+      // 字符串转换失败落到 undefined（如空白特性对 Number，见 convertValue）⇒ 回退默认值
+      if (isUndefined(val)) val = effDefault
 
       if (propDef.attribute !== false && isDefined(val) && !isObject(val)) {
         CompElemHelper.updateAttribute(this, propDef, key, val)
       }
 
-      this.__data_[key] = val;
       if (sig !== undefined) sig.value = val
+      else this.defineSignalField(key, val)
       if (hasAttr)
         rs[key] = val;
     }
@@ -723,23 +824,28 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         let stateDef = stateDefs[key] as StateDefInternal
         const sig = this.__s[key]
         if (stateDef && stateDef.prop) {
-          const val = cloneDeep(this.__data_[stateDef.prop])
-          this.__data_[key] = val
+          // peek()：setup 可能跑在父组件的 effect 里，`.value` 会把依赖挂到父身上
+          const src = this.__s[stateDef.prop]
+          const val = cloneDeep(src !== undefined ? src.peek() : undefined)
           if (sig !== undefined) sig.value = val
-        } else {
-          this.__data_[key] = sig !== undefined ? sig.value : undefined
         }
-      });
+      })
   }
   updateProps(props: Record<string, any>, force = false) {
     let propDefs = this.__propDefs
     if (!propDefs) return
     if (!this.__inited) {
+      // #props 可能尚未建立（无参构造），先建表再 assign，否则写入丢失
+      this.#props ??= {}
       assign(this.#props, props)
       for (const k in props) {
         if (!Object.prototype.hasOwnProperty.call(props, k)) continue
         const ck = camelCaseCached(k)
-        if (this.__s[ck]) this.__s[ck].value = props[k]
+        if (this.__s[ck]) {
+          this.__s[ck].value = props[k]
+            // 记下 setup 前写过信号的 key：#initProps 不再把它当类字段默认值登记
+            ; (this.#preSetProps ??= new Set<string>()).add(ck)
+        }
       }
       return
     }
@@ -757,6 +863,9 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       CompElemHelper.updatePropOne(this, singleK!, props[singleK!], force)
       return
     }
+    // 归一化（camelCase 键 + 类型转换后的值）写在**副本**上：
+    // 直接改 props 会污染调用方传入的对象（编译产物的字面量、父组件的缓存值）
+    const normalized: Record<string, any> = { ...props }
     const pendingAttrs: Array<any> = []
     batch(() => {
       for (const k in props) {
@@ -767,20 +876,20 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         if (!propDef) continue
         v = CompElemHelper.propTypeCheck(this, propDefs, ck, v)
 
-        const oldValue = this.__s[ck] ? this.__s[ck].value : this.__data_[ck]
+        // peek()：写路径上读旧值去重，`.value` 会在父的 point effect 里挂上多余依赖
+        const oldValue = this.__s[ck] ? this.__s[ck].peek() : undefined
         if (!force && Object.is(oldValue, v)) continue
 
         if (propDef.attribute !== false && isDefined(v) && !isObject(v)) {
           pendingAttrs.push([propDef, ck, v])
         }
 
-        this.__data_[ck] = v
-        props[ck] = v
+        normalized[ck] = v
         if (this.__s[ck]) this.__s[ck].value = v
       }
     })
     const need2UpdateAttrs = pendingAttrs.length ? pendingAttrs : null
-    assign(this.#props, props)
+    assign(this.#props, normalized)
 
     if (need2UpdateAttrs) {
       for (let i = 0; i < need2UpdateAttrs.length; i++) {
@@ -815,21 +924,16 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
   }
   //slot变量变动时触发
-  #updateSlots: Set<string> = new Set()
   _updateSlot(name: string, propName?: string, value?: any) {
     let slotEl = this.#slotsEl[name]
     let hook = this.#slotHooks[name]
     if (!hook && !slotEl) return;
 
-    let slotMap = this.#slotPropsMap[name]
     if (propName) {
-      if (!slotMap.props) {
-        slotMap.props = {}
-      }
-      slotMap.props[propName] = value
+      let slotMap = this.#slotPropsMap[name] ?? (this.#slotPropsMap[name] = {})
+        ; (slotMap.props ?? (slotMap.props = {}))[propName] = value
     }
     if (!!hook) {
-      this.#updateSlots.add(name)
       this.#updateSlot(name)
     } else {
       //update nodes
@@ -857,6 +961,21 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     if (!this.#renderRoot) return
     let slotKeys = keys(this.#slotsEl)
     if (isEmpty(slotKeys)) return
+    // 分组键判定对每个节点都做一次成员查找，Set 比 includes 的线性扫划算得多
+    const slotKeySet = new Set<string>(slotKeys)
+
+    // assignedNodes({flatten:true}) 每次都要重算分配：同一轮里「收集」与「修剪空插槽」
+    // 会问到同一个插槽元素，本轮缓存一次
+    const assignedCache = new Map<HTMLSlotElement, Node[]>()
+    const assignedOf = (el: HTMLSlotElement): Node[] => {
+      let a = assignedCache.get(el)
+      if (a === undefined) assignedCache.set(el, a = el.assignedNodes({ flatten: true }))
+      return a
+    }
+    // 修剪用判据：空白文本节点与没有分配内容的插槽都不算插槽内容
+    const isSlotFiller = (node: Node) =>
+      (node.nodeType === Node.TEXT_NODE && isBlank(node.textContent)) ||
+      (node instanceof HTMLSlotElement && assignedOf(node).length === 0)
 
     const cs: Node[] = []
     const childNodes = this.childNodes
@@ -865,7 +984,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       if (node.nodeType === Node.COMMENT_NODE) continue
       if (node.nodeType === Node.TEXT_NODE && isBlank(node.textContent)) continue
       if (node instanceof HTMLSlotElement) {
-        const assigned = node.assignedNodes({ flatten: true })
+        const assigned = assignedOf(node)
         for (let ai = 0; ai < assigned.length; ai++) cs.push(assigned[ai])
         continue
       }
@@ -873,10 +992,10 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     }
 
     let groups = groupBy<Node>(cs, node => {
-      if (node.nodeType === Node.TEXT_NODE && slotKeys.includes(SLOT_NAME_DEFAULT)) return SLOT_NAME_DEFAULT
+      if (node.nodeType === Node.TEXT_NODE && slotKeySet.has(SLOT_NAME_DEFAULT)) return SLOT_NAME_DEFAULT
       if (node instanceof Element) {
         let sName = node.getAttribute('slot') || SLOT_NAME_DEFAULT
-        if (slotKeys.includes(sName))
+        if (slotKeySet.has(sName))
           return sName
       }
     })
@@ -888,20 +1007,14 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     each(groups, (nodeAry, k: string) => {
       if (!k) return;
       while (nodeAry.length > 0) {
-        let node = nodeAry[0]
-        if ((node.nodeType === Node.TEXT_NODE && isBlank(node.textContent)) ||
-          (node instanceof HTMLSlotElement && isEmpty(node.assignedNodes({ flatten: true })))
-        ) {
+        if (isSlotFiller(nodeAry[0])) {
           nodeAry.shift();
           continue;
         }
         break;
       }
       while (nodeAry.length > 0) {
-        let node = last(nodeAry)
-        if ((node.nodeType === Node.TEXT_NODE && isBlank(node.textContent)) ||
-          (node instanceof HTMLSlotElement && isEmpty(node.assignedNodes({ flatten: true })))
-        ) {
+        if (isSlotFiller(nodeAry[nodeAry.length - 1])) {
           nodeAry.pop();
           continue;
         }
@@ -924,9 +1037,29 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     const s = this.__s || (this.__s = {} as Record<string, SignalNode<any>>)
     return (s.slots || (s.slots = signal<Record<string, Node[]>>({})))
   }
+  /**
+   * 本轮**内容真的变了**的插槽名集合（`slotChange` 只对这些名字派发）。
+   *
+   * 由 #setSlots 累积、由 slots 订阅 effect 取走清空：同一轮多次写入自然并集。
+   */
+  #changedSlots: Set<string> | undefined
   #setSlots(next: Record<string, Node[]>) {
     const sig = this.#slotsSig()
-    if (sameSlots(sig.value, next)) return
+    const prev = sig.value
+    if (sameSlots(prev, next)) return
+    // 逐名浅比较收集变化集（数组每轮都是新建的，只能比元素）
+    const changed = this.#changedSlots ?? (this.#changedSlots = new Set<string>())
+    const nextKeys = keys<string>(next)
+    for (let i = 0; i < nextKeys.length; i++) {
+      const k = nextKeys[i]
+      if (!sameNodeAry(prev[k], next[k])) changed.add(k)
+    }
+    const prevKeys = keys<string>(prev)
+    for (let i = 0; i < prevKeys.length; i++) {
+      const k = prevKeys[i]
+      if (next[k] === undefined) changed.add(k)
+    }
+    // 整体写入语义不变：slots 读侧（模板里的 this.slots.xxx）拿的仍是全量表
     sig.value = next
   }
   /**
@@ -953,8 +1086,21 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
             // 必须在 up.destroy() 把 up.node 置 null 之前摘除 __dirNodeMap 条目
             //（Map 强引用节点，旧节点被拆下后条目不摘就连带子树一起泄漏）
             purgeDirNodeMap(owner, prevUpAry)
-            for (let i = 0; i < prevUpAry.length; i++) prevUpAry[i].destroy()
+            // destroy 带 context：有更新点覆盖的元素子树经 DomUtil.clear 连带销毁
+            //（组件自身销毁路径同样经这里回收）
+            for (let i = 0; i < prevUpAry.length; i++) prevUpAry[i].destroy(this)
             prevUpAry = undefined
+          }
+          // 更新点只覆盖有插值的位置：上一代根节点里无更新点覆盖的静态嵌套
+          // CompElem 不在 prevUpAry 子树内，须对全部旧根节点补一次子树扫描
+          //（destroy 幂等，与上面 destroy(this) 的重叠部分无害）
+          const oldNodes = this.#slotNodes?.[name]
+          if (oldNodes !== undefined) {
+            for (let i = 0; i < oldNodes.length; i++) {
+              const n = oldNodes[i]
+              if (n instanceof CompElem) n.destroy()
+              else DomUtil.clear(n as Element)
+            }
           }
         })
         const nodes = buildSubTemplateView(owner, hook, get(slotMap, 'props'))
@@ -962,11 +1108,10 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         // 再滤注释节点 —— 顺序反了会把载体节点一起滤掉
         prevUpAry = (nodes[0] as any)?.__ceUpAry as UpdatePoint[] | undefined
         this.#swapSlotNodes(name, reject(nodes, (n: Node) => n.nodeType === Node.COMMENT_NODE))
-      }, { asChild: false })
+      }, NO_CHILD_EFFECT)
       this._regViewEffect(eff)
       this.#slotViews[name] = eff
     }
-    this.#updateSlots.delete(name);
   }
 
   /**
@@ -1037,7 +1182,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     }
     arg.target = this;
 
-    if (has(this.#attrs, 'emit-native')) {
+    if (this.hasAttribute('emit-native')) {
       this.dispatchEvent(
         new CustomEvent(evName, {
           bubbles: false,
@@ -1082,53 +1227,46 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   }
   // 编译器调用
   _regViewEffect(e: EffectNode) {
-    const arr = this.#viewEffects
-    for (let i = arr.length - 1; i >= 0; i--) {
-      if (arr[i].disposed) arr.splice(i, 1)
+    // 登记可能晚于 effect 的销毁：结构指令删除子项时 commitRemove 先拆组件再
+    // up.destroy()，此时本 effect 已 disposed；组件自身已销毁时同理。
+    if (e.disposed || this.isDestroyed) {
+      e.dispose()
+      return
     }
-    arr.push(e)
+    // 归属标记：flush 末段据此汇总「本轮更新过的组件」并触发 afterUpdate
+    e.owner = this
+    const effects = this.#viewEffects
+    effects.add(e)
+    e.onDispose = () => {
+      e.onDispose = undefined
+      effects.delete(e)
+    }
   }
 
   /**
    * 强制重渲染一次视图
    */
   forceUpdate() {
-    if (!this.shouldUpdate({})) return
-    const effects = this.#viewEffects
-    if (effects.length > 0) {
-      this.__f = true
-      try {
-        for (let i = 0; i < effects.length; i++) {
-          const e = effects[i]
-          if (!e.disposed) e.run()
+    // 整段批量
+    batch(() => {
+      const effects = this.#viewEffects
+      if (effects.size > 0) {
+        this.__f = true
+        try {
+          // 直接迭代 Set：重跑中途 dispose 掉的条目自摘除后不会再被访问，
+          // 同轮新登记的会被访问——与原数组「每轮重读 length」的行为一致
+          for (const e of effects) {
+            if (e.disposed) continue
+            try {
+              e.run()
+            } catch (err) {
+              reportEffectError(err, e)
+            }
+          }
+        } finally {
+          this.__f = false
         }
-      } finally {
-        this.__f = false
       }
-    }
-    this.#updateSlots.forEach((v) => {
-      this.#updateSlot(v)
     })
-    this.updated({});
   }
-}
-
-/**
- * 从 owner 的 `__dirNodeMap` 摘除一代快照的指令节点条目
- *
- * @param comp  快照的 owner（指令 up 注册在它的 __dirNodeMap 上，见 renderTemplate）
- * @param upAry buildSubTemplateView 产出的本代 UpdatePoint 树（含 children 递归）
- */
-function purgeDirNodeMap(comp: CompElem<any>, upAry: UpdatePoint[] | undefined) {
-  if (upAry === undefined || upAry.length === 0) return
-  const map = (comp as any).__dirNodeMap as Map<Node, UpdatePoint> | undefined
-  if (!map) return
-  const walk = (ups: UpdatePoint[]) => {
-    for (let i = 0; i < ups.length; i++) {
-      const up = ups[i]
-      if (up.node) map.delete(up.node)
-      if (up.children) walk(up.children)
-    }
-  }
-  walk(upAry)
 }

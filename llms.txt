@@ -1,13 +1,33 @@
 # compelem
 
-> 现代化、响应式、轻量的 WebComponent 开发库，基于 Class + 装饰器构建。TypeScript 编写，零运行时依赖。
+> 现代化、响应式、轻量的 WebComponent 开发库，基于 Class + 装饰器构建。TypeScript 编写，信号驱动、无 VDOM、编译期完成依赖收集与视图生成。
+
+## 环境要求（必读）
+
+- TypeScript 开启 `experimentalDecorators: true`
+- **必须挂载编译插件 `@compelem/compiler`**（`compelemCompiler()` Vite 插件）。运行时导出的装饰器全是 no-op 存根，视图唯一来源是编译器注入的 `static __ce_static__.buildTemplate`；未挂插件时组件实例化会直接抛 `Component is not compiled @compelem/compiler plugin is required`
+- Vite 8 需显式 `oxc: { decorator: { legacy: true } }`，并 `esbuild: { keepNames: true }`（`@tag` 依赖 `target.name`）
+- `myfx`（`^2.0.0-beta.4`）是 **peerDependency**，构建时作 external，宿主需自装（`@compelem/compiler` 同样 peer 依赖同一区间）
+
+## 组件注册
+
+`@tag("x-foo")` 只把类写进注册表，**不会**自动 `customElements.define`。应用入口调用一次：
+
+```ts
+import { defineComponents, defineComponentsSubset } from "compelem";
+defineComponents();                      // 或 defineComponentsSubset(["x-foo"])
+// 或 @tag("x-foo", true) 立即注册
+```
+
+漏掉则所有组件都是未升级的空壳。
 
 ## 核心概念
 
-- **CompElem 基类**: 所有组件的基类，提供生命周期、响应式系统和 Shadow DOM 支持
-- **装饰器系统**: @tag、@prop、@state、@computed、@watch、@emits 等声明式装饰器
-- **模板系统**: h 模板标签函数，支持属性前缀（@事件、.prop、?布尔、*求值）
+- **CompElem 基类**: 组件基类，提供生命周期、信号响应式、Shadow DOM、插槽与样式域
+- **装饰器**: 全部 no-op 存根，语义由编译器前移；参数/target 违规在编译期报错（E 码）阻断构建
+- **模板系统**: `h` 模板标签函数，属性前缀 `@`事件 `.`prop `?`布尔 `*`求值后设置（支持 `:camel/:kebab/:snake`）
 - **内置指令**: forEach、ifTrue、ifElse、when、show、model、bind、classes、styles、slot、html
+- **信号原语**: signal / signalComputed / effect / batch / untrack / onCleanup / flushSync / onEffectError
 
 ## 快速开始
 
@@ -33,60 +53,93 @@ export class MyCounter extends CompElem {
 
 | 装饰器 | 说明 |
 |---|---|
-| `@tag(name, immediate?)` | 注册组件标签名 |
-| `@prop(options?)` | 外部传入属性，组件内不可直接赋值 |
-| `@state` | 组件内部响应状态 |
+| `@tag(name, immediate?)` | 注册组件标签名；`immediate=true` 立即 define |
+| `@prop(options?)` | 外部传入，组件内不可赋值（编译期 `E-PROP-ASSIGN`）。无默认值必须显式 `type` |
+| `@state` | 组件内部响应状态；用初始化器播种 prop（`@state page = this.pageSize`）。`{prop:'x'}` 已废弃 |
 | `@computed` | 缓存计算属性（用于非静态 getter） |
-| `@watch(source, options?)` | 监视 prop/state 变化 |
-| `@emits(...names)` | 声明组件事件（必须先声明才能 emit） |
-| `@csscope(...scopes)` | 样式作用域（用于 static getter） |
-| `@event(name, target?)` | 绑定非视图事件 |
-| `@debounced(wait, immediate?)` | 方法防抖 |
-| `@throttled(wait)` | 方法节流 |
+| `@watch(source, options?)` | 监视 prop/state；`source` 支持多级路径；handler `(nv, ov, source, subNv?, subOv?)` |
+| `@emits(...names)` | 声明组件事件，支持通配 `'update:*'`；决定父端能否用 `@xxx` 绑定 |
+| `@csscope(...scopes)` | 样式作用域，**仅用于 static getter**；`INNER`/`HOST`/`GLOBAL` |
+| `@event(name, target?)` | 绑定非视图事件（window/document/自身元素） |
+| `@query(sel, cache?)` / `@queryAll(sel)` | ShadowDOM 查询，结果为响应式字段，门控 `isMounted`；`QueryCache.ONCE` 仅查一次（queryAll 无 cache 参数） |
+| `@debounced(wait, immediate?)` / `@throttled(wait)` / `@onced` | 方法包装（防抖/节流/只执行一次） |
+
+选项类型：`PropOption {type, required, model, attribute, shallow, hasChanged, converter, isValid}` · `StateOption {shallow, hasChanged}` · `WatchOptions {immediate, deep, once}`
 
 ## 内置指令
 
 | 指令 | 位置 | 说明 |
 |---|---|---|
-| `forEach(list, keyFn, tmpl)` | TEXT/SLOT | 循环渲染 |
+| `forEach(list, keyFn, tmpl)` | TEXT/SLOT | keyed diff；key 重复/nil 时该项跳过并报错 |
 | `ifTrue(cond, tmpl)` | TEXT/SLOT | 条件渲染（true 时） |
 | `ifElse(cond, ifTmpl, elseTmpl)` | TEXT/SLOT | 条件渲染（二分支） |
-| `when(value, cases)` | TEXT/SLOT | 多条件分支 |
-| `show(visible)` | TAG | 显示/隐藏 |
-| `model(value, updateProp?)` | TAG | 双向绑定 |
-| `bind(obj)` | TAG | 绑定属性/特性 |
-| `classes(cls)` | TAG | 绑定样式类 |
-| `styles(style)` | TAG | 绑定样式 |
-| `slot(tmpl, name?)` | SLOT | 动态插槽 |
+| `when(value, cases)` | TEXT/SLOT | 多条件分支，`'default'` 为关键字 key |
+| `show(visible, cbk?)` | TAG | 基于 display 显示/隐藏 |
+| `model(value, updateProp?, modelProp?)` | TAG | 双向绑定；仅支持静态路径 |
+| `bind(obj)` | TAG | 绑定属性/特性（组件标签自动区分 prop/attr） |
+| `classes(cls)` | TAG | 绑定样式类，可对象/数组/字符串，可与静态 class 混写 |
+| `styles(style)` | TAG | 绑定内联样式，值支持 `{value, important}` |
+| `slot(tmpl, name?)` | SLOT | 函数型插槽 |
 | `html(str)` | TAG/TEXT/SLOT | 插入原始 HTML |
+
+指令作用域枚举 `EnterPointType` 只有 `TEXT` / `SLOT` / `TAG`；ATTR/PROP 位置只能放普通值表达式。
 
 ## 模板语法
 
 ```ts
-h`<div @click="${handler}" .value="${prop}" ?disabled="${bool}" *attr="${val}">...</div>`
+h`<div @click="${handler}" .value="${prop}" ?disabled="${bool}" *view-box:camel="${v}">...</div>`
 ```
 
-- `@` = 事件绑定
-- `.` = 组件 prop
-- `?` = 布尔特性切换
-- `*` = 求值后设置（支持 `:camel/:kebab/:snake` 格式转换）
+- `@` 事件绑定　`.` 组件 prop（值必须是插值）　`?` 布尔特性 toggle　`*` 求值后设置
+- `key=${id}` 供 `forEach` diff　`ref="${refObj}"` 配合 `createRef()`
+- 含大写的属性名在**编译期**转 kebab-case，且只对自定义/组件标签生效
 
 ## 生命周期
 
-`propsReady()` → `render()` → `beforeMount()` → `mounted()` → `shouldUpdate()` → `beforeDestroyed()` → `destroyed()`
+`propsReady(props)` → `render()` → `beforeMount()` → `mounted()` → `afterUpdate()` → `beforeDestroyed()` → `destroyed()`
+
+- 无 `shouldUpdate` / `updated` 钩子：更新单位是 effect，不存在"组件更新完了"的时刻
+- `afterUpdate()` 仅在本轮有**视图 effect** 跑过时触发；`@watch` / `cssVars` 变化不触发；无视图组件永不触发
+- `render()` 返回 `null` 或不定义 = 无视图组件，不创建 Shadow DOM，仅支持 HOST/GLOBAL 样式
 
 ## 重要约束
 
-- **条件/循环表达式必须使用指令**：不能使用原始三元表达式或 if/else，必须使用 ifTrue/ifElse/when/forEach
-- **prop 不可在组件内赋值**：修改请使用 model: true 或 emit('update:xxx', ...)
-- **组件事件必须先声明**：使用 @emits 声明后才能 emit
-- **model 指令仅支持静态路径**
-- **@prop 字段名必须小写字母开头**；无默认值必须显式 type
-- **render() 返回 null 的组件没有 Shadow DOM**
+- **条件/循环必须用指令**：不能写裸三元式在"子模板"与"指令"之间切换形态——同一插槽形态由首渲染决定且此后不变
+- **prop 不可在组件内赋值**：改值用 `model: true` 或 `emit('update:xxx', ...)`；`el.updateProps({...})` 命令式批量更新
+- **`model: true` 三路分派**：父端接了 `update:xxx` ⇒ 只 emit 不写本地；没人接 ⇒ 本地兜底；没人接但有 `emit-native` ⇒ 本地兜底 + 发原生 CustomEvent
+- **组件事件**：`emit()` 不校验 `@emits`，但未声明的事件父端 `@xxx` 会被当原生事件监听；无 `wrapperComponent` 时 emit 直接丢弃
+- **`@emits` 监听名用 kebab-case**（`state-ready`，不是 `stateReady`）
+- **结构指令回调必须字面出现在 render() 模板内**；分支内依赖是惰性的（首次渲染该分支时才订阅）
+- **`render()` 内不能写 `super`**（`E-SUPER-IN-TEMPLATE`）
+- **子类不要声明 `get slots()`**（会顶掉框架原型安装，恒读空桩）
+- **数组/对象 prop 不能走 attribute**，用 `.data="${...}"` 或 `updateProps`
+- **`@query` 在 `mounted()` 之前读到 `undefined`**
+
+## 事件修饰符
+
+`.` 连接，可组合：通用 `debounce:100` / `throttle:100` / `once` / `capture` / `passive`；原生 `stop` / `prevent` / `self`；鼠标 `left`/`right`/`middle`；键盘 `ctrl`/`alt`/`shift`/`meta` + `esc`/字母（并列表示可选）。
+
+扩展原生事件：`resize` · `outside[.mousedown/mouseup/click/dblclick]`（默认 click）· `mutate[.attr/child/char/tree]`（必须带修饰符）
+
+跨框架：给标签加 `emit-native`，`emit()` 改为派发原生 `CustomEvent`。
+
+## 样式
+
+```ts
+@csscope(Csscope.INNER, Csscope.GLOBAL)
+static get css() { return css`:host{...}` }
+
+get cssVars() { return { primaryColor: this.color } }   // → --primary-color
+```
+
+3 层域可任意组合；`cssVars` 自动转 `--kebab-case` 变量并建立响应式 effect。
+
+全局注入：`setDefaults({ css: [sheet], 'x-foo': {默认 props} })`，优先级 外部传入 > setDefaults > 字段默认值。
 
 ## 资源
 
 - [GitHub 仓库](https://github.com/holyhigh2/compelem)
 - [npm 包](https://www.npmjs.com/package/compelem)
 - [完整文档](https://github.com/holyhigh2/compelem/blob/main/README.md)
-- [示例代码](https://github.com/holyhigh2/compelem/tree/main/test)
+- [AI 速查手册（最详尽）](https://github.com/holyhigh2/compelem/blob/main/AGENTS.md)
+- [VS Code 扩展](https://marketplace.visualstudio.com/items?itemName=holyhigh2.compelem-vscode)

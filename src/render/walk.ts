@@ -1,7 +1,11 @@
+import { PLACEHOLDER } from "../constants";
+
 /** 占位符文本节点 */
-const SPLIT_TAG_TEST = new RegExp('⟬Ċ⟭\\d+')
+const SPLIT_TAG_TEST = new RegExp(`${PLACEHOLDER}\\d+`)
+/** 整段恰为单个占位符*/
+const SPLIT_TAG_ONLY = new RegExp(`^${PLACEHOLDER}\\d+$`)
 /** 占位符文本节点 */
-const SPLIT_TAG_SCAN = new RegExp('⟬Ċ⟭(\\d+)', 'g')
+const SPLIT_TAG_SCAN = new RegExp(`${PLACEHOLDER}\\d+`, 'g')
 
 /**
  * nodeType 常量（ELEMENT_NODE=1 / TEXT_NODE=3）。
@@ -24,7 +28,7 @@ export function walkSplitText(f: Node, nodes: Node[]): void {
       const data = (c as Text).data
       if (SPLIT_TAG_TEST.test(data)) {
         const s0 = data.trim()
-        const only = /^⟬Ċ⟭\d+$/.exec(s0)
+        const only = SPLIT_TAG_ONLY.exec(s0)
         if (only) {
           //快路径
           (c as Text).data = ''

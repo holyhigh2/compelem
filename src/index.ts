@@ -35,7 +35,7 @@ export * from "./directives/When";
 
 export { slotOriginOf } from './render/slot-provenance';
 export type { SlotOrigin } from './render/slot-provenance';
-export { batch, effect, flushSync, onCleanup, signal, computed as signalComputed, untrack } from './signal';
+export { batch, effect, flushSync, onCleanup, onEffectError, signal, computed as signalComputed, untrack } from './signal';
 export { createRef, css, h, Template };
 export function defineComponents() {
     each(DefinitionComponentMap, (clz, name) => {

@@ -1,4 +1,4 @@
-import { isBlank, isEmpty, isNil } from 'myfx'
+import { isBlank, isNil } from 'myfx'
 import { CompElem } from '../CompElem'
 import { CompElemHelper } from '../helpers'
 import { getCssVarKey } from '../utils'
@@ -74,19 +74,24 @@ export function wProp(comp: CompElem<any>, node: any, attrName: string, val: any
  */
 export function wCssVars(comp: CompElem<any>): void {
   const cssVarObj = comp.cssVars
-  if (isEmpty(cssVarObj)) return
   const keys = Object.keys(cssVarObj)
   const style = comp.style
-  let mirror = comp.__cssVarVals as Record<string, string> | undefined
-  if (mirror === undefined) mirror = comp.__cssVarVals = {}
+  const prev = comp.__cssVarVals as Record<string, string> | undefined
+  const next: Record<string, string> = {}
   for (let i = 0; i < keys.length; i++) {
     const k = keys[i]
     let v = cssVarObj[k]
     const cssVarKey = getCssVarKey(comp.constructor, k)
     if (isBlank(v) || isNil(v)) v = 'initial'
     else v = '' + v
-    if (mirror[cssVarKey] === v) continue
-    mirror[cssVarKey] = v
+    next[cssVarKey] = v
+    if (prev?.[cssVarKey] === v) continue
     style.setProperty(cssVarKey, v)
   }
+  if (prev !== undefined) {
+    for (const oldKey in prev) {
+      if (next[oldKey] === undefined) style.removeProperty(oldKey)
+    }
+  }
+  comp.__cssVarVals = next
 }

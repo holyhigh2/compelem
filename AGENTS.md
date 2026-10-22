@@ -1,15 +1,16 @@
 # compelem — AI 速查手册
 
-> 本文件面向 AI 编码助手。内容依据 `src/` 源码逐条核实（对应 **v0.30.0-beta.2** working tree），**读取本文件即可获得完整公开 API，无需扫描包源码**。
+> 本文件面向 AI 编码助手。内容依据 `src/` 源码逐条核实（对应 **v0.30.0-beta.4** working tree），**读取本文件即可获得完整公开 API，无需扫描包源码**。
 > 信息不足时按文末「深入阅读」指引查阅，不要盲目 grep 整个包。
 
 ## 概览
 
-- **compelem** v0.30.0-beta.2（MIT，作者 holyhigh2）：现代化、响应式、轻量的 WebComponent 开发库，基于 Class + 装饰器构建。
-- TypeScript 编写；发布入口由 `package.json` `exports` 条件映射：`development` → `dist-dev/`，`production`/默认 → `dist/index.esm.js` / `index.cjs.js`，类型 `dist/index.d.ts`。**零运行时依赖**（内部工具库 myfx 已打包，勿假设使用者环境有 myfx）。
+- **compelem** v0.30.0-beta.4（MIT，作者 holyhigh2）：现代化、响应式、轻量的 WebComponent 开发库，基于 Class + 装饰器构建。
+- TypeScript 编写；发布入口由 `package.json` `exports` 条件映射：`development` → `dist-dev/`，`production`/默认 → `dist/index.esm.js` / `index.cjs.js`，类型 `dist/index.d.ts`。**`myfx` 是 peerDependency（`^2.0.0-beta.4`），构建时作 external 处理、不打包进产物**——宿主工程必须自装，切勿假设 compelem 已内联它。配套编译插件 `@compelem/compiler` 同样把 `myfx` 声明为 peerDependency（源码 `codegen/template-dom.ts`、`codegen/attr-name.ts` 直接 `from 'myfx'` 导入），宿主工程也需自装。
 - 使用前提：TypeScript 需开启 `experimentalDecorators: true`；**必须挂载编译插件 `@compelem/compiler`（`compelemCompiler()` Vite 插件，仓库 `F:\github\compelem-compiler`）**——装饰器语义全部由编译期前移，运行时装饰器是 no-op 存根，约定违规仅由编译期报错。
-- 本仓库脚本：`npm run build`（= `build:prod` 压缩 + `build:dev` 未压缩，产物 `dist/` 与 `dist-dev/`）· `npm run typecheck`（tsc --noEmit）· `npm run dev`（Vite dev server，探针页在 `dev/*.html`）。⚠️ `npm run lint` 的 eslint 配置是旧格式（会报 config migration 错误），不要依赖。
-- 验证手段：headless Chrome + CDP 探针（范例 `dev/_slot_probe.mjs`，可复用于任意 `dev/*.html` 探针页）。仓库根的 `test/` 目录已不存在。
+- 本仓库脚本：`npm run build`（= `build:prod` 压缩 + `build:dev` 未压缩，产物 `dist/` 与 `dist-dev/`）· `npm run typecheck`（tsc --noEmit）。**本仓库不依赖 `@compelem/compiler`，也没有 dev 页/探针页**——`dev/` 与 Vite 调试配置已外移到兄弟仓库 `F:\github\compelem-harness`（private 项目，`npm run dev` 起 :8818，别名 `compelem` → `../compelem/src/index.ts`）。⚠️ `npm run lint` 的 eslint 配置是旧格式（会报 config migration 错误），不要依赖。
+- 构建产物差异：prod 出 `index.esm.js` + `index.cjs.js`（terser 压缩、drop `debug/info/log`）；dev 额外产出 UMD `compelem.umd.js`（挂 `window.compelem`，myfx 全局名 `myff`）。
+- 验证手段：headless Chrome + CDP 探针，脚本在 harness（`compelem-harness/dev/_round4_probe.mjs`、`_slot_probe.mjs`，可复用于任意探针页 URL）。改过本库或编译器 dist 后，先在 harness 里 `rm -rf node_modules/.vite` 再起服务，避免依赖重新优化的瞬时假失败。仓库根的 `test/` 是空目录。
 - 类型权威以 `src/index.ts`、`src/types.ts` 和本文件为准；`dist/*.d.ts` 仅作参考。
 
 ## 心智模型
@@ -49,7 +50,7 @@ render(): Template | null {
 | `@state` | 无参或 `(options?: StateOption)` | 组件内部响应状态，仅组件内修改 |
 | `@computed` | 用于**非静态 getter** | 缓存计算属性，依赖的 prop/state 变化才重算 |
 | `@watch` | `(source: string \| string[], options?: WatchOptions)` | 监视 prop/state；handler `(nv, ov, source, subNv?, subOv?)` |
-| `@query` / `@queryAll` | `(selector: string, cache?: QueryCache)` | ShadowDOM 内 CSS 查询，结果为响应式字段；`QueryCache.ONCE` 仅查一次。访问器门控 `isMounted` |
+| `@query` / `@queryAll` | `@query(selector, cache?: QueryCache)` / `@queryAll(selector)` | ShadowDOM 内 CSS 查询，结果为响应式字段，访问器门控 `isMounted`（`mounted()` 前读到 `undefined`）；`QueryCache.ONCE` 仅查一次。`@queryAll` **没有** cache 参数 |
 | `@csscope` | `(...scopes: Csscope[])` | 用于 **static getter**，返回 `css`\`\` / CSSStyleSheet / 数组 |
 | `@event` | `(eventName: string, eventTarget?: (comp) => HTMLElement \| Promise<HTMLElement> \| Window)` | 绑定非视图事件（window/document/自身元素），事件名支持修饰符；登记进 `DefinitionCompEventMap`（沿父类链继承） |
 | `@emits` | `(...names: string[])` | 声明组件事件（必须先声明才能 `emit`），支持通配 `'update:*'` |
@@ -61,11 +62,11 @@ render(): Template | null {
 
 - `PropOption`: `{ type?, required?, model?, attribute?(默认 true), shallow?, hasChanged?(nv, ov, chain, subNv, subOv), converter?(stringValue => any), isValid?(value, props?) }`
   - `model: true` → 赋值走 `writeModelProp`（`events/event.ts`，包根导出）按宿主三路分派：①父端接了 `update:xxx`（已登记 `_subComponentEventMap`）⇒ 只 emit 不写本地；②没人接 ⇒ 本地兜底；③没人接但有 `emit-native` 特性 ⇒ 本地兜底 + 发原生 CustomEvent。判据是「有没有人注册监听」而非「有没有父组件」
-- `StateOption`: `{ shallow?, hasChanged?(...) }`（内部还有 `StateDefInternal.prop` 用于用指定 prop 初始化）
+- `StateOption`: `{ shallow?, hasChanged?(...) }`。**`{prop: 'x'}` 已废弃**——用初始化器播种：`@state page = this.pageSize`（播种发生在 props 落定之后）；写 `@state({prop})` 会被编译期报 `E-STATE-ARG`。`options` 里也不支持 `type` / `defaultValue`（`E-FIELD-ARG`）
 - `WatchOptions`: `{ immediate?, deep?, once? }`
 - `Csscope`: `INNER`('inner' 组件内/shadowDOM) | `HOST`('host' 宿主) | `GLOBAL`('global' document)
 
-低层扩展：自定义指令用 `directive(fn, scopes: EnterPointType[])`（`EnterPointType`: `TEXT/SLOT/TAG`），executor 第 4 参 meta 为 `{ pointType?, renderComponent?, slotComponent?, varChain?, attrName?, updatedMap?, up?: UpdatePoint }`。
+低层扩展：自定义指令用 `directive(fn, scopes: EnterPointType[])`（`EnterPointType`: `TEXT/SLOT/TAG`），executor 第 4 参 meta 为 `{ pointType?, renderComponent?, slotComponent?, varChain?, attrName?, up?: UpdatePoint }`。
 
 ## 内置指令（11 个，普通函数调用，返回值插入模板；括号内为允许的插入位置）
 
@@ -76,7 +77,7 @@ render(): Template | null {
 | `model` | TAG | `(value: any, updateProp = 'value', modelProp?: string)` | 双向绑定；监听 `update:xxx`，input/textarea/select/checkbox 自动适配。**仅支持静态路径** |
 | `classes` | TAG | `(cls: Record<string, boolean\|string> \| string[] \| string)` | 可与静态 class 混写 |
 | `styles` | TAG | `(style: Record<string, string> \| string \| Array<...>)` | 值支持 `{value, important}`；可与静态 style 混写 |
-| `forEach` | TEXT/SLOT | `(value: any[] \| Record, keyFn: KeyFn, tmpl: TplFn)` | keyed diff；**key 重复/nil 时该项被跳过并 showError** |
+| `forEach` | TEXT/SLOT | `(value: any[] \| Record, keyFn: KeyFn, tmpl: TplFn)` | keyed diff；**key 重复/nil 时该项被跳过并 showError**（nil 仅 DEV 下报） |
 | `ifTrue` | TEXT/SLOT | `(cond: boolean, tplFn: TplFn)` | 条件渲染 |
 | `ifElse` | TEXT/SLOT | `(cond: boolean, ifTmpl: TplFn, elseTmpl: TplFn)` | 二分支 |
 | `when` | TEXT/SLOT | `(value: string \| number, cases: Array<[(v)=>boolean, TplFn]> \| Record<key, TplFn>)` | switch 模式时 `'default'` 是关键字 key |
@@ -90,13 +91,13 @@ render(): Template | null {
 - `h(strings, ...vars): Template` — HTML 模板标签函数（`render/render.ts`）
 - `css(strings, ...vars): CssTemplate` — CSS 模板（按 strings 缓存，`CssTemplateCacheMap`）
 - `createRef<T extends Node>(): RefObject<T>` — `{ current?: T }`
-- 信号原语（`src/signal.ts`，包根导出）：`signal(initial)` · `computed(fn)`（包根导出名为 `signalComputed`，避免与装饰器 `@computed` 撞名）· `effect(fn, opts?: { asChild?: boolean })` → `EffectNode`（`node.run()` 手动重跑、`node.dispose()`、`node.disposed`）· `batch(fn)` · `onCleanup(fn)` · `flushSync()` · `untrack(fn)`
+- 信号原语（`src/signal.ts`，包根导出）：`signal(initial)` · `computed(fn)`（包根导出名为 `signalComputed`，避免与装饰器 `@computed` 撞名）· `effect(fn, opts?: { asChild?: boolean })` → `EffectNode`（`node.run()` 手动重跑、`node.dispose()`、`node.disposed`）· `batch(fn)` · `onCleanup(fn)` · `flushSync()` · `untrack(fn)` · `onEffectError(cb: (err, effect?) => void)`（登记 effect 运行期异常的全局处理器；异常被隔离不中断本轮其余 effect，未登记任何处理器时 `console.error` 兜底）
 - `defineComponents()` — 注册所有 `@tag`（非 immediate）组件；`defineComponentsSubset(names: string[])` — 按需注册子集（宿主只用少部分组件时省启动开销）
 - `writeModelProp(key, v, comp)` / `hasEmitListener(comp, node, evName)` / `hasModelListener(key, comp)` — model 三路分派原语（编译注入的 prop setter 直调）
 - `slotOriginOf(fn): SlotOrigin \| undefined` / `type SlotOrigin { owner, subId, fx?, bv? }` — 插槽钩子出处查询（见下）
 - **DevTools**：`src/devtools.ts` 在模块加载期自动 `installCompElemDevtools()`——零公开 API 面，挂 `globalThis`、给 `documentElement` 打 `data-compelem` 标记；DEV 下扩展未安装时 `notifyDevtoolsMissing()` 出提示（可用 `__COMPELEM_DEVTOOLS_NO_HINT__` 关闭）
 
-内部导出（面向框架/编译产物，业务代码勿直接使用）：`render/render.ts` 的 `buildStaticView`/`renderTemplate`/`convertTemplateMeta`/`buildSubTemplateView`/`resolveSubTemplateMeta` 等；`render/write.ts` 的 `wText/wAttr/wAttrT/wClass/wStyle/wShow/wToggleProp/wProp/wCssVars/t2s`（编译产物直调的 DOM 写入器）；`directive/index.ts` 的 `execEach/execCond/execDir` 与 `directive()`；`utils.ts` 的 `showError/showTagError/_queryGet/_observedAttrs/convertValue/getCssVarKey/memo` 等；`helpers.ts` 的 `CssHelper/CompElemHelper`；`config.ts` 的 `getBaseSheets/getDefaultCss`。CompElem 实例另有编译产物调用的 `_bindSlot/_updateSlot/_regViewEffect/walk` 等。
+内部导出（面向框架/编译产物，业务代码勿直接使用）：`render/render.ts` 的 `buildStaticView`/`renderTemplate`/`convertTemplateMeta`/`buildSubTemplateView`/`resolveSubTemplateMeta` 等；`render/write.ts` 的 `wText/wAttr/wAttrT/wToggleProp/wProp/wCssVars/t2s`（编译产物直调的 DOM 写入器；`wClass/wStyle/wShow` 仍导出但编译器已不再 emit，属 legacy）；`directive/index.ts` 的 `execEach/execCond/execDir` 与 `directive()`；`utils.ts` 的 `showError/showTagError/_queryGet/_observedAttrs/convertValue/getCssVarKey/memo` 等；`helpers.ts` 的 `CssHelper/CompElemHelper`；`utils.ts` 的 `applyClassDiff/applyStyleDiff`（class/style diff 写入门，Bind 与 Classes/Styles 共用）；`config.ts` 的 `getBaseSheets/getDefaultCss/getDefaultComponentProps`。CompElem 实例另有编译产物调用的 `_bindSlot/_updateSlot/_regViewEffect/walk` 等。
 
 ### 指令点的运行期分派（三入口，`directive/index.ts`）
 
@@ -116,7 +117,7 @@ render(): Template | null {
 
 方法：`emit(evName, arg?, event?)` · `nextTick(cbk)` · `forceUpdate()` · `updateProps(props, force?)` · `insertStyleSheet(sheet): CSSStyleSheet \| null` · `getSubViewNodes(tmplFn, ...args): Node[]`（把已编译子模板回调渲染成节点；回调必须带 provenance——经 `slot()` 登记，否则 DEV 报错返回 `[]`）· `destroy()`
 
-生命周期（按序）：`propsReady(props)` → `render()` → `beforeMount()` → `mounted()`；更新时 `shouldUpdate(changed): boolean` → `updated(changed)`；`<slot>` 变动时 `slotChange(slot, name)`；销毁时 `beforeDestroyed()` → `destroyed()`。
+生命周期（按序）：`propsReady(props)` → `render()`（**运行时为存根**，视图唯一来源是编译产物 `__ce_static__.buildTemplate`；源码里仍写 `render()` 返回 `h` 模板）→ `beforeMount()` → `mounted()`；更新时**没有** `shouldUpdate(changed)`/`updated(changed)` 钩子——一轮 flush 结束后、且本组件有视图 effect 真的跑过时触发 `afterUpdate()`（`@watch`/`cssVars` 变化不触发；无视图组件永不触发）；`<slot>` 变动时 `slotChange(slot, name)`；外部属性变更时 `attributeChangedCallback(name, oldValue, newValue)`；销毁时 `beforeDestroyed()` → `destroyed()`。
 
 ### setup 三分支（`setup()` 首屏）
 
@@ -129,15 +130,17 @@ render(): Template | null {
 ## 事件
 
 1. **原生事件**：`<div @click>` → 回调收原生 Event
-2. **扩展原生事件**（`events/extends.ts`）：`resize`（ResizeObserver）· `outside[.mousedown/mouseup/click/dblclick]`（默认 click）· `mutate[.attr/child/char/tree]`（MutationObserver）
-3. **组件事件**：**必须先 `@emits` 声明**才能 `emit`（`matchEmit` 沿父类链查 `DefinitionCompEmitMap`，支持通配 `update:*`）
+2. **扩展原生事件**（`events/extends.ts`）：`resize`（ResizeObserver）· `outside[.mousedown/mouseup/click/dblclick]`（默认 click）· `mutate[.attr/child/char/tree]`（MutationObserver，必须带修饰符，裸 `@mutate` 报 `E-MUTATE-MODIFIER`）
+3. **组件事件**：`emit()` 运行期**不校验** `@emits`；`@emits` 决定的是「父端能否用 `@xxx` 绑定」——未声明的名字会被 `registerEvent` 当原生事件监听（`matchEmit` 沿父类链查 `DefinitionCompEmitMap`，支持通配 `update:*`）。`emit()` 无 `wrapperComponent` 时直接 `return`（事件丢弃）；宿主带 `emit-native` 特性时改走 `dispatchEvent(new CustomEvent(...))`（`bubbles:false, composed:false, cancelable:true`，载荷在 `detail`）
 
-事件修饰符（`.` 连接，可组合）：通用 `debounce:100/throttle:100/once`；原生 `stop/prevent/self`；鼠标 `left/right/middle`；键盘 `ctrl/alt/shift/meta`（可组合）+ `esc/字母...`（并列可选、不可组合）。跨框架（React/Vue）时给标签加 `emit-native` 属性把组件事件转 CustomEvent。
+事件修饰符（`.` 连接，可组合）：通用 `debounce:100/throttle:100/once/capture/passive`；原生 `stop/prevent/self`；鼠标 `left/right/middle`；键盘 `ctrl/alt/shift/meta`（可组合）+ `esc/字母...`（并列可选、不可组合）。跨框架（React/Vue）时给标签加 `emit-native` 属性把组件事件转 CustomEvent。
+
+委托机制（`events/event.ts`）：`focus/blur/visibilitychange/wheel` 恒走捕获（`CAPTURE_EVENTS`）；`mouseenter/mouseleave/pointerenter/pointerleave` 不委托（`NO_DELEGATE_EVENTS`）；`scroll` 等元素级事件独立注册（`ELEMENT_EVENTS`）；其余在 `renderRoot` 上做委托，捕获/冒泡分桶（`::c` / `::b`）以免同节点混写时重复派发。
 
 ## 样式
 
 - `@csscope(Csscope.INNER, Csscope.GLOBAL) static get anyName()` + `css` 模板，3 层域可任意组合；INNER 走 shadowRoot `adoptedStyleSheets`，HOST 注入最近宿主 shadowRoot（无宿主则 document）
-- 全局配置：`setDefaults({ css: [sheet...], global: {...}, 组件tag名: {默认props} })`（`config.ts`）
+- 全局配置：`setDefaults({ css: [sheet...], '组件tag名': {默认props} })`（`config.ts`）。组件级默认 props 的键必须是**含连字符的小写 tag 名**（自定义元素命名约束；`css`/`global` 为保留键），由 `#initProps` 消费，优先级：外部传入 props/attributes > setDefaults 组件默认 > 类字段默认值。`global` 键目前仅存在于类型声明，运行时未消费
 
 ## 最小完整示例
 
@@ -205,7 +208,8 @@ export class MyCounter extends CompElem {
 - `model` 指令只支持静态属性路径
 - `render()` 返回 `null` 的组件没有 Shadow DOM，`@query` 查不到内容
 - 组件事件监听名用 kebab-case；未 `@emits` 声明的事件不能 emit
-- 本包零运行时依赖但内部使用 myfx；不要假设使用者环境里有 myfx
+- **`myfx` 是 peerDependency**（`^2.0.0-beta.4`，compelem 与 `@compelem/compiler` 都是），构建时作 external，不内联进 compelem 产物——宿主工程必须自己 `npm i myfx`
+- `@state({ prop: 'x' })` 已废弃，用初始化器 `@state y = this.x` 播种
 - **`render()` 内不能写 `super`**（编译器 `E-SUPER-IN-TEMPLATE` 阻断）；基类只保留 prop/state/computed/@watch/样式，视图下沉到叶子组件。render() 之外的 `super.xxx()` 普通方法调用正常
 - **基类要复用一段静态视图**：定义模块级 `const` 字符串，模板里 `${html(CONST)}`（同文件时编译器折进建树序列，跨文件走运行期 `html`，语义相同）
 - 组件有多种「基类视图」需求时，优先**独立子组件 + slot/prop 组合**而不是视图继承
@@ -230,10 +234,11 @@ export class MyCounter extends CompElem {
 
 ### 降级与错误码（编译期唯一出口，运行时无报错路径）
 
-- **D 系列**（放弃注入、阻断构建）：D0 无 render 且非 CompElem 子类 · D1 动态成员访问 `this[expr]` · D2 非响应式 getter · D3 未知自由标识符（指令回调形参已词法追踪，不触发）· D4/D5 顶层 return 缺失/多个 · D6 跨文件继承 render 且不可见 · D7 插值内嵌套 `h\`\`` · `E-SUPER-IN-TEMPLATE` render() 内出现 super
+- **D 系列**（放弃注入、阻断构建）：D0 无 render 且非 CompElem 子类 · D1 动态成员访问 `this[expr]` · D2 非响应式 getter · D3 未知自由标识符（指令回调形参已词法追踪，不触发）· D4/D5 顶层 return 缺失/多个 · D6 跨文件继承 render 且不可见 · D7 插值内嵌套 `h\`\`` · D8 render() 顶层 return 为条件/短路/逗号/函数包装（会静默丢条件） · `E-SUPER-IN-TEMPLATE` render() 内出现 super
 - **skipInjection**：无 own render 且同文件链上有 render → 继承父类 `__ce_static__`（视图字段整体 spread，own 一律覆盖）；super 链不可知（mixin 形参/跨文件基类）且被家族装饰器准入者一律 skipInjection，**绝不判 noView**（`@tag` 不豁免）
 - **组件准入三选一**：同文件 super 链解析到 CompElem / `@tag` / 类体带家族装饰器（`@prop/@state/@computed/@query/@queryAll`——运行时全 no-op，带它们必是组件；覆盖 mixin 工厂内类与跨文件基类）
-- **E 码系列**（阻断构建，编译器 `analyze/` 各模块）：`E-PROP-TYPE/ASSIGN/CASE/ARG/INTERP/TARGET`、`E-STATE-ARG`、`E-COMPUTED-NOT-GETTER/ARG`、`E-CSSCOPE-TARGET`、`E-QUERY-ARG`、`E-DECO-COEXIST`（多族/族外装饰器须拆独立成员）、`E-EMIT-UNDECLARED/ARG/EMITS-ARG`、`E-EVENT-FN`、`E-REF-TYPE`、`E-DIRECTIVE-SCOPE`、`E-CONST-KEY`、`E-METHOD-DECO-ARG/HOOK`。五族提取 all-or-nothing：出错的族不删不注（运行时 no-op 无兜底）
+- **E 码系列**（阻断构建，编译器 `analyze/` 各模块）：`E-PROP-TYPE/ASSIGN/CASE/ARG/INTERP/TARGET`、`E-STATE-ARG`（含 `@state({prop})` 已废弃）、`E-FIELD-ARG`（`@prop`/`@state` 的 options 不支持 `defaultValue`/`type`）、`E-COMPUTED-NOT-GETTER/ARG`、`E-CSSCOPE-TARGET`、`E-QUERY-ARG`、`E-DECO-COEXIST`（多族/族外装饰器须拆独立成员）、`E-EMIT-UNDECLARED/ARG/EMITS-ARG`、`E-EVENT-FN`、`E-REF-TYPE`、`E-DIRECTIVE-SCOPE`、`E-CONST-KEY`、`E-METHOD-DECO-ARG/HOOK`、`E-MUTATE-MODIFIER`（裸 `@mutate` 缺 attr/child/char/tree）、`E-SUPER-IN-TEMPLATE`。五族提取 all-or-nothing：出错的族不删不注（运行时 no-op 无兜底）
+- **W 码系列**（提示级，`ConventionError.severity:'warn'`，恒 `console.warn` 不随 `conventions` 档位阻断）：`W-PROP-CUSTOM-CTOR`（prop `type` 含自定义构造器且无 `converter`、属性通道未关——属性字符串将作单参传给构造器）。对应运行时 DEV 告警已删（`utils.ts` convertValue / `events/extends.ts` addMutation 只留防崩守卫）
 - 提取失败诊断：`DEPS_TRACE=1`（compiler `deps-extract.ts`，stderr `[deps-fail] <原因>`）
 
 ## 深入阅读（按需，勿全量扫描）
@@ -241,7 +246,7 @@ export class MyCounter extends CompElem {
 - `README.md` / `README_ZH.md` — 完整教程
 - `_SPEC.md`、`_Algo.md` 等下划线文件 — 内部设计规格（注意可能滞后于 working tree）
 - `F:\github\compelem-compiler` — 配套编译插件仓库（D/E 码、`__ce_static__` 注入、前移逻辑的权威）
-- `dev/` — 探针页与 demo（`dev/index.html` 主入口；`_slot_probe.mjs` 是可复用的 CDP 探针 runner）
+- `F:\github\compelem-harness` — 探针页与 demo 宿主（private，不发布；`dev/index.html` 主入口，`dev/_*_probe.mjs` 是 CDP 探针 runner，经别名直接消费本仓库 `src/`）
 - `src/index.ts` — 导出总入口；`src/types.ts` — 全部选项类型与 `CompiledStatic` 契约
 - `dist/index.d.ts` — ⚠️ 可能滞后于 src，仅作参考
 

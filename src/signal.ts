@@ -58,6 +58,16 @@ export interface EffectNode extends LinkOwner {
   children: Set<EffectNode> | null
   running: boolean
   queued: boolean
+  /**
+   * dispose 时的自摘除回调
+   */
+  onDispose?: () => void
+  /**
+   * 归属组件（由 `CompElem._regViewEffect` 写入）。
+   *
+   * 只为「本轮谁更新过」的汇总记账（flush 末段触发 `afterUpdate`），不参与依赖追踪。
+   */
+  owner?: any
   run(): void
   dispose(): void
 }
@@ -222,6 +232,55 @@ function drainComputed(): void {
   }
 }
 
+/**
+ * 本轮 flush 中**真的跑过**的 effect 归属组件（`EffectNode.owner`）。
+ *
+ * 信号架构没有组件级 render pass，「组件更新完了」只能这样事后汇总 —— 谁在
+ * 这轮被唤醒了，谁就是「更新过的组件」。
+ */
+const ranOwners = new Set<any>()
+/** flush 末段派发钩子（CompElem 注册一个，用来触发 `afterUpdate`） */
+const flushEndHooks: Array<(owners: any[]) => void> = []
+
+export function onFlushEnd(cb: (owners: any[]) => void): void {
+  flushEndHooks.push(cb)
+}
+
+/**
+ * 结算本轮的「跑过的组件」。**每轮 flush 最多结算一次**
+ */
+export function flushEffectsEnd(): void {
+  if (ranOwners.size === 0) return
+  const owners = Array.from(ranOwners)
+  ranOwners.clear()
+  for (let i = 0; i < flushEndHooks.length; i++) {
+    try {
+      flushEndHooks[i](owners)
+    } catch (err) {
+      reportEffectError(err, undefined)
+    }
+  }
+}
+
+/**
+ * effect 抛错的**唯一出口**
+ */
+const effectErrorHandlers: Array<(err: unknown, effect: EffectNode | undefined) => void> = []
+
+export function onEffectError(cb: (err: unknown, effect: EffectNode | undefined) => void): void {
+  effectErrorHandlers.push(cb)
+}
+
+export function reportEffectError(err: unknown, effect: EffectNode | undefined): void {
+  if (effectErrorHandlers.length > 0) {
+    for (let i = 0; i < effectErrorHandlers.length; i++) {
+      try { effectErrorHandlers[i](err, effect) } catch { /* 处理器自身出错不再上抛 */ }
+    }
+    return
+  }
+  console.error('[compelem] effect 运行期异常（已隔离，未中断本轮其余 effect）', err, effect?.owner ?? '')
+}
+
 function flush() {
   if (flushing || batchDepth > 0) return
   flushing = true
@@ -241,15 +300,26 @@ function flush() {
       while (qHead < end) {
         const e = queue[qHead++]
         e.queued = false
-        e.run()
+        // per-effect 隔离：抛错只上报，不中断本轮剩余 effect，也不冒泡到写入口
+        try {
+          e.run()
+        } catch (err) {
+          reportEffectError(err, e)
+        }
       }
     }
   } finally {
     flushing = false
     if (qHead > 0) {
+      // 本轮未跑到就被丢弃的 effect（只可能是上面抛错中断的残留）必须复位 queued：
+      // 该标志只有「出队时」才清，残留项会永远停在 true ⇒ enqueue 直接 early-return，
+      // 整个依赖链此后静默失效（一次未捕获的异常就能让全站停止更新）。
+      for (let i = qHead; i < queue.length; i++) queue[i].queued = false
       queue.length = 0
       qHead = 0
     }
+    // 末段结算：DOM 已全部落盘 ⇒ 触发本轮跑过 effect 的组件的 afterUpdate
+    flushEffectsEnd()
   }
 }
 
@@ -280,14 +350,21 @@ function updateComputed(s: Sub) {
   let next: any
   s.evaluating = true
   evalStack.push(s)
+  let evaluated = false
   try {
     next = s.fn!()
+    evaluated = true
   } finally {
     currentEffect = prevEffect
     computedStack = prevStack
     s.evaluating = false
     evalStack.pop()
     unlinkRemainder(s)
+    // 求值抛异常时把脏标记补回：入口处已把 dirty 置 false，异常逃逸后
+    // 下一次读取会因 !dirty 直接返回过期 cached（探针 C-01：读回 undefined）。
+    // 不能改成"求值成功后才清 dirty"——求值期间依赖变更会重新置脏，
+    // 收尾统一清会丢那次更新；只有失败路径需要补。
+    if (!evaluated) s.dirty = true
   }
   if (!Object.is(s.cached, next)) {
     s.cached = next
@@ -340,7 +417,11 @@ class SubCell implements Sub {
     this.readonly = computed
   }
 
-  get value(): any {
+  /**
+   * 求值主体：computed 脏则求值、环检测照做。
+   * @param trackIt 是否把本节点登记为当前 owner 的依赖
+   */
+  private resolveValue(trackIt: boolean): any {
     if (this.computed) {
       // 环检测：本 computed 仍在自己的求值栈上却被再次读到 = 依赖环。
       // 预算式护栏对「值相等即收敛」的环（如 NaN 不动点）检测不到，
@@ -352,11 +433,13 @@ class SubCell implements Sub {
         )
       }
       if (this.dirty) updateComputed(this)
-      track(this)
-      return this.cached
     }
-    track(this)
+    if (trackIt) track(this)
     return this.cached
+  }
+
+  get value(): any {
+    return this.resolveValue(true)
   }
 
   /**
@@ -370,17 +453,7 @@ class SubCell implements Sub {
    * try/finally），而这里只需要这一次读 —— 方法调用，零额外成本。
    */
   peek(): any {
-    if (this.computed) {
-      if (this.evaluating) {
-        throw cyclicError(
-          'computed evaluation re-entered',
-          evalStack.map((c) => c.label).concat(this.label),
-        )
-      }
-      if (this.dirty) updateComputed(this)
-      return this.cached
-    }
-    return this.cached
+    return this.resolveValue(false)
   }
 
   set value(next: any) {
@@ -430,6 +503,9 @@ class EffectNodeImpl implements EffectNode {
   declare children: Set<EffectNode> | null
   declare running: boolean
   declare queued: boolean
+  declare onDispose?: () => void
+  /** 未设时为 undefined（falsy）—— 见 EffectNode.owner */
+  declare owner?: any
 
   constructor(fn: EffectFn) {
     this.fn = fn
@@ -468,6 +544,14 @@ class EffectNodeImpl implements EffectNode {
       currentEffect = prev
       this.running = false
     }
+    // 4. 记账：flush 末段据此触发归属组件的 afterUpdate。
+    //    forceUpdate() 同样记——它把整段包在 batch 里，结算发生在 batch 退出后的那次
+    //    flush 的 finally（同一轮只结算一次，且晚于全部子 effect 落盘）。
+    const o = this.owner
+    if (o !== undefined) {
+      ranOwners.add(o)
+      if (batchDepth === 0 && !flushing) flushEffectsEnd()
+    }
   }
 
   dispose(): void {
@@ -484,6 +568,7 @@ class EffectNodeImpl implements EffectNode {
       this.children.clear()
     }
     this.queued = false
+    this.onDispose?.()
   }
 }
 

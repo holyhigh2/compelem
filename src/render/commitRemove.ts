@@ -1,6 +1,7 @@
 import { each } from "myfx";
 import { CompElem } from "../CompElem";
 import { UpdatePoint } from "./UpdatePoint";
+import { purgeDirNodeMap } from "./dir-node-map";
 
 /**
  * 真正执行节点移除 + 更新点销毁。
@@ -9,6 +10,7 @@ import { UpdatePoint } from "./UpdatePoint";
  * 独立成模块放在 render 层。
  */
 export function commitRemove(nodes: Node[], ups: UpdatePoint[], component?: CompElem) {
+    if (component) purgeDirNodeMap(component, ups, nodes)
     each(nodes, (n: any) => {
         (n as CharacterData | Element).remove()
         if (n instanceof CompElem) {

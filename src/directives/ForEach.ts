@@ -8,7 +8,7 @@ import { CompElem } from "../CompElem";
 import { directive } from "../directive/index";
 import { resolveSubTemplateMeta } from "../render/render";
 import type { UpdatePoint } from "../render/UpdatePoint";
-import { DirectiveUpdateTag, EnterPointType, KeyFn, TplFn, UpdatedSource } from "../types";
+import { DirectiveUpdateTag, EnterPointType, KeyFn, TplFn } from "../types";
 import { showError } from "../utils";
 
 const LastKeysMap = new WeakMap()
@@ -22,7 +22,7 @@ const EachTmplMap = new WeakMap()
  * 2. 
  */
 export const forEach = directive(function ForEach(value: any[] | Record<string, any>, keyFn: KeyFn, tmpl: TplFn) {
-  return (pointNode: Node, newArgs: any[], oldArgs: any[] | undefined, { renderComponent }: { renderComponent: CompElem, varChain: string[], updatedMap: Record<string, UpdatedSource>, up?: UpdatePoint }) => {
+  return (pointNode: Node, newArgs: any[], oldArgs: any[] | undefined, { renderComponent }: { renderComponent: CompElem, varChain: string[], up?: UpdatePoint }) => {
     let newAryOrObj = newArgs[0]
     if (isEmpty(newAryOrObj) && isUndefined(oldArgs)) return [DirectiveUpdateTag.INIT]
 
@@ -39,8 +39,14 @@ export const forEach = directive(function ForEach(value: any[] | Record<string, 
     const checkSet = new Set<string>();
     let i = 0
     each(newAryOrObj, (v, k) => {
-      let key = keyFn(v, k, i++)
-      if (isNil(key)) return
+      let key = keyFn.call(renderComponent, v, k, i++)
+      if (isNil(key)) {
+        // nil key 无法参与 keyed diff：跳过该项（数据依赖，只能运行期诊断）
+        if (process.env.DEV) {
+          showError(`forEach - nil key, the item is skipped`)
+        }
+        return
+      }
       const strKey = typeof key === 'string' ? key : String(key)
 
       if (checkSet.has(strKey)) {

@@ -1,7 +1,7 @@
-import { camelCase, get, isBlank, isString, isUndefined, kebabCase, parseJSON, some } from "myfx";
+import { camelCase, each, get, isBlank, isString, isUndefined, kebabCase, parseJSON, some } from "myfx";
 import { CompElem } from "./CompElem";
 import { ComponentUninitializedSubComponentPropMap, CssVarKeyCacheMap, DefinitionComponentMap } from "./constants";
-import { Constructor } from "./types";
+import { Constructor, StyleValueObjectType } from "./types";
 
 export function showError(msg: string): void {
   console.error(`[CompElem]`, msg);
@@ -37,21 +37,41 @@ export function getBooleanValue(v: any) {
 export function convertValue(v: string, types: Array<Constructor<any>>) {
   let val: any = v
   try {
+    //按声明顺序逐个尝试，首个成功转换即采用（后续类型不再覆盖）
     for (let i = 0; i < types.length; i++) {
       const t = types[i];
       if (t === Boolean) {
-        val = getBooleanValue(v)
+        if (isBlank(v)) {
+          val = true
+        } else if (/^true$/i.test(v)) {
+          val = true
+        } else if (/^false$/i.test(v)) {
+          val = false
+        } else {
+          continue
+        }
       } else if (t === Number) {
+        if (isBlank(v)) {
+          val = undefined
+          break
+        }
         val = Number(v)
+        if (Number.isNaN(val)) continue
       } else if (t === String) {
         val = String(v)
       } else if (t === Object || t === Array) {
         val = parseJSON(v)
+        //parseJSON 失败时返回原字符串
+        if (val === v) continue
       } else if (t === Date) {
         val = new Date(v)
+        if (Number.isNaN(val.getTime())) continue
+      } else if (t === Function) {
+        continue
       } else {
         val = new t(v)
       }
+      break
     }
   } catch (error) {
     throw new Error(`Convert attribute error with ` + v)
@@ -203,4 +223,58 @@ export function typeNameLower(et: Function): string {
     TypeNameLowerCache.set(et, v)
   }
   return v
+}
+
+/**
+ * 类名差量写入：仅移除/添加本指令负责的类
+ */
+export function applyClassDiff(el: Element, lastMap: WeakMap<Node, string>, newClass: string) {
+  const oldClass = lastMap.get(el) ?? '';
+  if (newClass === oldClass) return
+  if (oldClass) {
+    el.classList.remove(...oldClass.split(' ').filter(Boolean));
+  }
+  if (newClass) {
+    el.classList.add(...newClass.split(' ').filter(Boolean));
+  }
+  lastMap.set(el, newClass)
+}
+
+/**
+ * 样式差量写入：仅移除/设置本指令负责的键
+ * @param lastKeys 已应用键集合缓存
+ * @param lastVals 已应用值缓存（值级diff用：跳过未变更项的CSSOM写入）
+ */
+export function applyStyleDiff(
+  el: HTMLElement,
+  lastKeys: WeakMap<Node, Set<string>>,
+  lastVals: WeakMap<Node, Record<string, string>>,
+  styleObj: Record<string, StyleValueObjectType>
+) {
+  let oldVals = lastVals.get(el)
+  if (!oldVals) {
+    oldVals = {}
+    lastVals.set(el, oldVals)
+  }
+  // 键集合原地复用（每轮只做「删已消失 + 补新增」），避免每轮新建 Set 的分配
+  let keys = lastKeys.get(el)
+  if (!keys) {
+    keys = new Set<string>()
+    lastKeys.set(el, keys)
+  }
+
+  keys.forEach((k: string) => {
+    if (styleObj[k] === undefined) {
+      el.style.removeProperty(k)
+      delete oldVals![k]
+      keys!.delete(k)
+    }
+  })
+  each(styleObj, (v, k: string) => {
+    keys!.add(k)
+    const s = v.value + '' + (v.important ? ' !important' : '')
+    if (oldVals![k] === s) return
+    el.style.setProperty(k, v.value + '', v.important ? 'important' : '')
+    oldVals![k] = s
+  })
 }

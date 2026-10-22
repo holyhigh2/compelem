@@ -1,6 +1,7 @@
 import { each, isPlainObject } from "myfx";
 import { directive } from "../directive/index";
 import { EnterPointType } from "../types";
+import { applyClassDiff } from "../utils";
 const ClassLastMap = new WeakMap<Node, string>()
 
 export function normalizeClass(val: Record<string, boolean> | string | Array<Record<string, boolean> | string>) {
@@ -37,18 +38,6 @@ export function normalizeClass(val: Record<string, boolean> | string | Array<Rec
  */
 export const classes = directive(function Classes(clazz: Record<string, boolean | string> | Array<string> | string) {
   return (pointNode: Node, [clazz]: [Record<string, boolean> | Array<string> | string]) => {
-    const el = pointNode as Element
-    const newClass = normalizeClass(clazz);
-    const oldClass = ClassLastMap.get(el) ?? '';
-
-    if (newClass === oldClass) return
-
-    if (oldClass) {
-      el.classList.remove(...oldClass.split(' ').filter(Boolean));
-    }
-    if (newClass) {
-      el.classList.add(...newClass.split(' ').filter(Boolean));
-    }
-    ClassLastMap.set(el, newClass)
+    applyClassDiff(pointNode as Element, ClassLastMap, normalizeClass(clazz));
   }
 }, [EnterPointType.TAG])

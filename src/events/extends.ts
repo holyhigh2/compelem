@@ -1,4 +1,4 @@
-import myfx, { closest, get, includes, remove, size } from "myfx";
+import { includes, remove, size } from "myfx";
 import { CompElem } from "../CompElem";
 import { showError } from "../utils";
 import { EvHadler } from "./event";
@@ -12,11 +12,15 @@ import { EvHadler } from "./event";
  * 
  *************************************************************/
 const ExtEvNames = ['resize', 'outside', 'mutate']
+/**
+ * 扩展事件的回调不吃原生 Event：resize/outside/mutate 各自派发一个 detail 对象
+ */
+type ExtHandler = (detail: any) => any
 ///////////////////////////////////////////////// resize
 const AllResizeEls = new WeakMap<Node, EvHadler[]>();
-const AllOutsideDownEls: Array<Element | EvHadler>[] = [];
-const AllOutsideClickEls: Array<Element | EvHadler>[] = [];
-const AllOutsideDblClickEls: Array<Element | EvHadler>[] = [];
+const AllOutsideDownEls: Array<[Node, ExtHandler]> = [];
+const AllOutsideClickEls: Array<[Node, ExtHandler]> = [];
+const AllOutsideDblClickEls: Array<[Node, ExtHandler]> = [];
 const ResizeTargetInitSet = new WeakSet()
 //兼容 SSR/测试环境
 const resizeObserver: ResizeObserver | undefined = typeof ResizeObserver !== "undefined"
@@ -91,49 +95,79 @@ enum MutationType {
   Attr = 'attr',
   Char = 'char'
 }
-const AllMutationEls = new WeakMap<Element, Record<string, any>>;
-const mutationObserver: MutationObserver | undefined = typeof MutationObserver !== "undefined"
-  ? new MutationObserver(mutations => {
-    for (let i = 0; i < mutations.length; i++) {
-      const mutation = mutations[i];
-      let map = AllMutationEls.get(mutation.target as Element)
-      if (!map) return;
-      let detail: Record<string, any> = {
-        target: mutation.target
-      }
-      let cbk: ((detail: Record<string, any>) => void) | null = null
-      switch (mutation.type as string) {
-        case 'subtree':
-          detail.type = MutationType.Tree
-          cbk = map[MutationType.Tree]
-          break;
-        case "childList":
-          detail.type = MutationType.Child
-          detail.addedNodes = mutation.addedNodes
-          detail.removedNodes = mutation.removedNodes
-          cbk = map[MutationType.Child]
-          break;
-        case "attributes":
-          detail.type = MutationType.Attr
-          detail.attributeName = mutation.attributeName
-          detail.oldValue = mutation.oldValue
-          cbk = map[MutationType.Attr]
-          break;
-        case "characterData":
-          detail.type = MutationType.Char
-          detail.oldValue = mutation.oldValue
-          cbk = map[MutationType.Char]
-          break;
-      }
-      if (cbk) {
-        detail.type = 'mutate'
-        cbk(detail)
-      }
+/** 单个节点的登记：自有观测器 + 类型槽（槽内可挂多个回调，同节点多修饰符合并到这里） */
+type MutationReg = {
+  observer: MutationObserver
+  map: Record<string, ExtHandler[]>
+  /**
+   * 本节点当前生效的 observe 选项
+   */
+  opts: MutationObserverInit
+}
+const AllMutationEls = new WeakMap<Element, MutationReg>;
+/** 摘掉本回调在该节点上的全部槽位登记；最后一个登记被摘走时断开观测 */
+function unregisterMutation(node: Element, reg: MutationReg, cbk: ExtHandler) {
+  const slotKeys = Object.keys(reg.map)
+  for (let i = 0; i < slotKeys.length; i++) {
+    const list = reg.map[slotKeys[i]]
+    const at = list.indexOf(cbk)
+    if (at > -1) list.splice(at, 1)
+    if (list.length < 1) delete reg.map[slotKeys[i]]
+  }
+  if (Object.keys(reg.map).length === 0) {
+    AllMutationEls.delete(node)
+    reg.observer.disconnect()
+  }
+}
+//观测回调（登记节点共享同一实现；观测器 → 登记节点查表，记录只派发给本节点自己的登记槽）
+const ObserverNodeMap = new WeakMap<MutationObserver, Element>()
+const onMutations = (mutations: MutationRecord[], observer: MutationObserver) => {
+  const regNode = ObserverNodeMap.get(observer) as Element
+  const reg = AllMutationEls.get(regNode)
+  if (!reg) return
+  for (let i = 0; i < mutations.length; i++) {
+    const mutation = mutations[i];
+    let slotKey: MutationType
+    switch (mutation.type as string) {
+      case "childList":
+        slotKey = MutationType.Child
+        break;
+      case "attributes":
+        slotKey = MutationType.Attr
+        break;
+      case "characterData":
+        slotKey = MutationType.Char
+        break;
+      default:
+        continue
     }
-  })
-  : undefined;
-function addMutation(node: Element, cbk: EvHadler, parts: string[], _component: CompElem<any>) {
-  if (!mutationObserver) {
+
+    const isDeep = mutation.type === 'characterData'
+      ? mutation.target.parentNode !== regNode
+      : mutation.target !== regNode
+    const cbs = isDeep ? undefined : reg.map[slotKey]
+    const treeCbs = reg.map[MutationType.Tree]
+    if (!cbs && !treeCbs) continue
+    const detail: Record<string, any> = {
+      target: mutation.target,
+      type: slotKey as string
+    }
+    if (mutation.type === "childList") {
+      detail.addedNodes = mutation.addedNodes
+      detail.removedNodes = mutation.removedNodes
+    } else if (mutation.type === "attributes") {
+      detail.attributeName = mutation.attributeName
+      detail.oldValue = mutation.oldValue
+    } else {
+      detail.oldValue = mutation.oldValue
+    }
+    // 倒序遍历：once 回调会就地摘除自己，正序会漏掉后一项
+    if (cbs) for (let ci = cbs.length - 1; ci >= 0; ci--) cbs[ci](detail)
+    if (treeCbs) for (let ci = treeCbs.length - 1; ci >= 0; ci--) treeCbs[ci](detail)
+  }
+}
+function addMutation(node: Element, cbk: EvHadler, parts: string[], _component: CompElem<any>, isOnce: boolean) {
+  if (typeof MutationObserver === "undefined") {
     if (process.env.DEV) {
       showError(`MutationObserver is not defined`)
     }
@@ -143,90 +177,120 @@ function addMutation(node: Element, cbk: EvHadler, parts: string[], _component: 
   let attr = includes(parts, 'attr')
   let char = includes(parts, 'char')
   let tree = includes(parts, 'tree')
-  let map = AllMutationEls.get(node)
-  if (map) return;
 
-  map = {}
-  AllMutationEls.set(node, map)
-  if (child) {
-    map[MutationType.Child] = cbk
+  const slots: MutationType[] = []
+  if (child) slots.push(MutationType.Child)
+  if (attr) slots.push(MutationType.Attr)
+  if (char) slots.push(MutationType.Char)
+  if (tree) slots.push(MutationType.Tree)
+  // 没有任何类型（裸 @mutate）时 observe 会直接抛错：静默不注册。
+  // 声明期违规由编译器 E-MUTATE-MODIFIER 阻断构建；此守卫兜底动态事件名（@event('mutate') 等）不可静态判定的路径。
+  if (slots.length === 0) return
+
+  // MutationObserver 无 unobserve：按节点建观测器，该节点登记全部释放时才 disconnect
+  let reg = AllMutationEls.get(node)
+  if (!reg) {
+    const observer = new MutationObserver(onMutations)
+    ObserverNodeMap.set(observer, node)
+    reg = { observer, map: {}, opts: {} }
+    AllMutationEls.set(node, reg)
+  } else if (process.env.DEV) {
+    // 同节点重复注册不再丢弃：回调合并进已有槽位，observe 选项由下面显式做并集
+    showError(`mutate - multiple registrations on the same node: callbacks and observe options are merged by the framework`)
   }
-  if (attr) {
-    map[MutationType.Attr] = cbk
-  }
-  if (char) {
-    map[MutationType.Char] = cbk
-  }
-  if (tree) {
-    map[MutationType.Tree] = cbk
-  }
-  mutationObserver.observe(node, {
-    childList: child,
-    attributes: attr,
-    characterData: char,
-    subtree: tree
-  })
-  //record
-  return (remove = false) => {
-    AllMutationEls.delete(node)
-    if (remove) {
-      node = null as any
+  const owner = reg
+
+  let handler: ExtHandler = cbk
+  if (isOnce) {
+    // once：触发即摘表（末位登记时 disconnect），观测不留到组件释放
+    handler = (detail) => {
+      try {
+        cbk(detail)
+      } finally {
+        unregisterMutation(node, owner, handler)
+      }
     }
+  }
+  for (let i = 0; i < slots.length; i++) {
+    const list = owner.map[slots[i]]
+    if (list) list.push(handler)
+    else owner.map[slots[i]] = [handler]
+  }
+
+  // tree 隐含观测全部变动类型（仅 subtree 而不开启类型等于没有观测）
+  // oldValue 需显式开启（注意：attributeOldValue/characterDataOldValue 为 true 会连带打开对应类型）
+  // 与该节点已生效的选项做并集后单次 observe：重复注册时旧观测类型不会被替换丢掉
+  const prev = owner.opts
+  const merged: MutationObserverInit = {
+    ...prev,
+    childList: prev.childList === true || child || tree,
+    attributes: prev.attributes === true || attr || tree,
+    characterData: prev.characterData === true || char || tree,
+    subtree: prev.subtree === true || tree,
+    attributeOldValue: prev.attributeOldValue === true || attr || tree,
+    characterDataOldValue: prev.characterDataOldValue === true || char || tree
+  }
+  owner.opts = merged
+  owner.observer.observe(node, merged)
+  //record
+  return (_remove = false) => {
+    unregisterMutation(node, owner, handler)
   }
 }
 
 /////////////////////////////////////// outside
+/**
+ * 外部点击派发
+ */
+function dispatchOutside(list: Array<[Node, ExtHandler]>, e: Event, modifier: string) {
+  if (list.length === 0) return
+  const onPath: Set<EventTarget> = new Set(e.composedPath())
+  // 倒序遍历：once 回调会就地摘除自己，正序会漏掉后一项
+  for (let i = list.length - 1; i >= 0; i--) {
+    const [node, cbk] = list[i]
+    if (onPath.has(node)) continue
+    cbk({ type: 'outside', target: node, modifier, event: e })
+  }
+}
 //兼容 SSR/测试
 if (typeof document !== "undefined") {
-  document.addEventListener('mousedown', e => {
-    let t = get<Node>(e.composedPath(), 0, e.target)
-
-    AllOutsideDownEls.forEach(([node, cbk]: [Node, any]) => {
-      if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
-        cbk({ type: 'outside', target: node, modifier: 'mousedown', event: e })
-      }
-    })
-  }, false)
-  document.addEventListener('click', e => {
-    let t = get<Node>(e.composedPath(), 0, e.target)
-
-    AllOutsideClickEls.forEach(([node, cbk]: [Node, any]) => {
-      if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
-        cbk({ type: 'outside', target: node, modifier: 'click', event: e })
-      }
-    })
-  }, false)
-  document.addEventListener('dblclick', e => {
-    let t = get<Node>(e.composedPath(), 0, e.target)
-
-    AllOutsideDblClickEls.forEach(([node, cbk]: [Node, any]) => {
-      if (!node.contains(t) && !node.contains(closest(t, (node) => node instanceof ShadowRoot, 'parentNode')?.host)) {
-        cbk({ type: 'outside', target: node, modifier: 'dblclick', event: e })
-      }
-    })
-  }, false)
+  document.addEventListener('mousedown', e => dispatchOutside(AllOutsideDownEls, e, 'mousedown'), false)
+  document.addEventListener('click', e => dispatchOutside(AllOutsideClickEls, e, 'click'), false)
+  document.addEventListener('dblclick', e => dispatchOutside(AllOutsideDblClickEls, e, 'dblclick'), false)
 }
-function addOutsideMouseDown(node: Element, cbk: EvHadler, _component: CompElem<any>) {
-  AllOutsideDownEls.push([node, cbk])
+/** 注册进对应的外部事件表；once 时回调触发后自行摘表，不存活到组件释放 */
+function addOutside(list: Array<[Node, ExtHandler]>, node: Element, cbk: EvHadler, isOnce: boolean) {
+  let entry: [Node, ExtHandler]
+  const unregister = () => {
+    const at = list.indexOf(entry)
+    if (at > -1) list.splice(at, 1)
+  }
+  let handler: ExtHandler = cbk
+  if (isOnce) {
+    handler = (detail) => {
+      try {
+        cbk(detail)
+      } finally {
+        unregister()
+      }
+    }
+  }
+  entry = [node, handler]
+  list.push(entry)
 
   //record
   return (_remove = false) => {
-    myfx.remove(AllOutsideDownEls, el => el[0] === node && el[1] === cbk)
+    unregister()
   }
 }
-function addOutsideClick(node: Element, cbk: EvHadler, _component: CompElem<any>) {
-  AllOutsideClickEls.push([node, cbk])
-  //record
-  return (_remove = false) => {
-    myfx.remove(AllOutsideClickEls, el => el[0] === node && el[1] === cbk)
-  }
+function addOutsideMouseDown(node: Element, cbk: EvHadler, _component: CompElem<any>, isOnce: boolean) {
+  return addOutside(AllOutsideDownEls, node, cbk, isOnce)
 }
-function addOutsideDblClick(node: Element, cbk: EvHadler, _component: CompElem<any>) {
-  AllOutsideDblClickEls.push([node, cbk])
-  //record
-  return (_remove = false) => {
-    myfx.remove(AllOutsideDblClickEls, el => el[0] === node && el[1] === cbk)
-  }
+function addOutsideClick(node: Element, cbk: EvHadler, _component: CompElem<any>, isOnce: boolean) {
+  return addOutside(AllOutsideClickEls, node, cbk, isOnce)
+}
+function addOutsideDblClick(node: Element, cbk: EvHadler, _component: CompElem<any>, isOnce: boolean) {
+  return addOutside(AllOutsideDblClickEls, node, cbk, isOnce)
 }
 
 export function isExtEvent(evName: string) {
@@ -239,15 +303,15 @@ export function addExtEvent(evName: string, node: Element, cbk: EvHadler, parts:
   } else if (evName === 'outside') {
     switch (parts[0]) {
       case 'mousedown':
-        return addOutsideMouseDown(node, cbk, component)
+        return addOutsideMouseDown(node, cbk, component, isOnce)
       case 'dblclick':
-        return addOutsideDblClick(node, cbk, component)
+        return addOutsideDblClick(node, cbk, component, isOnce)
       case 'click':
       default:
-        return addOutsideClick(node, cbk, component)
+        return addOutsideClick(node, cbk, component, isOnce)
     }
   } else if (evName === 'mutate') {
-    return addMutation(node, cbk, parts, component)
+    return addMutation(node, cbk, parts, component, isOnce)
   }
 }
 

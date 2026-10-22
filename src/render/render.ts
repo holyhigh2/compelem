@@ -6,7 +6,7 @@
   noop
 } from "myfx";
 import { CompElem } from "../CompElem";
-import { ComponentUninitializedWrapperComponentMap, CssTemplateCacheMap, PLACEHOLDER } from "../constants";
+import { ComponentUninitializedWrapperComponentMap, CssTemplateCacheMap, NO_CHILD_EFFECT } from "../constants";
 import { bindEvents, getEventBindList } from "../events/event";
 import { effect, signal, SignalNode } from "../signal";
 import { DirectiveInstance, KeyFn, TplFn } from "../types";
@@ -23,8 +23,7 @@ export const ATTR_PREFIX_PROP = ".";
 export const ATTR_PREFIX_BOOLEAN = "?";
 export const ATTR_REF = "ref";
 
-const EXP_TAG = new RegExp(`${PLACEHOLDER}\\d+`)
-const TMPL_META_CACHE: Map<Function, TemplateMeta> = new Map()
+const TMPL_META_CACHE: WeakMap<Function, TemplateMeta> = new WeakMap()
 
 let SubViewSn = 0
 /**
@@ -58,7 +57,7 @@ export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, bu
   fragment: DocumentFragment
   emptyEvents?: Record<number, string[]>
   nodes?: Node[]
-}, opts?: { deferValueFill?: boolean; fx?: any[]; itemArgs?: any[] }): [DocumentFragment, UpdatePoint[]] {
+}, opts?: { fx?: any[]; itemArgs?: any[] }): [DocumentFragment, UpdatePoint[]] {
   const { fragment: tmplFragment, emptyEvents: cachedEe, upmMap } = tmplM
 
   let rs: DocumentFragment
@@ -75,7 +74,6 @@ export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, bu
   const emptyEvents = built?.emptyEvents ?? cachedEe
   let upAry: UpdatePoint[] = []
 
-  const deferValueFill = opts?.deferValueFill === true
   const fx = opts?.fx
   const itemArgs = opts?.itemArgs
   const callFx = (f: any) =>
@@ -136,7 +134,6 @@ export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, bu
           evList.push([upm.attrName, val!, currentNode])
         } else if (upm.isToggleProp) {
           newUp.value = !!val;
-          if (!deferValueFill) currentNode.toggleAttribute(upm.attrName, newUp.value)
         } else if (upm.isRefAttr) {
           currentNode.setAttribute(upm.attrName, val)
         } else if (upm.isText) {
@@ -148,8 +145,6 @@ export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, bu
             const textDirMap = (component as any).__dirNodeMap
             if (textDirMap !== undefined) textDirMap.set(currentNode, newUp)
             textDirectives.push([currentNode, attrName, slotComponent, executor, args, varChain, newUp])
-          } else if (!deferValueFill && !upm.isPlaceholder) {
-            currentNode.textContent = val
           }
         } else if (upm.isDirective) {
           let slotComponent = upm.slotNodeSn > -1 ? nodes[upm.slotNodeSn] as CompElem<HTMLElement> : undefined
@@ -164,8 +159,6 @@ export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, bu
             else dirMap.set(currentNode, [prev, newUp])
           }
           direcitves.push([currentNode, attrName, slotComponent, executor, args, varChain, upm.directiveType])
-        } else if (!deferValueFill) {//attr
-          currentNode.setAttribute(upm.attrName, upm.attrTmpl.replace(EXP_TAG, val))
         }
         upAry.push(newUp)
       }
@@ -254,7 +247,6 @@ export function buildStaticView(component: CompElem<any>): DocumentFragment {
   const fx = ceStatic.fx as any[] | undefined
     ; (component as any).__dirNodeMap = new Map<Node, UpdatePoint>()
   const [rs, upAry] = renderTemplate(component, tmplM, out, {
-    deferValueFill: true,
     fx,
   })
   component.__updateTree = upAry
@@ -266,9 +258,6 @@ export function buildStaticView(component: CompElem<any>): DocumentFragment {
   }
   return rs
 }
-
-// effect() 选项对象
-const NO_CHILD_EFFECT = { asChild: false } as const
 
 /**
  * 子模板 TemplateMeta 缓存：`__ce_static__` → subId → meta。
@@ -338,23 +327,29 @@ export function buildSubTemplate(component: CompElem<any>, tmplFn: Function | un
 }
 
 /**
+ * 子模板产物条目：优先回调的 provenance / 实例上的 `__fx`（跨层内联），否则 `subs[subId]`。
+ * 内联条目字段为 `pe`/`fx`，`subViews` 条目为 `pointEffects`/`fx`
+ */
+function resolveSubEntry(component: CompElem<any>, tmplFn: Function | undefined): any {
+  const local = slotOriginOf(tmplFn)?.fx ?? (tmplFn as any)?.__fx
+  if (local) return local
+  const subId = subIdOf(tmplFn)
+  if (typeof subId !== 'number') return undefined
+  return ceStaticFor(component)?.subViews?.[subId]
+}
+
+/**
  * 子模板的 per-point effect 工厂数组
  */
 export function getSubPointEffects(component: CompElem<any>, tmplFn: Function | undefined): ((rc: any, nodes: Node[], get: (vi: number) => any, dep: { value: any }) => () => void)[] | undefined {
-  const local = slotOriginOf(tmplFn)?.fx ?? (tmplFn as any)?.__fx
-  if (local) return local.pe
-  const subId = subIdOf(tmplFn)
-  if (typeof subId !== 'number') return undefined
-  return ceStaticFor(component)?.subViews?.[subId]?.pointEffects
+  const entry = resolveSubEntry(component, tmplFn)
+  return entry ? entry.pe ?? entry.pointEffects : undefined
 }
 
 /** 子模板内联 fx：优先回调的 provenance / 实例上的 `__fx.fx`（跨层内联），否则 `subs[subId].fx`。 */
 export function getSubFx(component: CompElem<any>, tmplFn: Function | undefined): any[] | undefined {
-  const local = slotOriginOf(tmplFn)?.fx ?? (tmplFn as any)?.__fx
-  if (local) return local.fx
-  const subId = subIdOf(tmplFn)
-  if (typeof subId !== 'number') return undefined
-  return ceStaticFor(component)?.subViews?.[subId]?.fx
+  const entry = resolveSubEntry(component, tmplFn)
+  return entry ? entry.fx : undefined
 }
 
 /**
@@ -423,7 +418,6 @@ export function buildSubTemplateView(ctx: CompElem<any>, tmplFn: TplFn, ...args:
   const built = cloneBuiltTemplate(tmplM)
   const nodes = (built.nodes ?? []) as Node[]
   const [rs, upAry] = renderTemplate(ctx, tmplM, built, {
-    deferValueFill: true,
     fx: getSubFx(ctx, tmplFn),
     itemArgs: args,
   })
@@ -439,11 +433,9 @@ export function buildSubTemplateView(ctx: CompElem<any>, tmplFn: TplFn, ...args:
   const cn = rs.childNodes
   for (let i = 0, l = cn.length; i < l; i++) out.push(cn[i])
   // 本代 UpdatePoint 树挂到首个产出节点上（内部机制，业务勿读写）：
-  // #updateSlot 的常驻 effect 在 replace/dispose 时经 onCleanup 摘取回收。
-  // owner 一并挂出：purgeDirNodeMap 定位 `__dirNodeMap` 条目需要它。
+  // #updateSlot 的常驻 effect 在 replace/dispose 时经 onCleanup 摘取回收
   if (upAry.length > 0 && out.length > 0) {
     (out[0] as any).__ceUpAry = upAry
-      ; (out[0] as any).__ceUpOwner = ctx
   }
   return out
 }
@@ -469,7 +461,7 @@ export function registerSubViewEffects(
       const cur = (tmplGetter !== undefined ? tmplGetter() : undefined) ?? tmplFn
       const curPe = getSubPointEffects(component, cur)!
         ; (curPe[0] as any)(component, nodes, undefined, undefined, ov, cell.value, key, index)()
-    }, { asChild: false })
+    }, NO_CHILD_EFFECT)
   } else {
     // 自洽子模板（subs[].fx，类级常量）：合并工厂在 effect 体**每轮**重新调用，
     // 把持久旧值槽 ov 与当前 cell.value/key/index 作为实参传入。
@@ -477,7 +469,7 @@ export function registerSubViewEffects(
     const make = factories[0] as any
     e = effect(() => {
       make(component, nodes, undefined, undefined, ov, cell.value, key, index)()
-    }, { asChild: false })
+    }, NO_CHILD_EFFECT)
   }
   component._regViewEffect(e)
   const host = upAry[0]
@@ -496,7 +488,7 @@ export function insertSubView(node: Node, point: UpdatePoint, tmplFn: TplFn, tmp
     const built = buildSubTemplate(component, tmplFn)
     const subFx = getSubFx(component, tmplFn)
     // 子模板取值一律走 fx
-    const [rs, upAry] = renderTemplate(component, tmplM, built, { deferValueFill: true, fx: subFx, itemArgs: [v, k, i] })
+    const [rs, upAry] = renderTemplate(component, tmplM, built, { fx: subFx, itemArgs: [v, k, i] })
     // 本子项的 item 值信号。key 先算一次，cell 登记与节点标记共用
     const itemKey = keyFn ? keyFn.call(component, v, k, i) + '' : String(i)
     const cell = signal(v)

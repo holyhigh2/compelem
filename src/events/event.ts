@@ -1,11 +1,11 @@
-import { debounce, each, get, isEmpty, isFunction, noop, once, set, throttle } from "myfx";
+import { debounce, each, get, isFunction, noop, once, set, throttle } from "myfx";
 import { CompElem } from "../CompElem";
 import { DefinitionCompEmitMap, DefinitionCompEventMap, DefinitionComponentMap } from "../constants";
 import { _getSuper, fieldGet, tagNameLower } from "../utils";
 import { addExtEvent, isExtEvent } from "./extends";
 
-const MODI_EV_DEBOUNCE = /,|^(debounce:.+)|(debounce$)/;
-const MODI_EV_THROTTLE = /,|^(throttle:.+)|(throttle$)/;
+const MODI_EV_DEBOUNCE = /^debounce(?::.+)?$/;
+const MODI_EV_THROTTLE = /^throttle(?::.+)?$/;
 const MODI_EV_SELF = 'self';
 const MODI_EV_STOP = 'stop';
 const MODI_EV_PREVENT = 'prevent';
@@ -22,6 +22,29 @@ const MODI_EV_KEYBOARD_COMBO_META = 'meta';
 const MODI_EV_KEYBOARD_KEY_MAP: Record<string, any> = {
   'esc': 'escape'
 };
+/**
+ * **非键名**修饰符 token 全集。
+ *
+ * `parseModifiers` 靠它把修饰符与「键盘按键名」分开：`checkKeys` 只在 KeyboardEvent
+ * 分支被读（见 `wrapListener` 的 `checkKeys.includes(e.key)`），任何混进去的非键
+ * token 都会让该判断恒为假 —— 于是 `@keydown.stop.prevent`、`@keydown.once`、
+ * `@keydown.debounce:100` 这类写法**回调永不触发**（修饰符本身仍生效）。
+ */
+const MODI_EV_NON_KEY_TOKENS = new Set([
+  MODI_EV_SELF,
+  MODI_EV_STOP,
+  MODI_EV_PREVENT,
+  MODI_EV_ONCE,
+  MODI_EV_CAPTURE,
+  MODI_EV_PASSIVE,
+  MODI_EV_MOUSE_LEFT,
+  MODI_EV_MOUSE_RIGHT,
+  MODI_EV_MOUSE_MIDDLE,
+  MODI_EV_KEYBOARD_COMBO_CTRL,
+  MODI_EV_KEYBOARD_COMBO_ALT,
+  MODI_EV_KEYBOARD_COMBO_SHIFT,
+  MODI_EV_KEYBOARD_COMBO_META,
+]);
 const MODI_PARAM_DIVIDER = ":";
 
 /*************************************************************
@@ -63,16 +86,17 @@ function bindOnce(cbk: Function, comp: object): any {
   return b
 }
 
-const EvNameCache = new Map<string, { evName: string; parts: string[] }>()
+const EvNameCache = new Map<string, { evName: string; parts: string[]; flags: ModiFlags }>()
 /**
- * "click.stop.prevent.debounce:100" → { evName: 'click', parts: [...] }
+ * "click.stop.prevent.debounce:100" → { evName: 'click', parts: [...], flags: {...} }
  */
 function parseEventName(fullName: string) {
   let r = EvNameCache.get(fullName)
   if (r === undefined) {
     if (EvNameCache.size > 512) EvNameCache.clear()
     let parts = fullName.split('.');
-    r = { evName: parts.shift()!, parts };
+    const evName = parts.shift()!
+    r = { evName, parts, flags: Object.freeze(parseModifiers(parts)) as ModiFlags };
     EvNameCache.set(fullName, r)
   }
   return r;
@@ -111,8 +135,12 @@ function parseModifiers(parts: string[]): ModiFlags {
       throttleMs = parseInt(parts[i].split(MODI_PARAM_DIVIDER)[1]) || 100
     }
     let p = parts[i]
-    if (p === MODI_EV_KEYBOARD_COMBO_CTRL || p === MODI_EV_KEYBOARD_COMBO_ALT || p === MODI_EV_KEYBOARD_COMBO_SHIFT || p === MODI_EV_KEYBOARD_COMBO_META) continue;
-    (checkKeys ?? (checkKeys = [])).push(MODI_EV_KEYBOARD_KEY_MAP[p] || p)
+    // 组合修饰符（ctrl/alt/shift/meta）在别处按 e.ctrlKey 等判定，不进 checkKeys
+    if (MODI_EV_NON_KEY_TOKENS.has(p)) continue;
+    // 带参数的流程修饰符同理（debounce:100 / throttle:100）
+    if (MODI_EV_DEBOUNCE.test(p) || MODI_EV_THROTTLE.test(p)) continue;
+    // 其余 token 一律视为按键名（esc 先映射成 KeyboardEvent.key 的 'escape'）
+    ; (checkKeys ?? (checkKeys = [])).push(MODI_EV_KEYBOARD_KEY_MAP[p] || p)
   }
   if (checkKeys && checkKeys.length === 0) checkKeys = null
   return {
@@ -137,13 +165,13 @@ function parseModifiers(parts: string[]): ModiFlags {
 
 /**
  * 流程控制包装：debounce / throttle / once
- * 组件事件（addEmitEvent）与扩展事件（addExtEvent）共用
+ * once 只在**组件事件**路径（addEmitEvent）由此实现
  */
-function wrapControlFn(cbk: EvHadler, f: ModiFlags) {
+function wrapControlFn(cbk: EvHadler, f: ModiFlags, applyOnce = false) {
   let c = cbk ?? VFN;
   if (f.debounceMs) c = debounce(c, f.debounceMs)
   if (f.throttleMs) c = throttle(c, f.throttleMs)
-  if (f.once) c = once(c)
+  if (applyOnce && f.once) c = once(c)
   return c
 }
 
@@ -226,14 +254,15 @@ interface EventState {
   bindList: Array<[string, Function, Node, Function?]>
   //{ name@fnName : fn }
   docoEventMap: Map<string, Function>
-  //node -> evName -> [{ handler, flags }]
+  //node -> (evName + 相位桶) -> [{ handler, flags }]
   handlerMap: WeakMap<Element, Map<string, Array<{ handler: EvHadler; flags: ModiFlags }>>>
   //无法 signal 化的注册（扩展事件全局监听）释放函数集合
   releaseList: Array<Function>
   //'b:'|'c:' + evName
   delegationKeySet: Set<string>
   abortController: AbortController | undefined
-  dispatch: (e: Event) => void
+  dispatchC: (e: Event) => void
+  dispatchB: (e: Event) => void
 }
 
 const ComponentEventStateMap = new WeakMap<CompElem, EventState>()
@@ -248,7 +277,8 @@ function getState(comp: CompElem): EventState {
       releaseList: [],
       delegationKeySet: new Set(),
       abortController: undefined,
-      dispatch: e => dispatchDelegated(comp as CompElem<any>, e)
+      dispatchC: e => dispatchDelegated(comp as CompElem<any>, e, true),
+      dispatchB: e => dispatchDelegated(comp as CompElem<any>, e, false)
     }
     ComponentEventStateMap.set(comp, s)
   }
@@ -273,6 +303,34 @@ function initEventHandlers(comp: CompElem<any>) {
 }
 
 
+/**
+ * 沿构造器原型链合并 `@event` 声明表（按 name@fnName 去重）——**类级缓存**。
+ */
+const FamilyEventsCache = new WeakMap<Function, Array<Record<string, any>>>()
+function collectFamilyEvents(ctor: Function): Array<Record<string, any>> {
+  let merged = FamilyEventsCache.get(ctor)
+  if (merged === undefined) {
+    merged = []
+    const eventKeys = new Set<string>()
+    let c: any = ctor
+    while (c && c !== CompElem) {
+      const ownEvents = DefinitionCompEventMap.get(c)
+      if (ownEvents) {
+        for (let i = 0; i < ownEvents.length; i++) {
+          const { name, fnName } = ownEvents[i]
+          const key = name + '@' + fnName
+          if (eventKeys.has(key)) continue
+          eventKeys.add(key)
+          merged.push(ownEvents[i])
+        }
+      }
+      c = _getSuper(c as any)
+    }
+    FamilyEventsCache.set(ctor, merged)
+  }
+  return merged
+}
+
 export function bindEvents(comp: CompElem<any>) {
   let s = getState(comp)
 
@@ -292,9 +350,9 @@ export function bindEvents(comp: CompElem<any>) {
     }
   }
 
-  //2. @event
-  let events = DefinitionCompEventMap.get(comp.constructor) ?? DefinitionCompEventMap.get(_getSuper(comp.constructor as any))
-  if (events && events.length > 0) {
+  //2. @event（原型链合并结果类级缓存，实例侧只按 docoEventMap 去重防重复注册）
+  const events = collectFamilyEvents(comp.constructor)
+  if (events.length > 0) {
     for (let i = 0; i < events.length; i++) {
       const { name, targetFn, fnName } = events[i]
       let key = name + '@' + fnName
@@ -409,8 +467,8 @@ export function writeModelProp(propertyKey: string, v: any, context: CompElem): 
  * @param node 目标节点（Element | Window | Document）
  */
 export function registerEvent(comp: CompElem<any>, fullName: string, cbk: EvHadler, node: Element | Window | Document) {
-  let { evName, parts } = parseEventName(fullName)
-  let f = parseModifiers(parts)
+  // 事件名与修饰符解析结果一并取自缓存（同 fullName 只解析一次）
+  let { evName, parts, flags: f } = parseEventName(fullName)
 
   //1. 组件事件（不代理）
   if (node instanceof Element) {
@@ -418,7 +476,7 @@ export function registerEvent(comp: CompElem<any>, fullName: string, cbk: EvHadl
     if (ctor) {
       let declared = matchEmit(ctor, evName)
       if (declared) {
-        addEmitEvent(node, comp, evName, wrapControlFn(cbk, f))
+        addEmitEvent(node, comp, evName, wrapControlFn(cbk, f, true))
         return
       }
     }
@@ -426,7 +484,8 @@ export function registerEvent(comp: CompElem<any>, fullName: string, cbk: EvHadl
 
   //2. 扩展事件（全局注册，unbinder 进释放列表）
   if (isExtEvent(evName)) {
-    let unbinder = addExtEvent(evName, node as Element, wrapControlFn(cbk, f), parts, comp, f.once)
+    // resize 的 once 由 addResize 自身实现（同时负责摘除回调/取消观测），其余扩展事件在此实现
+    let unbinder = addExtEvent(evName, node as Element, wrapControlFn(cbk, f, evName !== 'resize'), parts, comp, f.once)
     if (unbinder) getState(comp).releaseList.push(unbinder)
     return
   }
@@ -452,6 +511,13 @@ function isInRenderTree(comp: CompElem<any>, node: Element | Window | Document):
   return node === root || root.contains(node)
 }
 
+/**
+ * 委托条目分桶键后缀：同一元素上 `@click` 与 `@click.capture` 混写时，
+ * 必须按相位分别派发 —— 单键（仅事件名）会让捕获趟与冒泡趟各跑一次全部条目。
+ */
+const DELEG_BUCKET_CAPTURE = '::c'
+const DELEG_BUCKET_BUBBLE = '::b'
+
 function registerDelegation(comp: CompElem<any>, evName: string, cbk: EvHadler, f: ModiFlags, node: Element, capture: boolean) {
   if (!ensureDelegationListener(comp, evName, capture)) {
     //防御性回退
@@ -465,10 +531,11 @@ function registerDelegation(comp: CompElem<any>, evName: string, cbk: EvHadler, 
     map = new Map()
     s.handlerMap.set(node, map)
   }
-  let entries = map.get(evName)
+  const bucket = evName + (capture ? DELEG_BUCKET_CAPTURE : DELEG_BUCKET_BUBBLE)
+  let entries = map.get(bucket)
   if (!entries) {
     entries = []
-    map.set(evName, entries)
+    map.set(bucket, entries)
   }
   entries.push({ handler, flags: f })
 }
@@ -484,7 +551,7 @@ function ensureDelegationListener(comp: CompElem<any>, evName: string, capture: 
   let s = getState(comp)
   let key = (capture ? 'c:' : 'b:') + evName
   if (s.delegationKeySet.has(key)) return true
-  root.addEventListener(evName, s.dispatch, { capture, signal: s.abortController!.signal })
+  root.addEventListener(evName, capture ? s.dispatchC : s.dispatchB, { capture, signal: s.abortController!.signal })
   s.delegationKeySet.add(key)
   return true
 }
@@ -500,21 +567,30 @@ function registerElementEvent(comp: CompElem<any>, evName: string, cbk: EvHadler
     })
 }
 
-function dispatchDelegated(comp: CompElem<any>, e: Event) {
+function dispatchDelegated(comp: CompElem<any>, e: Event, capturing: boolean) {
   let root = comp.renderRoot as HTMLElement | undefined
   if (!root) return
-  let type = e.type
+  // 桶由监听器自身注册相位决定，而非 eventPhase：视图单根时 root===target，
+  // capture/bubble 两个监听都在 AT_TARGET 触发，phase 区分不了自己是谁 ⇒ 每个桶会被两个监听各跑一遍（双派发）
+  const bucket = e.type + (capturing ? DELEG_BUCKET_CAPTURE : DELEG_BUCKET_BUBBLE)
 
   const path = e.composedPath()
   let endIndex = path.indexOf(root)
   if (endIndex < 0)//异常
     return
   let s = getState(comp)
-  outer: for (let pi = 0; pi <= endIndex; pi++) {
+  // composedPath 恒为 target → root；捕获趟从 root 走向 target，冒泡趟反向
+  const pi0 = capturing ? endIndex : 0
+  const piEnd = capturing ? -1 : endIndex + 1
+  const piStep = capturing ? -1 : 1
+  outer: for (let pi = pi0; pi !== piEnd; pi += piStep) {
     const el = path[pi];
     if (!(el instanceof HTMLElement)) continue
-    let entries = s.handlerMap.get(el)?.get(type)!
-    if (isEmpty(entries)) continue
+    const map = s.handlerMap.get(el)
+    if (!map) continue
+
+    const entries = map.get(bucket)
+    if (entries === undefined || entries.length === 0) continue
 
     for (let i = 0; i < entries.length; i++) {
       let entry = entries[i]
@@ -522,7 +598,7 @@ function dispatchDelegated(comp: CompElem<any>, e: Event) {
       if (entry.flags.once) {
         entries.splice(i, 1)
         i--
-        if (entries.length < 1) s.handlerMap.get(el)?.delete(type)
+        if (entries.length < 1) map.delete(bucket)
       }
       entry.handler(e)
 

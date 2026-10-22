@@ -26,13 +26,76 @@ CompElem 基于 Class 进行构建，该模型允许开发者使用装饰器进�
 - 响应式域样式
 - ...
 
+## 环境要求
+
+compelem 的装饰器语义**全部在编译期完成**：运行时从包中导出的装饰器只是 no-op 存根，组件视图的唯一来源是编译器注入的 `static __ce_static__.buildTemplate`。因此**必须挂载编译插件**，否则组件实例化时直接抛错：
+
+```
+[compelem] <x-foo> Component is not compiled @compelem/compiler plugin is required
+```
+
+### 1. TypeScript
+
+```json
+{
+  "compilerOptions": {
+    "experimentalDecorators": true
+  }
+}
+```
+
+### 2. 构建插件
+
+```ts
+// vite.config.ts
+import { defineConfig } from 'vite'
+import { compelemCompiler } from '@compelem/compiler'
+
+export default defineConfig({
+  plugins: [compelemCompiler()],
+  // Vite 8 / Oxc：legacy 装饰器必须显式开启
+  oxc: { decorator: { legacy: true } },
+  // @tag 依赖 target.name 注册，需保留类名
+  esbuild: { keepNames: true },
+})
+```
+
+> ⚠️ Vite 8 用 Oxc 处理 TS，不显式开 `legacy` 会按标准装饰器编译，浏览器收到含 `export @tag(...) class` 的产物直接报 `Unexpected token 'export'`。
+
+### 3. 注册组件
+
+`@tag("x-foo")` 默认只把类写进注册表 `DefinitionComponentMap`，**不会**自动 `customElements.define`。需在应用入口统一注册一次：
+
+```ts
+import { defineComponents, defineComponentsSubset } from 'compelem'
+
+defineComponents()                     // 注册全部 @tag 组件
+// defineComponentsSubset(['x-foo'])   // 或按需注册子集（省启动开销）
+```
+
+或者给 `@tag` 传 `immediate = true` 立即注册：
+
+```ts
+@tag('x-foo', true)
+export class XFoo extends CompElem { ... }
+```
+
+> 漏掉这一步，页面上所有组件都是**未升级的空壳**：DOM 里有元素，但无行为、无内容。
+
+### 4. myfx
+
+`myfx` 是 **peerDependency**（构建时作为 external 处理，不打进 compelem 产物）。宿主工程需自行安装 `myfx ^2.0.0-beta.4`（即 2.x；`@compelem/compiler` 同样以 peerDependency 方式依赖它）。
+
+## 快速开始
+
 创建一个WebComponent总会从声明一个组件元素(CompElem子类)开始
 ```ts
 const Slogan = ['complete', 'componentize', 'compact', 'companion']
+
 @tag("page-test")
 export class PageTest extends CompElem {
   //////////////////////////////////// props
-  @prop arg:any
+  @prop({ type: Object }) arg: any   // 无默认值必须显式 type
 
   @state colorR = Math.random() * 255 % 255 >> 0;
   @state colorG = Math.random() * 255 % 255 >> 0;
@@ -42,12 +105,12 @@ export class PageTest extends CompElem {
   //////////////////////////////////// computed
   @computed
   get color() {
-    return `linear-gradient(90deg,rgb(${this.colorR},${this.colorG},${this.colorB}), rgb(${255 - this.colorR},${255 - this.colorG},${255 - this.colorB}));`
+    return `linear-gradient(90deg,rgb(${this.colorR},${this.colorG},${this.colorB}), rgb(${255 - this.colorR},${255 - this.colorG},${255 - this.colorB}))`
   }
 
   //////////////////////////////////// watch
   @watch('rotation')
-  function(nv:number) {
+  onRotation(nv: number) {
     console.log(nv)
   }
 
@@ -59,11 +122,9 @@ export class PageTest extends CompElem {
         font-size:16px;
       }
       h2,p,i,h3{
-        ...
         background-image:var(--test-color);
         filter:hue-rotate(var(--test-hue-rotate));
-      }
-      ...`];
+      }`];
   }
   //动态样式变量
   get cssVars() {
@@ -79,6 +140,7 @@ export class PageTest extends CompElem {
 
   //////////////////////////////////// lifecycles
   mounted(): void {
+    // @query 结果是响应式字段，访问器门控 isMounted，mounted 时才可用
     setInterval(() => {
       this.rotation += 1
     }, 24);
@@ -130,6 +192,8 @@ export class PageTest extends CompElem {
     return null
   }
   ```
+  > 运行时 `render()` 是**存根**：视图由编译器在编译期从 `render()` 的返回值静态生成 `buildTemplate`。因此 `render()` 内不能出现 `super`，回调也必须字面出现在模板中（见「结构指令」）。
+
 - ### 视图模板-属性表达式
 
   通过再视图模板中插入表达式可以实现动态视图，表达式通过在不同位置使用分为不同类型见（#### 指令类型）。其中属性表达式根据前缀分为
@@ -154,6 +218,8 @@ export class PageTest extends CompElem {
   - camel 驼峰式
   - kebab 短横线
   - snake 下划线
+
+  **属性名归一化**：模板中含大写字母的属性名会被转成 kebab-case（`dataType` → `data-type`），该转换由编译器在编译期完成，且**只对自定义/组件标签生效**（原生标签保持浏览器行为）。因此组件的 camelCase prop 既可用 `.headerHeight="${...}"` 传，也可用 `header-height="..."` 特性传。
 
 - ### 无视图
   对于无体组件无需定义渲染函数，常用于layout、grid等结构控制相关组件。无视图组件仅支持global及host样式，如
@@ -220,6 +286,8 @@ export class PageTest extends CompElem {
   想要修改属性值可以通过 emit `update:xxx` 事件 通知父组件进行更新或显示声明某个属性为model，然后通过赋值自动触发 emit `update:xxx`
   全部注解参数见 `PropOption`
 
+  > 组件内对 `this.<非model prop>` 赋值会被**编译期**拦截并报 `E-PROP-ASSIGN`，构建直接失败（而不是运行期静默丢弃）。
+
   **`model: true` 的 prop 赋值语义按宿主类型三路分派**（`writeModelProp`）：
 
   | 宿主 | 行为 | 理由 |
@@ -235,14 +303,21 @@ export class PageTest extends CompElem {
   状态是仅由组件内部初始化的响应变量，可通过`@state`注解定义
   ```ts
   @state hasLeft = false;//定义状态
-  @state({//自定义变化判断
+  @state({//自定义变化判断：返回 true 表示"发生了变化"
     hasChanged(nv: any[], ov: any[]) {
-      return isEqual(nv , ov)
+      return !isEqual(nv, ov)
     }
   }) private nodes: Array<Record<string, any>>;
   ```
   状态仅能在组件内修改
   全部注解参数见 `StateOption`
+
+  > **用 prop 初始化 state** 用初始化器表达，不要用 `@state({ prop: 'x' })`（该写法已废弃并被编译期报 `E-STATE-ARG`）：
+  > ```ts
+  > @prop({ type: Number }) pageSize = 20
+  > @state page = this.pageSize   // ✅ 播种发生在 props 落定之后
+  > ```
+
 - ### 属性/状态监视
 
   使用`@watch`注解可以对属性/状态进行变化监视
@@ -261,9 +336,10 @@ export class PageTest extends CompElem {
   ```ts
   @watch(['height', 'minHeight', 'maxHeight'], { immediate: true })
   watchHeight(nv: string, ov: string, sourceName: string) {
-    this.style[srcName] = nv;
+    this.style[sourceName] = nv;
   }
   ```
+  handler 完整签名为 `(nv, ov, sourceName, subNv?, subOv?)`；`source` 支持多级路径（`'a.b.c'`）；`@watch` 回调执行在 `untrack()` 中，不会把回调内部的读取记成本组件的视图依赖。
 
 - ### 计算状态
   计算状态会缓存计算结果，只有当内部使用的响应属性/状态发生变化时才会重新计算。创建计算状态使用`@computed`注解的 Getter，如
@@ -281,9 +357,14 @@ export class PageTest extends CompElem {
   iconEl: HTMLElement
   @queryAll('l-icon')
   iconEls: HTMLElement[]
+  //仅查一次（首次命中后缓存）
+  @query('l-popup', QueryCache.ONCE)
+  popupEl: HTMLElement
   //ref
   refNode: RefObject
   ```
+  > `@query` / `@queryAll` 的结果是**响应式字段**，访问器门控 `isMounted`——在 `mounted()` 之前读取得到 `undefined`。
+
   ref可用于内部DOM被移出但仍需访问的场景，比如tooltip、toast、overlay等
   ```ts
   divRef = createRef<HTMLDivElement>();
@@ -297,19 +378,24 @@ export class PageTest extends CompElem {
   - `readonly` wrapperComponent 包装(组件所在视图归属)组件引用，可能为空
   - `readonly` renderRoot/renderRoots 渲染根元素/渲染根元素列表，可能为空
   - `readonly` shadowRoot 阴影DOM，可能为空
-  - `readonly` slots 插槽元素映射
+  - `readonly` slots 插槽元素映射（无名插槽为 `default`）
   - `readonly` slotHooks 动态插槽钩子映射
-  - `readonly` cssSheets 组件样式对象列表
-  - `readonly` globalCssSheet 通过静态getter创建的全局样式表对象，所有实例共享
+  - `readonly` cssSheets 组件内部(INNER)样式对象列表
+  - `readonly` cssVars 动态 CSS 变量映射
   - `readonly` attrs 组件特性
   - `readonly` props 组件属性
   - `readonly` isMounted 组件是否已挂载
   - `readonly` isDestroyed 组件是否已销毁
+  - `readonly` cid 组件实例序号
   - emit(evName: string, arg: Record<string, any>, event?: Event) 抛出自定义事件
   - nextTick(cbk: () => void) 下一帧执行函数
-  - forceUpdate() 强制更新一次视图
+  - forceUpdate() 强制重跑本组件全部视图 effect（不触发 `@watch` / `cssVars`）
+  - updateProps(props: Record<string, any>, force?: boolean) 批量更新属性（触发 `@watch`）
   - insertStyleSheet(sheet: CssTemplate | CSSStyleSheet): CSSStyleSheet 向组件ShadowDOM插入样式表，仅影响组件实例
+  - getSubViewNodes(tmplFn: TplFn, ...args: any[]): Node[] 把已编译的子模板回调渲染成节点（回调须经 `slot()` 登记 provenance）
   - destroy() 销毁组件
+
+> `slots` 的访问器由基类构造期装到**具体子类的原型**上。子类类体里自己写 `get slots()` 会顶掉框架实现、恒读空桩——不要在子类声明 slots 访问器。
 
 ## 组件渲染流程 Lifecycle
 
@@ -319,42 +405,41 @@ CompElem 组件既可以在 CompElem 环境内调用，也可以直接在原生�
 
 | 功能                                                         |  生命周期    |
 | ------------------------------------------------------------ | ----------- |
-| 1. 创建组件实例，完成类属性默认值设置（prop/state/...)       |              |
-| 2. 初始化类全局样式（仅一次）及 实例样式(产生 styles 数组)   |                 |
-| 3. 创建 shadowRoot 并挂载组件样式                            |      |
-| 4. 执行装饰器 create 回调                                      |        constructor         |
-| 5. 绑定 parentComponent                                                   |    |
-| 6. 验证及初始化 props |      propsReady |
-| 7. 初始化 states |       |
-| 8. @computed                       |                 |
-| 9. @watch(immediate)                       |                 |
-| 10. 渲染 render 及依赖绑定                                    |     render      |
-| 11. 绑定 renderRoot 及 renderRoots                                            |                 |
-| 12. 初始化插槽 slots                                            |         |
-| 13. 执行装饰器 beforeMount 回调 ，如 @query                                         |    beforeMount      |
-| 14. 初始化动态 css                                                   |         mounted        |
-| 15. 执行装饰器 mounted 回调                                |                 |
+| 1. 创建组件实例，读取 `__ce_static__` 定义表，安装 `slots` 访问器 |      constructor    |
+| 2. 元素连接文档 → `setup()`（幂等，重连可重试）              |              |
+| 3. 初始化 props：外部传入 > `setDefaults` 组件默认 > 字段默认值 |      propsReady |
+| 4. 初始化 states（含 prop 播种）                              |       |
+| 5. `propsReady(props)` 回调                                   |    |
+| 6. 创建 shadowRoot 并挂载样式表（`getBaseSheets`）            |     render      |
+| 7. `buildStaticView` 建视图：首实例调 `buildTemplate` 现建并缓存，后续实例走 `cloneBuiltTemplate` |  |
+| 8. 装 `@watch` effects 与 `cssVars` effect                   |                 |
+| 9. 取走 `slotHooks` 并逐名 `#updateSlot` 初始化动态插槽        |                 |
+| 10. `beforeMount()` 回调                                     |    beforeMount      |
+| 11. 标记 `isMounted`，视图片段挂进 shadowRoot                 |         mounted        |
+| 12. `mounted()` 回调                                         |                 |
 
-> 更新流程【普通】
+> 更新流程【数据驱动】—— signal 架构：没有「组件级重渲染」这一步，更新单位是 effect
 
-| 功能                           | 生命周期     |
-| ------------------------------ | ------------ |
-| 1. 父组件 props 变更【或】     | propsReady   |
-| 1. 子组件 states 变更【或】     |              |
-| 2. 执行@watch 注解             |              |
-| 3. 合并变更内容并判断是否更新  | shouldUpdate |
-| 4. 更新依赖域指令（非 render） |              |
-| 5. 更新动态 slot               |              |
-| 6. 执行 ref                    |              |
-| 7. 执行@query 注解             | update       |
+| 功能                                                  | 生命周期      |
+| ----------------------------------------------------- | ------------- |
+| 1. 写 prop / state / computed 信号                    |               |
+| 2. setter → notify，只推给**直接订阅该信号**的 effect |               |
+| 3. 逐个 effect 重跑，各自写自己那几个 DOM 位点         |               |
+| 4. 结构性指令（forEach / ifElse 等）在自己的 scope 内处理 |               |
+| 5. `@watch` 回调在 `untrack()` 中触发                 |               |
+| 6. 一轮 flush 结束 → 本轮**跑过视图 effect** 的组件触发   | `afterUpdate` |
 
 > 更新流程【强制】
 
-| 功能               | 生命周期 |
-| ------------------ | -------- |
-| 1. forceUpdate     |          |
-| 2. 渲染 render     | render   |
-| 3. 执行@query 注解 | update   |
+| 功能                                                   | 生命周期      |
+| ------------------------------------------------------ | ------------- |
+| 1. `forceUpdate()` 重跑本组件全部**视图 effect**（跳过 @watch / cssVars） |               |
+| 2. 刷新待更新插槽                                       |               |
+| 3. 触发 `afterUpdate`                                  | `afterUpdate` |
+
+> ⚠️ `shouldUpdate` / `updated` 已移除：信号架构下不存在「组件更新完了」这个时刻。
+> 「某字段变了要做事」用 `@watch('field')`；「按条件决定这块 UI 更不更新」把闸门放进
+> `@computed`（依赖被 `untrack` 掉即不订阅）或用 `ifElse` 包住子树。
 
 ## 插槽 Slot
 
@@ -415,6 +500,8 @@ return h` <l-tooltip>
 <slot .data="${this.row}"></slot>
 ```
 
+> 断言插槽内容要看 `slotEl.assignedNodes()`（原生分发），不是 `shadowRoot.innerHTML`。
+
 
 ## 指令 Directive
 
@@ -430,6 +517,8 @@ return h` <l-tooltip>
 |TEXT|文本|标签体内，可插入多个|`<div>${xx1}${xx2}${...}</div>`|
 |SLOT|插槽|与 TEXT 类似，但标签必须是组件||
 |TAG|标签|直接插入在节点标签上|`<div a="b" ${show(..)}>`|
+
+> 上表是**模板插值位置**的分类；而内置指令注册时使用的**指令作用域**（`EnterPointType`）只有 `TEXT` / `SLOT` / `TAG` 三种——`ATTR` / `PROP` 位置只能放普通值表达式，不能挂指令。
 
 #### 内置指令
 
@@ -447,201 +536,36 @@ return h` <l-tooltip>
 | slot    | SLOT      | 动态插槽                                                    | ` ...>${slot((args) => h``)}<... `                  |
 | html    | TAG/TEXT/SLOT      | 向指定元素/文本位置插入HTML内容                                                    | `<div a="b" ${html('<b>1</b>')}> ...>${html('<b>1</b>')}<...`                  |
 
-## 过渡动画 Transition
+#### 结构指令的约束
 
-`<transition>` 是模板解析期处理的伪标签（不产生真实DOM），用于为**直接子级结构指令**（ifElse/ifTrue/when/forEach）的插入/删除/移动添加过渡动画。动画由CSS声明：
+| 分类 | 指令 | 特征 |
+|---|---|---|
+| **结构指令** | `forEach` `ifTrue` `ifElse` `when` `slot` | 产生/删除 DOM 子树，模板回调必须**字面出现在 render() 模板内**（编译器据此静态分配子视图 id） |
+| **非结构指令** | `show` `bind` `classes` `styles` `model` `html` | 仅修改已有 DOM，依赖在外部收集 |
 
-| 类名 | 触发时机 |
-|-------|-------|
-| `{name}-enter-from` | 入场起点样式，下一帧移除 |
-| `{name}-enter-active` | 入场期间，通常声明 `transition`/`animation` |
-| `{name}-enter-to` | 入场终点样式 |
-| `{name}-leave-from` | 离场起点样式 |
-| `{name}-leave-active` | 离场期间；列表场景建议加 `position:absolute` 使位移动画平滑 |
-| `{name}-leave-to` | 离场终点样式，动画结束后才从DOM移除节点 |
-| `{name}-move` | 列表项移动（FLIP），通常声明 `transition: transform` |
+结构指令的模板回调里读取的依赖是**惰性的**：只有该分支首次被渲染执行时才建立订阅。初始条件为 `false` 的分支里读取的变量，在条件变 true 前不会被追踪——需要提前感知就在根模板上下文读一次，或用 `@watch` 显式监视。
 
-```js
-render() {
-  return h`
-    <transition name="fade" mode="out-in">
-      ${ifElse(this.visible, h`<span>A</span>`, h`<span>B</span>`)}
-    </transition>
-
-    <transition name="list">
-      ${forEach(this.items, it => h`<li key=${it.id}>${it.name}</li>`)}
-    </transition>`
-}
-```
-
-```css
-.fade-enter-active, .fade-leave-active { transition: opacity .3s }
-.fade-enter-from, .fade-leave-to { opacity: 0 }
-.list-move { transition: transform .3s }
-.list-leave-active { position: absolute }
-```
-
-支持的属性：
-
-| 属性 | 描述 |
-|-------|-------|
-| name | 必填，动画类名前缀 |
-| mode | `out-in`（旧内容离场完成后新内容入场）/ `in-out`（新内容入场完成后旧内容离场），默认同时进行 |
-| appear | 首次渲染时播放入场动画 |
-| duration | 显式动画时长(ms)，设置后不再自动探测 |
-| `@before-enter` 等钩子 | JS 钩子，值必须为函数引用表达式，见下文 |
-
-钩子属性（`@before-enter` / `@enter` / `@after-enter` / `@enter-cancelled` / `@before-leave` / `@leave` / `@after-leave` / `@leave-cancelled`）：与事件绑定规则一致——**属性名静态，值为函数引用表达式**，组件方法自动绑定 `this`。提供 `@enter`/`@leave` 后结束时机交给 `done` 回调（不再自动探测 CSS 时长）：
-
-```js
-render() {
-  return h`
-    <transition name="fade" appear
-      @before-enter="${this.onBeforeEnter}"
-      @enter="${this.onEnter}"
-      @after-enter="${this.onAfterEnter}"
-    >
-      ${ifTrue(this.visible, () => h`<p class="pane">PANE</p>`)}
-    </transition>`
-}
-
-onEnter(el, done) {
-  animateEl(el).then(done)  // GSAP等JS动画：动画结束后调用done
-}
-```
-
-规则与说明：
-
-- 只过渡 `<transition>` **直接子级**的指令锚点，且仅插入文档后的元素（根为纯文本时不动画）
-- 离场动画期间节点保留在DOM中，`transitionend/animationend`（或显式 duration）后才执行移除与组件销毁；期间再次切换会取消未完成的过渡
-
-
-### 路由切换动画
-
-路由出口若通过结构指令切换路由组件，用 `<transition>` 包裹即可获得路由切换动画。整页级过渡可使用 View Transitions API 封装（不支持时降级为直接执行回调）：
-
-```js
-import { startViewTransition } from 'compelem'
-
-//compelem-router 或任意路由状态切换
-startViewTransition(() => { this.route = nextRoute })
-```
-
-```css
-::view-transition-old(root) { animation: fade-out .3s both }
-::view-transition-new(root) { animation: fade-in .3s both }
-```
-
-`startViewTransition` 在支持 View Transitions API 的浏览器中返回 `ViewTransition.finished`（一个 Promise），不支持时（如 Firefox）返回 `undefined`，因此可安全地 `await` / `.then` 以感知动画结束，调用方无需关心兼容性。
-
-下面是一个「列表 ↔ 详情」主从视图切换的完整组件示例：
-
-```ts
-import { CompElem, Template, forEach, h, ifElse, state, tag, startViewTransition } from 'compelem'
-
-const ARTICLES = [
-  { id: 1, title: 'Alpha', desc: '第一篇文章……' },
-  { id: 2, title: 'Beta',  desc: '第二篇文章……' },
-  { id: 3, title: 'Gamma', desc: '第三篇文章……' },
-]
-
-@tag('vt-demo', true)
-export class VtDemo extends CompElem {
-  @state view: 'list' | 'detail' = 'list'
-  @state currentId = 1
-
-  private goto(next: 'list' | 'detail', id = this.currentId) {
-    // 用 startViewTransition 包裹状态变更：支持时获得整页级过渡，不支持时直接切换
-    startViewTransition(() => {
-      this.currentId = id
-      this.view = next
-    })?.then(() => console.log('transition finished'))
-  }
-
-  render(): Template {
-    return h`
-      <div>
-        ${ifElse(
-          this.view === 'list',
-          () => h`
-            <ul>
-              ${forEach(ARTICLES, (it) => it.id, (it) => h`
-                <li @click="${() => this.goto('detail', it.id)}">${it.title}</li>
-              `)}
-            </ul>`,
-          () => {
-            const item = ARTICLES.find((i) => i.id === this.currentId)!
-            return h`
-              <button @click="${() => this.goto('list')}">← 返回</button>
-              <h2>${item.title}</h2>
-              <p>${item.desc}</p>`
-          },
-        )}
-      </div>`
-  }
-}
-```
-
-> 注意：`::view-transition-old/new(root)` 是文档级伪元素，**必须写在全局 `<style>` 中**（组件 Shadow DOM 内的样式对其无效）。
-
-### 配合 compelem-router 的组件路由动画
-
-配合 [compelem-router](https://www.npmjs.com/package/compelem-router) 时，`outlet()` **直接被 `<transition>` 包裹即可获得组件级路由动画**：
-
-```ts
-import { CompElem, Csscope, Template, css, csscope, h, state, tag } from 'compelem'
-import { RouterMode, createRouter, outlet, useRoute, useRouter } from 'compelem-router'
-
-createRouter({
-  mode: RouterMode.Hash,
-  routes: [
-    { path: '/', component: PageHome },
-    { path: '/about', component: PageAbout },
-  ],
-})
-
-@tag('rt-demo', true)
-export class RtDemo extends CompElem {
-  @csscope(Csscope.INNER)
-  static get css() { /* page-enter-* / page-leave-* 过渡类定义在组件样式中 */ }
-
-  render(): Template {
-    return h`
-      <nav>
-        <l-router-link to="/">首页</l-router-link>
-        <l-router-link to="/about">关于</l-router-link>
-      </nav>
-      <div class="route-box">
-        <transition name="page" mode="out-in">
-          ${outlet()}
-        </transition>
-      </div>
-    `
-  }
-}
-```
-
-要点：
-- 整页级过渡与 router 组合：`push()` 返回 Promise（状态更新 + 重渲染完成后 resolve），VT 回调内直接 `await` 即可：
-  `startViewTransition(async () => { await router.push(target) })`
-
+> 同一 `${}` 插槽的「形态」（文本点 / 内联静态 HTML / 指令点）由**首次渲染**时的值决定，此后不再改变。因此不要在同一个插值位置用三元式在 `h\`\`` 子模板与指令之间切换；空态与列表要写成两个并列插槽（`ifTrue` + `forEach`）。
 
 ## 装饰器 Decorator
 
-- @state 定义组件内状态属性。可选参数{prop}，可指定 propName 初始化值
-- @prop 定义父组件参数，默认不可修改。可选参数{type,required,model,getter,setter}
-- @query/queryAll 定义 CssSelector 查询结果
-- @tag 自定义组件的标签名
-- @watch 监控 state/prop 变更
-- @computed 计算属性，仅在响应变量变更时更新缓存值
-- @debounced 定义函数防抖
-- @event 定义事件，支持修饰符
-- @onced 定义一次性事件
-- @throttled 定义节流函数
-- @emits 声明组件事件
+- `@state` 定义组件内状态属性。用初始化器播种 prop 值（`@state page = this.pageSize`）
+- `@prop` 定义父组件参数，默认不可修改。选项见 `PropOption`：`{type, required, model, attribute, shallow, hasChanged, converter, isValid}`
+- `@query` / `@queryAll` 定义 CssSelector 查询结果（`QueryCache.ONCE` 仅查一次）
+- `@tag` 自定义组件的标签名
+- `@watch` 监控 state/prop 变更
+- `@computed` 计算属性，仅在响应变量变更时更新缓存值
+- `@debounced` 定义函数防抖
+- `@throttled` 定义函数节流
+- `@onced` 定义只执行一次的函数
+- `@event` 绑定非视图事件（window/document/组件自身元素）
+- `@emits` 声明组件事件
+- `@csscope` 定义样式作用域（仅用于 static getter）
+
+> 全部装饰器在运行时都是 no-op 存根，语义由编译器前移；参数写错、用在错误的 target 上（如 `@csscope` 放到实例 getter）会在**编译期**报错阻断构建，运行期没有兜底。
 
 ### 继承
-  部分指令可由子类继承不会覆盖，包括@state/@prop/@watch/@computed/@emits
+  部分装饰器可由子类继承不会覆盖，包括@state/@prop/@watch/@computed/@emits
 
 ## 事件 Event
 在CompElem中有三类不同事件，分别返回原生事件对象或自定义对象
@@ -658,26 +582,27 @@ export class RtDemo extends CompElem {
   export class PageTest extends CompElem {
     ...
     onChange(){
-      //如果未声明事件会报错
       this.emit('change1',...)
     }
   }
   ```
   非组件事件都会作为原生事件进行监听，如
-  ```html
+```html
 <l-select @change1="${...}" @click="..."></l-select>
 ```
   其中click事件会当作原生事件进行监听
 
+  > `@emits` 同时决定「组件能 emit 什么」与「父端能绑什么」：未声明的事件，父端写 `@xxx` 会被当作**原生事件**监听，从而永远收不到 `emit` 派发的数据。
+
 ### 跨框架事件监听
-如果组件要用于非 `CompElem` 框架时，需要为组件添加 `emit-native`属性，这样框架会将组件事件转为`CustomEvent`
+如果组件要用于非 `CompElem` 框架时，需要为组件添加 `emit-native`属性，此时 `emit()` 会直接派发原生 `CustomEvent`（`bubbles:false, composed:false, cancelable:true`，载荷在 `detail`）
 ```html
 <l-select @change="${...}" emit-native></l-select>
 ```
 
 ### 事件修饰符
 通过`.`号可使用修饰符修饰事件如 `@scroll.throttle:100="${...}"`
-- 全部通用 —— `debounce/throttle/once` 可组合
+- 全部通用 —— `debounce/throttle/once/capture/passive` 可组合
 - 原生通用 —— `stop/prevent/self` 可组合
 - 鼠标 —— `left/right/middle` 不可组合
 - 键盘 —— `ctrl/alt/shift/meta` 可组合 `esc/a/b/c/d...` 不可组合,多个key并列表示可选
@@ -690,23 +615,54 @@ export class RtDemo extends CompElem {
   <div @mutate.child.throttle:100="...">
   <div @click.left.once="...">
   <div @mousedown.stop.prevent="...">
+  <div @input.capture="...">    <!-- 捕获阶段（focus/blur/wheel 等默认即走捕获） -->
+  <div @touchmove.passive="..."> <!-- passive 监听 -->
   ```
 ### 扩展原生事件
 可直接用于DOM元素的扩展事件（非组件事件），支持列表如下
 - resize 元素尺寸变化时触发
 - outside 鼠标点击元素外部时触发，可通过修饰符限制鼠标点击类型`outside.[mousedown/up/click/dblclick]`，默认click
-- mutate 内容变化时触发。基于  Mutation Observer API
+- mutate 内容变化时触发。基于  Mutation Observer API，必须带至少一个 `attr/child/char/tree` 修饰符
+
+> 注：`outside` 使用 `outside.click` 形式（事件名为 `outside`，点击类型作为**同名修饰符**而非子事件）。
 
 ### 无视图组件事件
 当组件无内部视图或想要监听组件自身元素时，可使用`@event`装饰器
 ```ts
-class CustomButton{
+@tag('my-button')
+export class CustomButton extends CompElem {
   ...
   @event('click', (comp) => comp)
   onClick() {
     this.emit('myclick')
   }
 }
+```
+
+## 信号 Signal
+
+组件内部的响应式由独立的信号运行时驱动（`src/signal.ts`）。它同样作为公开 API 导出，可用于组件之外的状态编排（store、路由、跨组件共享状态）：
+
+| API | 说明 |
+|---|---|
+| `signal(initial)` | 创建可读写信号，读 `.value` / 写 `.value` |
+| `signalComputed(fn)` | 派生信号，自动追踪 fn 内读取的信号。包根导出名为 `signalComputed`，避免与装饰器 `@computed` 撞名 |
+| `effect(fn, opts?)` | 立即执行一次并订阅依赖，返回 `EffectNode`（`run()` 手动重跑 / `dispose()` / `disposed`）；`{ asChild: true }` 表示归属当前上下文 |
+| `batch(fn)` | 合并同步批次内的写操作，退出时统一 flush |
+| `flushSync()` | 立即结算挂起的 flush |
+| `untrack(fn)` | fn 内的读取不建立依赖（`@watch` 回调就是这样执行的） |
+| `onCleanup(fn)` | 登记当前 effect 的清理函数 |
+| `onEffectError(cb)` | 登记 effect 运行期异常的全局处理器；异常被隔离、不中断本轮其余 effect，未登记时 `console.error` 兜底 |
+
+```ts
+import { signal, signalComputed, effect, batch } from 'compelem'
+
+const count = signal(0)
+const doubled = signalComputed(() => count.value * 2)
+
+const stop = effect(() => console.log(count.value, doubled.value))
+batch(() => { count.value++; count.value++ })   // 只 flush 一次
+stop.dispose()
 ```
 
 ## 全局注入
@@ -731,6 +687,16 @@ setDefaults({
       </button>
   `
 ```
+
+### 组件默认属性
+`setDefaults` 还可为组件指定默认 prop，键必须是**含连字符的小写 tag 名**（`css` / `global` 为保留键）：
+
+```ts
+setDefaults({
+  'l-input': { size: 'small', clearable: true }
+})
+```
+优先级：外部传入 props/attributes > `setDefaults` 组件默认 > 类字段默认值。
 
 
 ## 扩展

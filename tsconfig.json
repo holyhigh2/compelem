@@ -15,5 +15,5 @@
     "experimentalDecorators": true,
     "types": ["node"]
   },
-  "exclude": ["dev/*", "node_modules", "**/*.spec.ts", "*.mts"]
+  "exclude": ["node_modules", "**/*.spec.ts", "*.mts"]
 }

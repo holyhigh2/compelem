@@ -1,6 +1,7 @@
 import { each, isEmpty, isNumber, isNumeric, isObject, isString, kebabCase } from "myfx";
 import { directive } from "../directive/index";
 import { EnterPointType, StyleValueObjectType, StyleValueType } from "../types";
+import { applyStyleDiff } from "../utils";
 
 const KeyCache = new Map();
 const OldKeys = new WeakMap<Node, Set<string>>();
@@ -101,30 +102,6 @@ function normalizeKey(key: string) {
  */
 export const styles = directive(function Styles(style: Record<string, string> | string | Array<Record<string, string> | string>) {
   return (pointNode: Node, newArgs: any[], oldArgs: any[] | undefined) => {
-    let el = pointNode as HTMLElement;
-
-    const styleObj = normalizeStyle(newArgs[0]);
-
-    const newKeys = new Set(Object.keys(styleObj));
-    const oldkeys = OldKeys.get(el)!
-    let oldVals = OldValues.get(el)
-    if (!oldVals) {
-      oldVals = {}
-      OldValues.set(el, oldVals)
-    }
-
-    each(oldkeys, (v: string) => {
-      if (!newKeys.has(v)) {
-        el.style.removeProperty(v)
-        delete oldVals![v]
-      }
-    })
-    each(styleObj, (v, k: string) => {
-      const s = v.value + '' + (v.important ? ' !important' : '')
-      if (oldVals![k] === s) return
-      el.style.setProperty(k, v.value + '', v.important ? 'important' : '')
-      oldVals![k] = s
-    })
-    OldKeys.set(el, newKeys)
+    applyStyleDiff(pointNode as HTMLElement, OldKeys, OldValues, normalizeStyle(newArgs[0]));
   }
 }, [EnterPointType.TAG])

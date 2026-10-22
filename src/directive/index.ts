@@ -1,4 +1,4 @@
-import { each, except, first, get, groupBy, initial, isArray, isEmpty, keys, last, map, set, startsWith, toArray } from "myfx";
+import { each, except, get, groupBy, isArray, isEmpty, keys, map, startsWith, toArray } from "myfx";
 import { CompElem } from "../CompElem";
 import { DirectiveScopeMap } from "../constants";
 import { bindEvents } from "../events/event";
@@ -7,13 +7,14 @@ import { buildSubTemplate, getSubFx, insertSubView, registerSubViewEffects, rend
 import { UpdatePoint } from "../render/UpdatePoint";
 import { batch, signal } from "../signal";
 import { DirectiveExecutor, DirectiveInstance, DirectiveUpdateTag, EnterPointType } from "../types";
+import { showError } from "../utils";
 
 enum MovePositionType {
   AFTER_BEGIN = 'afterbegin'
 }
 
 type MovePosition = { refKey: string, newKey: string, refNew: boolean }
-type AddPostion = { refKey: string, newKey: string, fragment?: DocumentFragment }
+type AddPostion = { refKey: string, newKey: string, newIndex: number, fragment?: DocumentFragment }
 
 /** 子项解析出的 tag，REFRESH 分支还要带 keys/vals */
 type EachRs = [DirectiveUpdateTag, ...any[]]
@@ -22,7 +23,7 @@ function groupAddNodes(adds: Record<string, any>[]) {
   let addGroup: Record<string, any>[] = []
   let lastKey: string
   adds.forEach(add => {
-    let lastAdd = last(addGroup)
+    let lastAdd = addGroup[addGroup.length - 1]
     if (lastAdd) {
       if (lastKey === add.refKey) {
         if (!lastAdd.group) {
@@ -59,6 +60,7 @@ function detachSubView(up: UpdatePoint, component: CompElem<any>) {
   }
   const oldUps: UpdatePoint[] = up.children ? toArray(up.children) : []
   up.subViewRootNodes = isArray(roots) ? [] : {}
+  up.subCells = undefined
   up.children = []
   commitRemove(nodes, oldUps, component)
 }
@@ -110,9 +112,7 @@ function resolveUp(comp: CompElem<any>, node: Node, inst?: DirectiveInstance): U
 function buildArgs(args: any[], nv: any, ov: any): [any[], any[]] {
   const newArgs = args.slice()
   newArgs[0] = nv
-  const oldArgs = args.slice()
-  // effect 首次运行时 ov 为 undefined，此时用挂载时的原始值
-  oldArgs[0] = ov === undefined ? args[0] : ov
+  const oldArgs = [ov === undefined ? args[0] : ov]
   return [newArgs, oldArgs]
 }
 
@@ -227,11 +227,11 @@ function moveGroupNodes(moveGroup: MovePosition[], oldNodeKeyMap: Record<string,
     let moveNodes = oldNodeKeyMap[newKey]!
     if (refKey === MovePositionType.AFTER_BEGIN) {
       let nodes = oldNodeKeyMap[oldKeys[0]]
-      let refNode = first(nodes) as Element
+      let refNode = nodes?.[0] as Element
       refNode.before(...moveNodes)
     } else if (oldNodeKeyMap[refKey]) {
       let nodes = oldNodeKeyMap[refKey]
-      let refNode = last(nodes) as Element
+      let refNode = nodes?.[nodes.length - 1] as Element
       refNode?.after(...moveNodes)
     }
   })
@@ -303,12 +303,8 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
   let oldSeq = oldKeys as string[]
   let newSeq = newKeys as string[]
   let oldSeqMap = new Map<string, number>()
-  let newSeqMap = new Map<string, number>()
   oldSeq.forEach((v, i) => {
     oldSeqMap.set(v, i)
-  })
-  newSeq.forEach((v, i) => {
-    newSeqMap.set(v, i)
   })
 
   const oldUsed = new Uint8Array(oldSeq.length)
@@ -345,13 +341,13 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
         let prevKey = newSeq[i - 1]
         //add
         oldNodeKeyMap[newKey] = []
-        adds.push({ refKey: prevKey, newKey });
+        adds.push({ refKey: prevKey, newKey, newIndex: i });
         edgeOffset++
         continue
       }
       if (oldI > -1 && oldI !== (i - edgeOffset)) {
         if (lastMoveIndex < 0 || Math.abs(lastMoveIndex - oldI) === 1) {
-          let lastEl = last(lastGroup)
+          let lastEl = lastGroup[lastGroup.length - 1]
           let refKey = i === 0 ? MovePositionType.AFTER_BEGIN : (lastEl ? lastEl.newKey : newSeq[i - 1])
           let refNew = false
           if (i !== 0 && isEmpty(oldNodeKeyMap[refKey])) {
@@ -383,9 +379,9 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
       if (vals.length < 2) {
         let { moveGroup } = vals[0]
         if (moveGroup.length > 1) {
-          let lastTId = last(moveGroup).refKey
+          let lastTId = moveGroup[moveGroup.length - 1].refKey
           if (moveGroup[moveGroup.length - 2].newKey === lastTId) {
-            moveGroup = initial(moveGroup)
+            moveGroup = moveGroup.slice(0, -1)
           }
         }
         moveGroupNodes(moveGroup, oldNodeKeyMap, oldKeys)
@@ -407,12 +403,12 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
   let addGroup
   if (adds.length > 0) {
     adds.forEach(add => {
-      let i = newSeqMap.get(add.newKey) ?? -1
+      let i = add.newIndex
       let val = newValueAry[i]
       const built = buildSubTemplate(renderComponent, tmplFn)
       const subFx = getSubFx(renderComponent, tmplFn)
       // 子模板取值一律走 fx
-      const [rs, upAry] = renderTemplate(renderComponent, tmplM, built, { deferValueFill: true, fx: subFx, itemArgs: [val, add.newKey, i] })
+      const [rs, upAry] = renderTemplate(renderComponent, tmplM, built, { fx: subFx, itemArgs: [val, add.newKey, i] })
 
       const cell = signal(val)
         ; (up.subCells ??= {})[add.newKey] = cell
@@ -431,8 +427,8 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
       let newKeyStr = add.newKey + ''
       each(addNodes, (n: any) => {
         ary.push(n)
-        set(n, '__c-' + subViewId, newKeyStr)
-        each(parentViewsIdMap, (v, pid) => set(n, pid, v))
+        n[keyProp] = newKeyStr
+        each(parentViewsIdMap, (v, pid) => { n[pid] = v })
       })
     })
     bindEvents(renderComponent)
@@ -441,8 +437,8 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
     addGroup.forEach((v, _i) => {
       let treeNode = v.fragment
       let nodes = oldNodeKeyMap[v.refKey ?? oldKeys[0]]
-      let refFirstNode = first(nodes) as Element
-      let refLastNode = last(nodes) as Element
+      let refFirstNode = nodes?.[0] as Element
+      let refLastNode = nodes?.[nodes.length - 1] as Element
 
       if (v.group) {
         let fragment = document.createDocumentFragment()
@@ -453,11 +449,16 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
       if (refFirstNode === pointNode) {
         refFirstNode.before(treeNode)
       } else if (!v.refKey) {
-        refFirstNode.before(treeNode)
-      } else if (typeof refFirstNode === 'string') {
-        // newNodeMap[prevNode].after(treeNode)
-      } else {
+        //无参照（首项新增）：插到列表头部，参照缺失时落到锚点前
+        if (refFirstNode) refFirstNode.before(treeNode)
+        else pointNode.parentNode?.insertBefore(treeNode, pointNode)
+      } else if (refLastNode) {
         refLastNode.after(treeNode)
+      } else {
+        if (process.env.DEV) {
+          showError(`forEach - reference anchor "${v.refKey}" is missing for new key "${v.newKey}"; inserted at the list anchor`)
+        }
+        pointNode.parentNode?.insertBefore(treeNode, pointNode)
       }
     })
 

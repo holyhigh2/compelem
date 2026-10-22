@@ -1,4 +1,4 @@
-import { isArray, isBoolean, isDefined, isNil, isNull, isObject, isString, join, kebabCase, map, some, trim } from "myfx";
+import { isArray, isBoolean, isDefined, isNil, isNull, isObject, isString, join, kebabCase, map, trim } from "myfx";
 import { CompElem } from "./CompElem";
 import { Constructor, PropOption } from "./types";
 import { camelCaseCached, convertValue, getBooleanValue, isBooleanProp, kebabCaseCached, showTagError, typeNameLower } from "./utils";
@@ -36,8 +36,8 @@ export class CompElemHelper {
     }
     let typeConverter = propDef.converter
     let val: any = newValue
-    const hasString = some(expectTypeAry, (et) => et === String)
-    if (!hasString && isString(val) && !isNull(val)) {
+
+    if (isString(val) && !isNull(val)) {
       try {
         val = typeConverter ? typeConverter(val) : convertValue(val, expectTypeAry)
       } catch (error) {
@@ -81,7 +81,7 @@ export class CompElemHelper {
       );
     }
     if (validator) {
-      if (!validator.call(comp, val, comp.__data_)) {
+      if (!validator.call(comp, val, CompElemHelper.snapshotProps(comp, propDefs))) {
         showTagError(
           comp.tagName,
           `Invalid prop '${propKey}'. IsValid() check failed`
@@ -90,6 +90,20 @@ export class CompElemHelper {
     }
 
     return val;
+  }
+  /**
+   * 按 `__s` 物化一份 props 快照
+   *
+   */
+  static snapshotProps(comp: CompElem<any>, propDefs: Record<string, PropOption> | undefined) {
+    const snap: Record<string, any> = {}
+    if (propDefs === undefined) return snap
+    const sigs = comp.__s
+    for (const k in propDefs) {
+      const sig = sigs[k]
+      if (sig !== undefined) snap[k] = sig.peek()
+    }
+    return snap
   }
   static updateAttribute(comp: CompElem<any>, propDef: PropOption, key: string, val: string | null) {
     if (val == null || Number.isNaN(val as any)) {
@@ -118,10 +132,8 @@ export class CompElemHelper {
     const propDefs = comp.__propDefs
     if (!propDefs) return
     if (!comp.__inited) {
-      if (comp.props) comp.props[k] = v
-      // 同 updateProps：未 inited 时也须写 signal，否则值丢失
-      const ck0 = camelCaseCached(k)
-      if (comp.__s[ck0]) comp.__s[ck0].value = v
+      // 未 inited 时 props 表可能尚未建立，交由 updateProps 建表后写入
+      comp.updateProps({ [k]: v })
       return
     }
     const ck = camelCaseCached(k)
@@ -133,7 +145,7 @@ export class CompElemHelper {
     const raw = v
     v = CompElemHelper.propTypeCheck(comp, propDefs, ck, v)
 
-    const oldValue = comp.__s[ck] ? comp.__s[ck].peek() : comp.__data_[ck]
+    const oldValue = comp.__s[ck] ? comp.__s[ck].peek() : undefined
 
     if (!force && Object.is(oldValue, v)) {
       if (comp.props) comp.props[k] = raw
@@ -144,7 +156,6 @@ export class CompElemHelper {
       attrPending = true
     }
 
-    comp.__data_[ck] = v
     if (comp.props) {
       comp.props[k] = k === ck ? v : raw
     }

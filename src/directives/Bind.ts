@@ -1,8 +1,9 @@
 import { camelCase, each } from "myfx";
 import { CompElem } from "../CompElem";
 import { directive } from "../directive/index";
+import { wAttr } from "../render/write";
 import { EnterPointType } from "../types";
-import { addUninitializedSubComponentProp, isCompElemNode } from "../utils";
+import { addUninitializedSubComponentProp, applyClassDiff, applyStyleDiff, isCompElemNode } from "../utils";
 import { normalizeClass } from "./Classes";
 import { normalizeStyle } from "./Styles";
 const Ignores = ['key', 'ref', 'emit-native']
@@ -20,45 +21,14 @@ const STYLE_KEY = 'style'
  * 合并写入 class，仅移除/添加本指令负责的类
  */
 function applyBindClass(el: Element, val: any, hasKey: boolean) {
-  const newClass = hasKey ? normalizeClass(val) : ''
-  const oldClass = BindClassLast.get(el) ?? ''
-  if (newClass === oldClass) return
-  if (oldClass) {
-    el.classList.remove(...oldClass.split(' ').filter(Boolean))
-  }
-  if (newClass) {
-    el.classList.add(...newClass.split(' ').filter(Boolean))
-  }
-  BindClassLast.set(el, newClass)
+  applyClassDiff(el, BindClassLast, hasKey ? normalizeClass(val) : '')
 }
 
 /**
  * 合并写入 style，仅移除/设置本指令负责的键
  */
 function applyBindStyle(el: HTMLElement, val: any, hasKey: boolean) {
-  const styleObj = hasKey ? normalizeStyle(val) : {}
-  const newKeys = new Set(Object.keys(styleObj))
-  const oldKeys = BindStyleKeys.get(el)
-  let oldVals = BindStyleVals.get(el)
-  if (!oldVals) {
-    oldVals = {}
-    BindStyleVals.set(el, oldVals)
-  }
-  if (oldKeys) {
-    oldKeys.forEach((k: string) => {
-      if (!newKeys.has(k)) {
-        el.style.removeProperty(k)
-        delete oldVals![k]
-      }
-    })
-  }
-  each(styleObj, (v, k: string) => {
-    const s = v.value + '' + (v.important ? ' !important' : '')
-    if (oldVals![k] === s) return
-    el.style.setProperty(k, v.value + '', v.important ? 'important' : '')
-    oldVals![k] = s
-  })
-  BindStyleKeys.set(el, newKeys)
+  applyStyleDiff(el, BindStyleKeys, BindStyleVals, hasKey ? normalizeStyle(val) : {})
 }
 /**
  * 绑定属性到节点上，如果节点是组件会使用in操作符判断是否props
@@ -78,12 +48,21 @@ export const bind = directive(function Bind(obj: Record<string, any>) {
         oldVals = {}
         LastValsMap.set(el, oldVals)
       }
+      const isComp = isCompElemNode(el)
+      const propDefs = isComp ? (el.constructor as any).__ce_static__?.props : undefined
+      let props: Record<string, any> | undefined = undefined
       each(obj, (v, k: string) => {
         if (Ignores.includes(k) || k === CLASS_KEY || k === STYLE_KEY) return
         if (oldVals![k] === v && (v === null || typeof v !== 'object')) return
-        el.setAttribute(k, v)
+        if (propDefs && propDefs[camelCase(k)]) {
+          if (!props) props = {}
+          props[k] = v
+        } else {
+          wAttr(el, k, v)
+        }
         oldVals![k] = v
       })
+      if (props && isComp) (el as any).updateProps(props)
       return;
     }
 
@@ -103,7 +82,7 @@ export const bind = directive(function Bind(obj: Record<string, any>) {
         if (propDef) {
           props[k] = v;
         } else {
-          el.setAttribute(k, v + '')
+          wAttr(el, k, v)
           oldVals[k] = v
         }
       })
@@ -113,7 +92,7 @@ export const bind = directive(function Bind(obj: Record<string, any>) {
       LastValsMap.set(el, oldVals)
       each(obj, (v, k: string) => {
         if (Ignores.includes(k) || k === CLASS_KEY || k === STYLE_KEY) return;
-        el.setAttribute(k, v)
+        wAttr(el, k, v)
         oldVals[k] = v
       })
     }

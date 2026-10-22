@@ -37,6 +37,10 @@ export const when = directive(function When(value: string | number, cases: Array
       let conditionList: any[] = []
       let tmplList: TplFn[] = []
       each(cases, (v: Array<TplFn> | TplFn, k) => {
+        if (k === 'default') {
+          defaultFn = v as TplFn
+          return
+        }
         if (isFunction(v)) {
           conditionList.push(k);
           tmplList.push(v);
@@ -45,9 +49,6 @@ export const when = directive(function When(value: string | number, cases: Array
           let tmplFn = v[1]
           conditionList.push(condiFn);
           tmplList.push(tmplFn);
-        }
-        if (k === 'default') {
-          defaultFn = v as TplFn
         }
       })
       cc = { cases, conditionList, tmplList, defaultFn }

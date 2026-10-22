@@ -53,13 +53,12 @@ export interface IComponent<T = HTMLElement> {
   destroyed(): void;
 
   //----------------------------------------------------- lifecycles —— 更新
-  // 1. 是否需要更新，返回true时更新
-  shouldUpdate(changed: Record<string, any>): boolean;
-  // 2. 视图及slot更新后触发。 包括 调用render、更新@query/all、更新ref、更新prop到attr的映射
-  updated(changed: Record<string, any>): void;
-  // 3. 插槽内容变更时触发
+  // 1. 一轮 flush 结束后、且本组件有 effect 真的跑过时触发（「DOM 已落盘」的确定时点）。
+  //    需要「某字段变了做某事」用 `@watch('field')`，比全局时点精确。
+  afterUpdate(): void;
+  // 2. 插槽内容变更时触发
   slotChange(slot: HTMLSlotElement, slotName: string): void;
-  // 4. 组件属性由外部变更时触发
+  // 3. 组件属性由外部变更时触发
   attributeChangedCallback(attributeName: string, oldValue: string | null, newValue: string | null): void;
 
   //----------------------------------------------------- 接口

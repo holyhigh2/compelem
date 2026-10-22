@@ -79,8 +79,6 @@ export type SlotOptions = {
 export type TplFn = (...args: any[]) => Template;
 export type KeyFn = (item: any, k: string | number, i: number) => string | number;
 
-export type UpdatedSource = { value: any; chain?: string[], oldValue?: any, end?: boolean, subNewValue?: any, subOldValue?: any }
-
 /**
  * 属性定义
  */
@@ -173,7 +171,7 @@ export type PropOption = {
     isValid?: (value: any, props?: Record<string, any>) => boolean
 }
 
-export type DirectiveExecutor = (node: Node, newArgs: any[], oldArgs: any[] | undefined, meta?: { pointType?: string, renderComponent?: CompElem, slotComponent?: CompElem, varChain?: string[], attrName?: string, updatedMap?: Record<string, UpdatedSource>, up?: UpdatePoint }) => [DirectiveUpdateTag, ...any] | void
+export type DirectiveExecutor = (node: Node, newArgs: any[], oldArgs: any[] | undefined, meta?: { pointType?: string, renderComponent?: CompElem, slotComponent?: CompElem, varChain?: string[], attrName?: string, up?: UpdatePoint }) => [DirectiveUpdateTag, ...any] | void
 
 export type DirectiveInstance = [
     // symbol,

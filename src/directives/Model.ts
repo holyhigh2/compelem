@@ -1,4 +1,4 @@
-import { find, isObject, isString, last, set, toPath, trim } from "myfx";
+import { find, isObject, isString, set, toPath, trim } from "myfx";
 import { CompElem } from "../CompElem";
 import { DefinitionComponentMap } from "../constants";
 import { directive } from "../directive/index";
@@ -10,8 +10,8 @@ import { addUninitializedSubComponentProp } from "../utils";
  * 实现双向绑定（仅支持静态路径，动态增加的属性路径无法识别）
  * 当用于组件时，监控 @update:value 事件
  * 当用于元素时，  
- * - 对于 input/textarea 监控 @input，并设置 value 属性
- * - 对于 checkbox/radio 监控 @change，并设置 checked 属性
+ * - 对于 input/textarea 监控 @input，并设置 value
+ * - 对于 checkbox/radio 监控 @change，并设置 checked
  * - 对于 select  监控 @change，并设置 value 属性
  * @param modelValue 双向绑定的组件变量
  * @param updateProp 绑定模型变更时的监控属性，默认 value
@@ -30,23 +30,29 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
       if (node instanceof CompElem) {
         node.updateProps({ [updateProp]: newValue })
       } else if (node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) {
+        // select 快路径：已有选中项且其 value 与模型一致 ⇒ 无需重设/全表查 option
+        if (node instanceof HTMLSelectElement && node.selectedIndex > -1 && node.value == newValue) return
         node.setAttribute(updateProp, newValue + '')
         if (node instanceof HTMLSelectElement) {
           let opt = find(node.querySelectorAll('option'), n => n.value == newValue)
           if (opt) {
             opt.selected = true
           }
+        } else {
+          set(node, updateProp, newValue)
         }
       } else if (node instanceof HTMLInputElement) {
-        if (node.value == newValue) return
+        // checkbox/radio 的 node.value 恒为 value 特性（默认 "on"），拿它做「值未变」
+        // 快比对会误命中（"1" == true），更新被短路后视图永久卡死 ⇒ 这两类不走守卫
+        const checkable = node.type === 'checkbox' || node.type === 'radio'
+        if (!checkable && node.value == newValue) return
         switch (node.type) {
           case 'checkbox':
+            node.checked = !!newValue
+            break;
           case 'radio':
-            if (!!newValue) {
-              node.setAttribute('checked', '')
-            } else {
-              node.removeAttribute('checked')
-            }
+            // 标量模型：只有 value 与模型相等的项选中，同组其它项必须取消
+            node.checked = node.value == newValue
             break;
           case 'text':
           case 'email':
@@ -72,7 +78,7 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
     if (isString(modelProp)) {
       path = toPath(modelProp)[0]
     } else {
-      path = last(varChain)
+      path = varChain[varChain.length - 1]
     }
 
     let evList: Array<[string, Function, Node, Function?]> = getEventBindList(renderComponent)
@@ -89,7 +95,7 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
         set(ctx, path, obj.value)
       })
     } else if (node instanceof HTMLTextAreaElement) {
-      node.setAttribute(updateProp, modelValue + '');
+      set(node, updateProp, modelValue)
 
       let evName = 'input'
       evList.push([evName, function (e: Event) {
@@ -121,14 +127,27 @@ export const model = directive(function Model(modelValue: any, updateProp: strin
           evName = 'input'
           break;
       }
-      node.setAttribute(updateProp ?? propName, modelValue + '');
+      if (propName === 'checked') {
+        const isRadio = node.type === 'radio'
+        // radio 是标量模型：勾不勾取决于「本项 value 是否等于模型值」，
+        // 用 !!modelValue 会让同组所有 radio 一起选中
+        node.checked = isRadio ? node.value == modelValue : !!modelValue
 
-      evList.push([evName, function (e: Event) {
-        let t = e.target as any
-        set(this, path, t.value)
-      }, node])
+        evList.push([evName, function (e: Event) {
+          let t = e.target as any
+          // radio 写回被选中项的 value（标量），checkbox 写回勾选态（布尔）
+          set(this, path, isRadio ? t.value : t.checked)
+        }, node])
+      } else {
+        node.setAttribute(updateProp ?? propName, modelValue + '');
+
+        evList.push([evName, function (e: Event) {
+          let t = e.target as any
+          set(this, path, t.value)
+        }, node])
+      }
     } else if (node instanceof HTMLSelectElement) {
-      node.setAttribute(updateProp, modelValue + '');
+      node.value = modelValue + ''
       evList.push(['change', function (e: Event) {
         let t = e.target as any
         let ctx = this;
