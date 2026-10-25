@@ -33,6 +33,7 @@ export * from "./directives/Slot";
 export * from "./directives/Styles";
 export * from "./directives/When";
 
+export { CssTemplate } from './render/CssTemplate';
 export { slotOriginOf } from './render/slot-provenance';
 export type { SlotOrigin } from './render/slot-provenance';
 export { batch, effect, flushSync, onCleanup, onEffectError, signal, computed as signalComputed, untrack } from './signal';
