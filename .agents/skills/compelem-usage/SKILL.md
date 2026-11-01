@@ -30,10 +30,13 @@ import { compelemCompiler } from '@compelem/compiler'
 
 export default defineConfig({
   plugins: [compelemCompiler()],
-  oxc: { decorator: { legacy: true } },  // Vite 8 / Oxc: legacy decorators must be explicit
   esbuild: { keepNames: true },          // @tag registers by target.name
 })
 ```
+
+`experimentalDecorators: true` is required: Vite 8 transpiles TS with Oxc, which reads that flag to
+pick legacy decorator semantics. Without it the output keeps `export @tag(...) class` verbatim and
+the browser throws `Unexpected token 'export'`.
 
 `myfx` (`^2.0.0-beta.4`) is a **peerDependency** left as a build-time external — the host app must install it (`@compelem/compiler` peers on the same range).
 

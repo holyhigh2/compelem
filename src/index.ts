@@ -15,6 +15,7 @@ export * from "./decorators/event";
 export * from "./decorators/onced";
 export * from "./decorators/prop";
 export * from "./decorators/query";
+export * from "./decorators/resource";
 export * from "./decorators/state";
 export * from "./decorators/tag";
 export * from "./decorators/throttled";
@@ -36,6 +37,8 @@ export * from "./directives/When";
 export { CssTemplate } from './render/CssTemplate';
 export { slotOriginOf } from './render/slot-provenance';
 export type { SlotOrigin } from './render/slot-provenance';
+export { createResource, RESOURCE_TIMEOUT } from './resource';
+export type { Resource, ResourceOptions, ResourceStatus, ResourceTimeout, ResourceView } from './resource';
 export { batch, effect, flushSync, onCleanup, onEffectError, signal, computed as signalComputed, untrack } from './signal';
 export { createRef, css, h, Template };
 export function defineComponents() {

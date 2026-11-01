@@ -57,6 +57,7 @@ render(): Template | null {
 | `@debounced` | `(wait: number, immediate = false)` | 方法防抖（编译期前移，同时保留原函数）；运行时无防抖 |
 | `@throttled` | `(wait: number)` | 方法节流（编译期前移）；运行时无节流 |
 | `@onced` | 无参（也支持 `@onced()`） | 方法只执行一次（编译期前移）；运行时无一次性 |
+| `@resource` | `(loader: ResourceLoader<T>, options?: ResourceDecoratorOptions)` | 声明式异步资源。**装饰字段**（`rows!: ResourceView<Row[]>`），编译期删字段并把 loader 搬成 `__rl_<field>`，运行期由 `CompElem` 按 `__ce_static__.resources` 在原型上装同名 getter，读 `this.rows.data/.status/.error/.busy` 与 `.load()`。`loader` 形参是 `(self, signal)`：`self` 必须显式传（装饰器实参里 `this` 是 globalThis，TS7041），**只有同步段**的读取成为依赖（`await` 之后不算，且不报错）。选项 `{ timeout?, immediate?, track?, source? }`；`source` 给出时 `track` 自动关。字段不能带初始值、不能 `static`、不能私有、不能与其它装饰器同用、不能与 `CompElem` 原型链成员同名（均报 `E-RESOURCE`） |
 
 选项类型（均已导出，权威定义在 `src/types.ts`）：
 
@@ -91,6 +92,7 @@ render(): Template | null {
 - `h(strings, ...vars): Template` — HTML 模板标签函数（`render/render.ts`）
 - `css(strings, ...vars): CssTemplate` — CSS 模板（按 strings 缓存，`CssTemplateCacheMap`）
 - `createRef<T extends Node>(): RefObject<T>` — `{ current?: T }`
+- `createResource<T>(loader, source?, opts?): Resource<T>` — 命令式异步资源，`@resource` 的底层（`src/resource.ts`）。5 态 `idle / loading / refreshing / ok / error`；`load()` 是**首拉与刷新同一个入口**（`immediate:false` 靠它转正），返回结算 promise、**不 reject**（结果读 `data`、失败读 `error`）；换参时 abort 旧请求 + `seq` 丢弃迟到响应；`refreshing` 期保留旧值但**那个值属于上一次成功的参数**。超时的 `error` 是 `RESOURCE_TIMEOUT`（symbol，框架不写文案）。`opts`: `{ timeout?(不设=不限时), track?, immediate? }`。`@resource` 的视图成员：`data / status / error / busy / load()`，`busy = loading || refreshing`（**不是** `status === 'loading'`）
 - 信号原语（`src/signal.ts`，包根导出）：`signal(initial)` · `computed(fn)`（包根导出名为 `signalComputed`，避免与装饰器 `@computed` 撞名）· `effect(fn, opts?: { asChild?: boolean })` → `EffectNode`（`node.run()` 手动重跑、`node.dispose()`、`node.disposed`）· `batch(fn)` · `onCleanup(fn)` · `flushSync()` · `untrack(fn)` · `onEffectError(cb: (err, effect?) => void)`（登记 effect 运行期异常的全局处理器；异常被隔离不中断本轮其余 effect，未登记任何处理器时 `console.error` 兜底）
 - `defineComponents()` — 注册所有 `@tag`（非 immediate）组件；`defineComponentsSubset(names: string[])` — 按需注册子集（宿主只用少部分组件时省启动开销）
 - `writeModelProp(key, v, comp)` / `hasEmitListener(comp, node, evName)` / `hasModelListener(key, comp)` — model 三路分派原语（编译注入的 prop setter 直调）
@@ -226,6 +228,7 @@ export class MyCounter extends CompElem {
 | `props` / `states` / `computedGetters` | 定义表 | `#initProps`/`#initStates` 读默认值与选项；沿原型链浅替换合并后的完整表 |
 | `watchEffects` | `((comp) => () => void)[]` | setup 期逐条 `effect(factory(this))` |
 | `cssEffect` | `(comp) => () => void` | `cssVars` 的响应式 effect 工厂 |
+| `resources` | `Record<string, { timeout?, immediate?, track?, source? }>` | `@resource` 的**纯数据**选项。`CompElem` 构造时按 key 在原型上装 `get <key>()`（调 `viewResource`，类级一次性），原型链上已有同名成员时跳过该键并在 DEV 下告警。`bindResource` 读它建 `createResource`。loader / source 是函数（要 `this`），由编译期搬成 `__rl_<字段>` / `__rs_<字段>` 方法，不进表；`source: true` 只标记「有 `__rs_` 方法」。前缀是编译期契约，两侧逐字一致（`analyze/resource-extract.ts` 的 `LOADER_PREFIX/SOURCE_PREFIX` ↔ `decorators/resource.ts`） |
 | `pointEffects` | `(number \| FxFn)[]` | 值点 per-point effect 工厂表；**数值条目 = `fx` 下标**（`resolvePointFactories` 解引用），取值表达式已内联进工厂体 |
 | `fx` | `FxFn[]` | 逐实例产物工厂表（指令实例/事件 handler/ref 等），下标 = `up.ux` |
 | `noView` | `boolean` | 无视图标记 |
@@ -237,7 +240,7 @@ export class MyCounter extends CompElem {
 - **D 系列**（放弃注入、阻断构建）：D0 无 render 且非 CompElem 子类 · D1 动态成员访问 `this[expr]` · D2 非响应式 getter · D3 未知自由标识符（指令回调形参已词法追踪，不触发）· D4/D5 顶层 return 缺失/多个 · D6 跨文件继承 render 且不可见 · D7 插值内嵌套 `h\`\`` · D8 render() 顶层 return 为条件/短路/逗号/函数包装（会静默丢条件） · `E-SUPER-IN-TEMPLATE` render() 内出现 super
 - **skipInjection**：无 own render 且同文件链上有 render → 继承父类 `__ce_static__`（视图字段整体 spread，own 一律覆盖）；super 链不可知（mixin 形参/跨文件基类）且被家族装饰器准入者一律 skipInjection，**绝不判 noView**（`@tag` 不豁免）
 - **组件准入三选一**：同文件 super 链解析到 CompElem / `@tag` / 类体带家族装饰器（`@prop/@state/@computed/@query/@queryAll`——运行时全 no-op，带它们必是组件；覆盖 mixin 工厂内类与跨文件基类）
-- **E 码系列**（阻断构建，编译器 `analyze/` 各模块）：`E-PROP-TYPE/ASSIGN/CASE/ARG/INTERP/TARGET`、`E-STATE-ARG`（含 `@state({prop})` 已废弃）、`E-FIELD-ARG`（`@prop`/`@state` 的 options 不支持 `defaultValue`/`type`）、`E-COMPUTED-NOT-GETTER/ARG`、`E-CSSCOPE-TARGET`、`E-QUERY-ARG`、`E-DECO-COEXIST`（多族/族外装饰器须拆独立成员）、`E-EMIT-UNDECLARED/ARG/EMITS-ARG`、`E-EVENT-FN`、`E-REF-TYPE`、`E-DIRECTIVE-SCOPE`、`E-CONST-KEY`、`E-METHOD-DECO-ARG/HOOK`、`E-MUTATE-MODIFIER`（裸 `@mutate` 缺 attr/child/char/tree）、`E-SUPER-IN-TEMPLATE`。五族提取 all-or-nothing：出错的族不删不注（运行时 no-op 无兜底）
+- **E 码系列**（阻断构建，编译器 `analyze/` 各模块）：`E-PROP-TYPE/ASSIGN/CASE/ARG/INTERP/TARGET`、`E-STATE-ARG`（含 `@state({prop})` 已废弃）、`E-FIELD-ARG`（`@prop`/`@state` 的 options 不支持 `defaultValue`/`type`）、`E-COMPUTED-NOT-GETTER/ARG`、`E-CSSCOPE-TARGET`、`E-QUERY-ARG`、`E-DECO-COEXIST`（多族/族外装饰器须拆独立成员）、`E-EMIT-UNDECLARED/ARG/EMITS-ARG`、`E-EVENT-FN`、`E-REF-TYPE`、`E-DIRECTIVE-SCOPE`、`E-CONST-KEY`、`E-METHOD-DECO-ARG/HOOK`、`E-MUTATE-MODIFIER`（裸 `@mutate` 缺 attr/child/char/tree）、`E-SUPER-IN-TEMPLATE`、`E-RESOURCE`（`@resource`：非字段声明 / 私有或非法名 / 同类重名 / 与其它装饰器同用 / 首参不是内联箭头函数 / 形参数不对 / `static` / 字段带初始值 / 资源名撞 `CompElem` 原型链成员 / 未知选项——旧键 `fetch`·`fetcher` 会给专项改名提示）。五族提取 all-or-nothing：出错的族不删不注（运行时 no-op 无兜底）
 - **W 码系列**（提示级，`ConventionError.severity:'warn'`，恒 `console.warn` 不随 `conventions` 档位阻断）：`W-PROP-CUSTOM-CTOR`（prop `type` 含自定义构造器且无 `converter`、属性通道未关——属性字符串将作单参传给构造器）。对应运行时 DEV 告警已删（`utils.ts` convertValue / `events/extends.ts` addMutation 只留防崩守卫）
 - 提取失败诊断：`DEPS_TRACE=1`（compiler `deps-extract.ts`，stderr `[deps-fail] <原因>`）
 

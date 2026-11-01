@@ -53,14 +53,13 @@ import { compelemCompiler } from '@compelem/compiler'
 
 export default defineConfig({
   plugins: [compelemCompiler()],
-  // Vite 8 / Oxc：legacy 装饰器必须显式开启
-  oxc: { decorator: { legacy: true } },
-  // @tag 依赖 target.name 注册，需保留类名
+  // 压缩时保留类名：@tag 用 target.name 注册，类名被 mangle 会让 <XFoo> 找不回 x-foo
   esbuild: { keepNames: true },
 })
 ```
 
-> ⚠️ Vite 8 用 Oxc 处理 TS，不显式开 `legacy` 会按标准装饰器编译，浏览器收到含 `export @tag(...) class` 的产物直接报 `Unexpected token 'export'`。
+> `experimentalDecorators` 不能漏。Vite 8 用 Oxc 转译 TS，装饰器语义由它决定：关掉后产物里会保留
+> `export @tag(...) class` 原样语法，浏览器直接报 `Unexpected token 'export'`。
 
 ### 3. 注册组件
 
@@ -349,6 +348,71 @@ export class PageTest extends CompElem {
     return !isEmpty(this.slots.header) || !!this.header
   }
   ```
+
+- ### 异步资源
+
+  远程读取（可能失败、可被取消、可能重来）用 `@resource` 声明。它把「请求在飞、值不确定」这一维接进响应式图 ——
+  视图读 `busy` / `data` / `error` 就自动跟着变，不必再手写 `loading` 字段：
+
+  ```ts
+  @state keyword = ''
+
+  @resource<Row[]>(
+    (self, sig) => fetch(`/api/rows?q=${self.keyword}`, { signal: sig }).then(r => r.json()),
+    { timeout: 3000, immediate: false },
+  )
+  rows!: ResourceView<Row[]>
+  ```
+
+  > 第一个形参必须是**组件实例**：装饰器实参位置的 `this` 是 `globalThis`（TS7041），所以实例由编译器显式传入。
+  > 第二个形参是 `AbortSignal`，要透传给底层请求，否则取消只能丢弃结果、不能真正中止连接。
+
+  被装饰的**字段**在编译期被删掉，运行期由组件基类按定义表装上同名 getter，所以 `this.rows` 的运行期形态与 TS 类型完全一致，没有派生名要记。视图成员：
+
+  | 成员 | 说明 |
+  |---|---|
+  | `data` | 最近一次成功的数据；还没有成功过一次时（`idle` / `loading`）为 `undefined` |
+  | `status` | `idle` / `loading` / `refreshing` / `ok` / `error` |
+  | `error` | 最近一次失败原因；超时是 `RESOURCE_TIMEOUT`（symbol，文案由业务写） |
+  | `busy` | `loading \|\| refreshing`。**不是** `status === 'loading'` —— 刷新期按钮也该禁用 |
+  | `load()` | 触发一次取数，首拉与刷新同一个入口；返回结算 promise，不 reject |
+
+  ```ts
+  render() {
+    return h`
+      <button ?disabled="${this.rows.busy}" @click="${() => this.rows.load()}">
+        ${this.rows.busy ? '拉取中…' : '刷新'}
+      </button>
+      ${forEach(this.rows.data ?? [], r => r.id, r => h`<div>${r.name}</div>`)}
+    `
+  }
+  ```
+
+  三条必须知道的语义：
+
+  1. **依赖只从 loader 的同步段收集。** `self.keyword` 一改自动重取；但 `await` 之后的读取不登记依赖（那时依赖收集上下文已退出）——
+     **不报错、不警告，只是不重取**。async loader 把读取全部提到第一个 `await` 之前，或用 `{ source: (self) => self.keyword }` 显式声明。
+  2. **换参自动取消旧请求，并丢弃迟到响应。** 即使底层接口不理会 `AbortSignal`（`import()`、不支持取消的 SDK），
+     先发后到的响应也不会覆盖最新结果 —— 这段判断在框架内部，业务侧没有 `#seq` 要写。
+  3. **`refreshing` 期保留旧值**，不闪回骨架屏；但那个旧值属于**上一次成功的参数**。
+     要判过期就把参数塞进返回值（如 `{ q, items }`）再和当前参数比。
+
+  组件之外、或多个组件共享同一份数据时用命令式的 `createResource`：
+
+  ```ts
+  import { createResource } from 'compelem'
+
+  const rows = createResource(
+    (sig) => fetch('/api/rows', { signal: sig }).then(r => r.json()),
+    () => params.id || undefined,   // source：返回空值时不发请求
+  )
+  rows.status.value                 // idle / loading / refreshing / ok / error
+  await rows.load()
+  rows.dispose()
+  ```
+
+  > 定位是**原语**：只做状态机 + abort + source 驱动。缓存、in-flight 去重、重试、stale-while-revalidate 都不在其中，需要时在它之上组合。
+
 - ### 元素引用
   使用`@query/all`注解及`ref`属性
   ```ts
@@ -561,11 +625,12 @@ return h` <l-tooltip>
 - `@event` 绑定非视图事件（window/document/组件自身元素）
 - `@emits` 声明组件事件
 - `@csscope` 定义样式作用域（仅用于 static getter）
+- `@resource` 声明式异步资源（远程读取 + loading/error 状态 + 竞态处理），装饰字段，见「异步资源」
 
 > 全部装饰器在运行时都是 no-op 存根，语义由编译器前移；参数写错、用在错误的 target 上（如 `@csscope` 放到实例 getter）会在**编译期**报错阻断构建，运行期没有兜底。
 
 ### 继承
-  部分装饰器可由子类继承不会覆盖，包括@state/@prop/@watch/@computed/@emits
+  部分装饰器可由子类继承不会覆盖，包括@state/@prop/@watch/@computed/@emits/@resource
 
 ## 事件 Event
 在CompElem中有三类不同事件，分别返回原生事件对象或自定义对象
@@ -664,6 +729,8 @@ const stop = effect(() => console.log(count.value, doubled.value))
 batch(() => { count.value++; count.value++ })   // 只 flush 一次
 stop.dispose()
 ```
+
+> 信号只有**同步**语义，模型里没有「还没有返回」这个状态。异步读取由「异步资源」那一节补上：`createResource` / `@resource` 就是把时间这一维接进信号图。
 
 ## 全局注入
 ### 样式

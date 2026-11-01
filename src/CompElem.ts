@@ -23,6 +23,7 @@ import {
 import { getBaseSheets, getDefaultComponentProps } from "./config";
 import { ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, CssScopeCacheMap, CssTemplateSheetMap, NO_CHILD_EFFECT, PropTypeMap, SLOT_NAME_DEFAULT } from "./constants";
 import { Csscope } from "./decorators/csscope";
+import { releaseResources, viewResource } from "./decorators/resource";
 import { bindEvents, emitEvent, EvHadler, registerEvent, releaseEventHandlers } from "./events/event";
 import { CompElemHelper } from "./helpers";
 import { IComponent } from "./IComponent";
@@ -35,7 +36,7 @@ import { UpdatePoint } from "./render/UpdatePoint";
 import { walkSplitText } from "./render/walk";
 import { batch, effect, EffectNode, onCleanup, onFlushEnd, reportEffectError, signal, SignalNode, untrack } from "./signal";
 import { CompiledStatic, PropOption, SlotOptions, StateDefInternal, StateOption, TplFn } from "./types";
-import { _getSuper, camelCaseCached, DomUtil, getBooleanValue, isBooleanProp, kebabCaseCached, showTagError, tagNameLower } from "./utils";
+import { _getSuper, camelCaseCached, DomUtil, getBooleanValue, isBooleanProp, kebabCaseCached, showTagError, showWarn, tagNameLower } from "./utils";
 
 let CompElemSn = 0
 const SlotCompMap = new WeakMap()
@@ -45,6 +46,10 @@ const EMPTY_PARENT_PROPS: Record<string, any> = {}
 const FieldOverridePatched = new WeakSet<Function>()
 /** 已探测过 `slots` 访问器安装情况的类（安装是类级一次性动作，见构造器） */
 const SlotsInstalled = new WeakSet<Function>()
+/** 已按 `__ce_static__.resources` 安装过资源访问器的类（同上，类级一次性） */
+const ResInstalled = new WeakSet<Function>()
+/** 已安装的资源访问器函数（子类静态表含祖先的 key，撞上它属正常复用） */
+const ResourceGetters = new WeakSet<Function>()
 
 /**
  * flush 末段派发：本轮跑过 effect 的组件触发 `afterUpdate`
@@ -58,15 +63,21 @@ onFlushEnd(owners => {
   }
 })
 
-/** 原型链上是否存在同名访问器（own 属性遮蔽的判定前提） */
-function hasAccessor(obj: object, key: string): boolean {
+/** 沿原型链查找键的描述符，跳过对象自身 */
+function getProtoDescriptor(obj: object, key: string): PropertyDescriptor | undefined {
   let p = Object.getPrototypeOf(obj)
   while (p) {
     const d = Object.getOwnPropertyDescriptor(p, key)
-    if (d) return d.get !== undefined || d.set !== undefined
+    if (d) return d
     p = Object.getPrototypeOf(p)
   }
-  return false
+  return undefined
+}
+
+/** 原型链上是否存在同名访问器（own 属性遮蔽的判定前提） */
+function hasAccessor(obj: object, key: string): boolean {
+  const d = getProtoDescriptor(obj, key)
+  return d !== undefined && (d.get !== undefined || d.set !== undefined)
 }
 
 /**
@@ -245,6 +256,29 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       }
     }
 
+    /////////////////////////////////////////////////// 资源访问器
+    // 编译器只把资源名与纯数据选项写进 `__ce_static__.resources`，访问器在这里按表安装
+    // （类级一次性，与 slots 同一模式）。必须留在构造体内：它早于子类字段初始化器执行，
+    // `@state x = this.rows` 这类写法才读得到值。
+    const resDefs = ceStatic?.resources
+    if (resDefs && !ResInstalled.has(this.constructor)) {
+      ResInstalled.add(this.constructor)
+      const proto = this.constructor.prototype
+      for (const rKey in resDefs) {
+        const existing = getProtoDescriptor(proto, rKey)
+        if (existing) {
+          // 祖先装过的资源访问器由子类复用；撞上其它成员时资源取不到值，只告警不覆盖
+          if (process.env.DEV && !ResourceGetters.has(existing.get as Function)) {
+            showWarn(`@resource '${rKey}' 与原型链上的同名成员冲突，访问器未安装——this.${rKey} 不是资源视图`)
+          }
+          continue
+        }
+        const getter = function (this: any) { return viewResource(this, rKey) }
+        ResourceGetters.add(getter)
+        Reflect.defineProperty(proto, rKey, { get: getter, configurable: true })
+      }
+    }
+
     /////////////////////////////////////////////////// 方法装饰器
   }
   insertStyleSheet(sheet: CssTemplate | CSSStyleSheet): CSSStyleSheet | null {
@@ -351,6 +385,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
       e.onDispose = undefined
       e.dispose()
     }
+    releaseResources(this)
     this.__f = false
 
     //sup scope
