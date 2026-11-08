@@ -21,6 +21,8 @@ export class UpdatePoint {
     subViewRootNodes: Record<string, any[]> | any[]
 
     __destroyed = false
+    //已冻结（停止订阅，但 DOM 与 children 仍保留，等待离场动画结束）
+    __frozen = false
     children: UpdatePoint[] | null
     parent: UpdatePoint | null
 
@@ -60,9 +62,15 @@ export class UpdatePoint {
         return newUp
     }
 
-    destroy(contextComponent?: CompElem<any>) {
-        if (this.__destroyed) return;
-        this.__destroyed = true
+    /**
+     * 冻结：停掉本点的全部订阅（subEffects / subCells），**不动 DOM、不动 children**。
+     *
+     * 用于「离场动画期间保留 DOM」：冻结后响应式再也写不进这棵子树，
+     * 动画结束再由 `destroy()` 收干净。幂等。
+     */
+    freeze() {
+        if (this.__frozen) return
+        this.__frozen = true
         const se = this.subEffects
         if (se !== undefined && se.length > 0) {
             for (let i = 0; i < se.length; i++) se[i].dispose()
@@ -70,6 +78,17 @@ export class UpdatePoint {
         }
         this.subEffects = undefined
         this.subCells = undefined
+        // 嵌套更新点（子结构指令产出）的 effect 挂在自己身上，必须递归冻结
+        const kids = this.children
+        if (kids) {
+            for (let i = 0; i < kids.length; i++) kids[i]?.freeze()
+        }
+    }
+
+    destroy(contextComponent?: CompElem<any>) {
+        if (this.__destroyed) return;
+        this.__destroyed = true
+        this.freeze()
         let node = this.node
         let children = this.children
         //clean up

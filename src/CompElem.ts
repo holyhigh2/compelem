@@ -21,13 +21,13 @@ import {
   size
 } from "myfx";
 import { getBaseSheets, getDefaultComponentProps } from "./config";
-import { ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, CssScopeCacheMap, CssTemplateSheetMap, NO_CHILD_EFFECT, PropTypeMap, SLOT_NAME_DEFAULT } from "./constants";
+import { ComponentUninitializedSlotFunctionMap, ComponentUninitializedSubComponentPropMap, ComponentUninitializedWrapperComponentMap, CssScopeCacheMap, NO_CHILD_EFFECT, PropTypeMap, SLOT_NAME_DEFAULT } from "./constants";
 import { Csscope } from "./decorators/csscope";
 import { releaseResources, viewResource } from "./decorators/resource";
 import { bindEvents, emitEvent, EvHadler, registerEvent, releaseEventHandlers } from "./events/event";
 import { CompElemHelper } from "./helpers";
 import { IComponent } from "./IComponent";
-import { CssTemplate } from "./render/CssTemplate";
+import { CssTemplate, sheetOfCssTemplate } from "./render/CssTemplate";
 import { purgeDirNodeMap } from "./render/dir-node-map";
 import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, buildStaticView, buildSubTemplateView } from "./render/render";
 import { resolveSubTemplateOwner } from "./render/slot-provenance";
@@ -35,8 +35,10 @@ import { Template } from "./render/Template";
 import { UpdatePoint } from "./render/UpdatePoint";
 import { walkSplitText } from "./render/walk";
 import { batch, effect, EffectNode, onCleanup, onFlushEnd, reportEffectError, signal, SignalNode, untrack } from "./signal";
+import { prepareEnter } from "./transition/enter";
+import { runLeave, stripViewKeyMarkers } from "./transition/leave";
 import { CompiledStatic, PropOption, SlotOptions, StateDefInternal, StateOption, TplFn } from "./types";
-import { _getSuper, camelCaseCached, DomUtil, getBooleanValue, isBooleanProp, kebabCaseCached, showTagError, showWarn, tagNameLower } from "./utils";
+import { _getSuper, camelCaseCached, DomUtil, freezeSubComponents, getBooleanValue, isBooleanProp, kebabCaseCached, showTagError, showWarn, tagNameLower } from "./utils";
 
 let CompElemSn = 0
 const SlotCompMap = new WeakMap()
@@ -110,6 +112,19 @@ function sameSlots(a: Record<string, Node[]>, b: Record<string, Node[]>): boolea
  *
  * @author holyhigh2
  */
+/**
+ * 插槽过渡配置：`<slot transition="fade">` 的静态属性。
+ *
+ * 只支持一个名字（进出共用同一套类）；空串等同未配置。
+ * 注意 slotted 内容挂在**宿主元素的 light DOM**，所以对应的 `.ce-*` 样式
+ * 必须定义在 light DOM 所在的作用域（document 或父组件的 shadow root），
+ * 写在本组件 shadow root 的样式对它无效。
+ */
+function slotTransitionOf(slot: HTMLSlotElement | undefined): string | null {
+  const v = slot?.getAttribute('transition')
+  return v ? v : null
+}
+
 export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent<T> {
   /**
    * 运行时基类自声明 `noView`。
@@ -283,26 +298,12 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   }
   insertStyleSheet(sheet: CssTemplate | CSSStyleSheet): CSSStyleSheet | null {
     if (!this.#shadow) return null
-    let cssSheet: CSSStyleSheet | undefined;
-    if (sheet instanceof CssTemplate) {
-      cssSheet = CssTemplateSheetMap.get(sheet)
-      if (!cssSheet) {
-        let cssTxt = sheet.getCssText()
-        cssSheet = new CSSStyleSheet();
-        try {
-          cssSheet.replaceSync(cssTxt)
-        } catch (e) { }
-        CssTemplateSheetMap.set(sheet, cssSheet)
-      }
-    } else if (sheet instanceof CSSStyleSheet) {
-      if (this.#shadow.adoptedStyleSheets.includes(sheet)) return sheet
-      cssSheet = sheet;
-    }
-
-    if (cssSheet && !this.#shadow.adoptedStyleSheets.includes(cssSheet))
+    const cssSheet = sheet instanceof CssTemplate ? sheetOfCssTemplate(sheet) : sheet
+    if (!cssSheet) return null
+    if (!this.#shadow.adoptedStyleSheets.includes(cssSheet))
       this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, cssSheet]
 
-    return cssSheet!;
+    return cssSheet;
   }
   /**
    * Returns the root component in the parent chain, or itself if it's the top-level component.
@@ -359,36 +360,60 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   destroyed() {
   }
   get isDestroyed() {
-    return this.#destroyed
+    // 已冻结同样视为「不可再使用」：离场动画期间它已不响应任何状态
+    return this.#destroyed || this.#frozen
   }
   #destroyed = false
-  destroy() {
-    if (this.#destroyed) return
+  #frozen = false
+  //拆解进行中：挡住 beforeDestroyed() 里重入 destroy()（旧实现靠「入口即置 destroyed」达到同样效果）
+  #tearingDown = false
 
+  /**
+   * 冻结：停掉事件、effect、资源，但**保留 shadow DOM 与元素本身**。
+   *
+   * 供离场动画使用（`commitRemove` 的 leave 路径调用）。冻结后组件不再响应
+   * 任何状态变化，但元素仍带样式留在文档里演完动画，随后必须调 `__finalize()`
+   * 收尾（`destroy()` 会依次做完两步）。幂等。
+   */
+  __freeze() {
+    if (this.#frozen || this.#destroyed) return
+    this.#frozen = true
+    this.#tearingDown = true
+    try {
+      // 用户钩子放在最前：此时 effect/资源都还活着
+      this.beforeDestroyed()
+
+      //events
+      releaseEventHandlers(this)
+      //effects：视图 effect 在 dispose 时经 onDispose 自摘除，这里只需取快照逐个 dispose
+      const viewEffects = Array.from(this.#viewEffects)
+      this.#viewEffects.clear()
+      for (let i = 0; i < viewEffects.length; i++) {
+        viewEffects[i].dispose()
+      }
+      // setup effect（@watch / cssVars）在视图 effect 之后回收
+      const setupEffects = this.#setupEffects
+      this.#setupEffects = []
+      for (let i = 0; i < setupEffects.length; i++) {
+        const e = setupEffects[i]
+        e.onDispose = undefined
+        e.dispose()
+      }
+      releaseResources(this)
+      this.__f = false
+    } finally {
+      this.#tearingDown = false
+    }
+  }
+
+  /**
+   * 落定：真正拆掉 DOM、槽与宿主更新点，并触发 `destroyed()`。幂等。
+   */
+  __finalize() {
+    if (this.#destroyed) return
     this.#destroyed = true
 
-    this.beforeDestroyed()
-
-    //events
-    releaseEventHandlers(this)
-    //effects：视图 effect 在 dispose 时经 onDispose 自摘除，这里只需取快照逐个 dispose
-    const viewEffects = Array.from(this.#viewEffects)
-    this.#viewEffects.clear()
-    for (let i = 0; i < viewEffects.length; i++) {
-      viewEffects[i].dispose()
-    }
-    // setup effect（@watch / cssVars）在视图 effect 之后回收
-    const setupEffects = this.#setupEffects
-    this.#setupEffects = []
-    for (let i = 0; i < setupEffects.length; i++) {
-      const e = setupEffects[i]
-      e.onDispose = undefined
-      e.dispose()
-    }
-    releaseResources(this)
-    this.__f = false
-
-    //sup scope
+    //sup scope：宿主（父组件）指向本组件的更新点
     const hostUps = this._hostUps
     this._hostUps = undefined
     if (hostUps && this.#parentComponent) {
@@ -442,6 +467,17 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     //unmount
 
     this.destroyed()
+  }
+
+  destroy() {
+    if (this.#destroyed || this.#tearingDown) return
+    this.__freeze()
+    this.#tearingDown = true
+    try {
+      this.__finalize()
+    } finally {
+      this.#tearingDown = false
+    }
   }
 
   //////////////////////////////////// lifecycles
@@ -1101,6 +1137,10 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
    * 重算某个**函数型插槽**的 DOM，并整体替换上一次的结果
    */
   #slotViews: Record<string, EffectNode> = {}
+  // 正在跑离场动画的插槽旧节点：仍挂在 light DOM 上，不能由 #swapSlotNodes 摘除。
+  // 按节点而非插槽名登记：连续多次换代时，各代的收尾只清自己的标记，
+  // 不会把仍在动画中的下一代标记提前删掉。
+  #leavingNodes: WeakSet<Node> | undefined
   #updateSlot(name: string) {
     let hook = this.#slotHooks[name]
     if (!hook) return;
@@ -1112,37 +1152,65 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     if (view !== undefined && !view.disposed) {
       view.run()
     } else {
+      // `<slot transition="fade">`：静态属性，读一次即可
+      const spec = slotTransitionOf(this.#slotsEl[name])
       // 上一代快照的 UpdatePoint 树（item effect 的挂靠点），由 onCleanup 回收
       let prevUpAry: UpdatePoint[] | undefined
       const eff = effect(() => {
         // 上一代 scope 回收：effect 重跑前（replace）与 dispose 时（组件销毁）都会执行
         onCleanup(() => {
-          if (prevUpAry !== undefined) {
-            // 必须在 up.destroy() 把 up.node 置 null 之前摘除 __dirNodeMap 条目
-            //（Map 强引用节点，旧节点被拆下后条目不摘就连带子树一起泄漏）
-            purgeDirNodeMap(owner, prevUpAry)
-            // destroy 带 context：有更新点覆盖的元素子树经 DomUtil.clear 连带销毁
-            //（组件自身销毁路径同样经这里回收）
-            for (let i = 0; i < prevUpAry.length; i++) prevUpAry[i].destroy(this)
-            prevUpAry = undefined
-          }
-          // 更新点只覆盖有插值的位置：上一代根节点里无更新点覆盖的静态嵌套
-          // CompElem 不在 prevUpAry 子树内，须对全部旧根节点补一次子树扫描
-          //（destroy 幂等，与上面 destroy(this) 的重叠部分无害）
+          const ups = prevUpAry
+          prevUpAry = undefined
           const oldNodes = this.#slotNodes?.[name]
-          if (oldNodes !== undefined) {
-            for (let i = 0; i < oldNodes.length; i++) {
-              const n = oldNodes[i]
+          const hasOld = oldNodes !== undefined && oldNodes.length > 0
+
+          // 同步路径（未配置过渡 / 组件正在销毁 / 没有旧内容）与旧实现逐字等价：
+          // 节点摘除由紧随其后的 #swapSlotNodes 负责
+          const teardown = (removeNodes: boolean) => {
+            if (ups !== undefined) {
+              // 必须在 up.destroy() 把 up.node 置 null 之前摘除 __dirNodeMap 条目
+              //（Map 强引用节点，旧节点被拆下后条目不摘就连带子树一起泄漏）
+              purgeDirNodeMap(owner, ups)
+              // destroy 带 context：有更新点覆盖的元素子树经 DomUtil.clear 连带销毁
+              //（组件自身销毁路径同样经这里回收）
+              for (let i = 0; i < ups.length; i++) ups[i].destroy(this)
+            }
+            if (!hasOld) return
+            // 更新点只覆盖有插值的位置：上一代根节点里无更新点覆盖的静态嵌套
+            // CompElem 不在 ups 子树内，须对全部旧根节点补一次子树扫描
+            //（destroy 幂等，与上面 destroy(this) 的重叠部分无害）
+            for (let i = 0; i < oldNodes!.length; i++) {
+              const n = oldNodes![i]
+              if (removeNodes) n.parentNode?.removeChild(n)
               if (n instanceof CompElem) n.destroy()
               else DomUtil.clear(n as Element)
             }
           }
+
+          if (spec === null || this.isDestroyed || !hasOld) {
+            teardown(false)
+            return
+          }
+
+          // 离场：冻结订阅 → 标记本插槽处于离场（#swapSlotNodes 跳过旧节点摘除）
+          // → 动画结束后统一收尾
+          if (ups !== undefined) {
+            for (let i = 0; i < ups.length; i++) ups[i].freeze()
+          }
+          for (let i = 0; i < oldNodes!.length; i++) freezeSubComponents(oldNodes![i])
+          stripViewKeyMarkers(oldNodes!)
+          const leavingSet = this.#leavingNodes ?? (this.#leavingNodes = new WeakSet())
+          for (let i = 0; i < oldNodes!.length; i++) leavingSet.add(oldNodes![i])
+          runLeave(oldNodes!, spec, () => {
+            for (let i = 0; i < oldNodes!.length; i++) leavingSet.delete(oldNodes![i])
+            teardown(true)
+          })
         })
         const nodes = buildSubTemplateView(owner, hook, get(slotMap, 'props'))
         // 先摘本代 upAry（buildSubTemplateView 挂在首个产出节点的 __ceUpAry 上），
         // 再滤注释节点 —— 顺序反了会把载体节点一起滤掉
         prevUpAry = (nodes[0] as any)?.__ceUpAry as UpdatePoint[] | undefined
-        this.#swapSlotNodes(name, reject(nodes, (n: Node) => n.nodeType === Node.COMMENT_NODE))
+        this.#swapSlotNodes(name, reject(nodes, (n: Node) => n.nodeType === Node.COMMENT_NODE), spec)
       }, NO_CHILD_EFFECT)
       this._regViewEffect(eff)
       this.#slotViews[name] = eff
@@ -1153,9 +1221,19 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
    * 拆掉上一次的插槽内容并挂上这一代的（replace 契约）。
    * 从 #updateSlot 抽出：常驻 effect 每次重跑与首屏创建走同一条替换路径。
    */
-  #swapSlotNodes(name: string, nnodes: Node[]) {
+  #swapSlotNodes(name: string, nnodes: Node[], spec: string | null = null) {
+    // 上一代正在跑离场：节点归 runLeave 的 finalize 摘除，这里不能抢
     let slottedNodes = this.#slotNodes[name]
-    if (!isEmpty(slottedNodes)) {
+    let leaving = false
+    if (this.#leavingNodes !== undefined && !isEmpty(slottedNodes)) {
+      for (let i = 0; i < slottedNodes!.length; i++) {
+        if (this.#leavingNodes.has(slottedNodes![i])) {
+          leaving = true
+          break
+        }
+      }
+    }
+    if (!leaving && !isEmpty(slottedNodes)) {
       // replace 契约：先拆干净上一次的作用域（节点），再挂新的
       for (let i = 0; i < slottedNodes.length; i++) {
         const n = slottedNodes[i];
@@ -1169,6 +1247,8 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         if (n.nodeType === Node.ELEMENT_NODE) (n as Element).setAttribute('slot', name)
       }
     }
+    // 首屏（未 mounted）不入场，与结构指令的 appear 规则保持一致
+    if (spec && this.isMounted) prepareEnter(nnodes, spec)
     this.append(...nnodes)
   }
 

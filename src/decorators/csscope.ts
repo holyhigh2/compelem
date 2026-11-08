@@ -1,6 +1,6 @@
 import { each, isArray } from "myfx";
-import { CssScopeCacheMap, CssStyleSheetCacheMap } from "../constants";
-import { CssTemplate } from "../render/CssTemplate";
+import { CssScopeCacheMap } from "../constants";
+import { CssTemplate, sheetOfCssTemplate } from "../render/CssTemplate";
 
 /**
  * 样式应用区域范围
@@ -22,13 +22,7 @@ export function csscope(...scopes: string[]): any {
     css.forEach(cs => {
       let styleSheet: CSSStyleSheet | undefined
       if (cs instanceof CssTemplate) {
-        styleSheet = CssStyleSheetCacheMap.get(cs.strings)
-        if (!styleSheet) {
-          let cssTxt = cs.getCssText()
-          styleSheet = new CSSStyleSheet();
-          styleSheet.replaceSync(cssTxt)
-          CssStyleSheetCacheMap.set(cs.strings, styleSheet)
-        }
+        styleSheet = sheetOfCssTemplate(cs)
       } else if (cs instanceof CSSStyleSheet) {
         styleSheet = cs
       }

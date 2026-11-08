@@ -600,6 +600,8 @@ return h` <l-tooltip>
 | slot    | SLOT      | 动态插槽                                                    | ` ...>${slot((args) => h``)}<... `                  |
 | html    | TAG/TEXT/SLOT      | 向指定元素/文本位置插入HTML内容                                                    | `<div a="b" ${html('<b>1</b>')}> ...>${html('<b>1</b>')}<...`                  |
 
+> 上表的指令都可以带**过渡选项**（末尾参数），`show` 也可以把选项直接写在第二参——详见下节「过渡 Transition」。
+
 #### 结构指令的约束
 
 | 分类 | 指令 | 特征 |
@@ -610,6 +612,111 @@ return h` <l-tooltip>
 结构指令的模板回调里读取的依赖是**惰性的**：只有该分支首次被渲染执行时才建立订阅。初始条件为 `false` 的分支里读取的变量，在条件变 true 前不会被追踪——需要提前感知就在根模板上下文读一次，或用 `@watch` 显式监视。
 
 > 同一 `${}` 插槽的「形态」（文本点 / 内联静态 HTML / 指令点）由**首次渲染**时的值决定，此后不再改变。因此不要在同一个插值位置用三元式在 `h\`\`` 子模板与指令之间切换；空态与列表要写成两个并列插槽（`ifTrue` + `forEach`）。
+
+## 过渡 Transition
+
+compelem 的过渡是**DOM 级**的，不提供 `<Transition>` 组件包装器：结构指令末尾加一个选项对象即可，节点本身不变。
+
+```ts
+render() {
+  return h`<div>
+    ${ifTrue(this.open, () => h`<dl>…</dl>`, { enter: 'slide-up', leave: 'fade' })}
+    ${ifElse(this.tab === 'a', () => h`<p>A</p>`, () => h`<p>B</p>`, { enter: 'fade', leave: 'fade' })}
+    ${forEach(this.rows, (r: Row) => r.id, (r: Row) => h`<li>${r.name}</li>`,
+      { enter: 'fade', leave: 'fade', move: 'slide' })}
+  </div>`
+}
+// show：第二参（省略回调时直接传选项对象）
+h`<p ${show(this.tip, { transition: 'fade' })}>tip</p>`
+// 函数型插槽：在**子组件**模板的 <slot> 上声明
+h`<slot transition="fade" name="body"></slot>`
+```
+
+| 能力 | 说明 |
+|---|---|
+| `enter` | 插入前挂 `-enter-from` + `-enter-active`；等起始状态绘制后（双 rAF）换 `-enter-to`，全部过渡属性结束后清空 |
+| `leave` | 删除时先冻结订阅，节点留在文档里演完动画再真正移除 |
+| `move` | 列表重排的位移过渡（FLIP），按 key 计算前后位移；用 Web Animations API 播放，字符串即启用默认 200ms |
+| 时长与结束 | 起跑用双 rAF；换到 `-to` 并强制重排后，用 `el.getAnimations()` 等**实际创建**的每一条动画 `finished`，数量天然精确（`transition: all` 不会算错、属性值没变也不会空等超时）。`getAnimations` 不可用时退回 computed style + `transitionend` 计数 |
+| `duration` / `delay` | `duration` 只在**没有动画对象**时用于计时（视觉时长仍由 CSS 决定）；`delay` 写进内联 `transition-delay` / `animation-delay`，**真的延后播放**，并覆盖 CSS 自带的 delay，落定后恢复原值 |
+| 排节奏 | 过渡期间元素上有 `--ce-i`（本批第几个），落定后移除。`ifTrue` 多根是 0/1/2；`forEach` 是**本批**的第几个（逐项插入/删除，各自成批）。用法见下 |
+| 首屏 | **默认不播放**（`appear` 恒关闭，首屏一律直出；当前无开关） |
+| 动效偏好 / 零时长 | `prefers-reduced-motion: reduce` 或 `duration: 0` 时全部退化为同步路径（`delay` 一并忽略） |
+| 批量 | enter/leave 共用一条队列：同帧内全部换类，只做一次强制重排 |
+
+类名契约（`name` 缺省时前缀为 `ce`）：
+
+```
+ce-{name}-enter-from / -enter-active / -enter-to
+ce-{name}-leave-from / -leave-active / -leave-to
+```
+
+过渡期间元素上还有两个由框架维护的标记，可以拿来做自定义动画：
+
+| 标记 | 含义 |
+|---|---|
+| `--ce-i` | 本批第几个。`ifTrue` 多根按批内下标 0 / 1 / 2；`forEach` 按**本批**插入/删除的次序（逐项成批，位置推不出来，所以由框架给出） |
+| `data-ce-leaving` | 离场中：第一帧挂上，落定前移除 |
+
+排队入场 / 离场因此不用写 `nth-child`，也不用知道总数：
+
+```css
+.ce-fade-enter-active,
+.ce-fade-leave-active {
+  transition:
+    opacity 180ms cubic-bezier(.4, 0, .2, 1) calc(var(--ce-i, 0) * 70ms),
+    transform 180ms cubic-bezier(.4, 0, .2, 1) calc(var(--ce-i, 0) * 70ms);
+}
+```
+
+改乘数就能换节奏。若某次调用显式传了 `delay`，内联值优先，变量不再影响延迟。
+
+内置预设 `fade` / `slide-up` / `slide-down` / `scale` 以 `css` 模板 `TRANSITION_CSS` 导出（`CssTemplate`，和 `?tmpl` 导入的样式同一形态），**不会自动注入**——因为两处的作用域不同：
+
+```ts
+import { setDefaults, TRANSITION_CSS } from 'compelem'
+setDefaults({ css: [TRANSITION_CSS] })   // 全局：进每个组件的 shadow root（结构指令的 DOM 在这里）
+```
+
+只想给某个组件用时，直接放进它的静态 `css` getter——**必须排在数组末尾**：
+
+```ts
+@csscope(Csscope.INNER)
+static get css() {
+  // .ce-fade-enter-active 的 transition 与组件自带的 `transition: transform …`
+  // 特异性相同，靠 adoptedStyleSheets 顺序决胜；放前面会吃掉组件自己的过渡
+  return [style, TRANSITION_CSS]
+}
+```
+
+> 结构指令产出的节点在组件 **shadow root** 内 → 样式必须进 shadow。
+> 函数型插槽的内容在**宿主元素的 light DOM** → 样式必须写在 document 或父组件 shadow root。
+> 同一个预设样式要覆盖两种场景时，两处都要注入。
+
+`css` getter 的入参只有 `CssTemplate` 与 `CSSStyleSheet` 两种。外部 CSS 文件用 `?tmpl` 导入，编译插件会转成 `CssTemplate`：
+
+```ts
+import style from './x.scss?tmpl'   // → CssTemplate
+```
+
+`?inline` 拿到的是字符串，需要自己建表：`const sheet = new CSSStyleSheet(); sheet.replaceSync(text)`。裸字符串直接写进 `css` getter 不会被接受。
+
+页面/路由级整屏切换用原生 View Transitions：
+
+```ts
+import { withViewTransition } from 'compelem'
+
+withViewTransition(() => { this.page = 2 }, { name: 'slide-up' })
+```
+
+`update` 必须是同步改状态的回调（内部会 `flushSync()` 后让浏览器取快照）；不支持或用户要求减少动效时自动退化为直接更新。预设名 `fade` / `slide-up` / `slide-down` / `scale`，样式由 `installViewTransitionStyles()` 自动注入到 document（`autoStyle: false` 可关闭）。
+
+注意：
+- 离场节点在动画期间仍占位（只改 opacity），删除落定瞬间同容器其它元素会跳一下；列表要在视觉上平滑，给离场项加 `position: absolute`。
+- 动画期间离场节点带 `data-ce-leaving`，`@query` / `@queryAll` 仍能查到，需要过滤时用 `:not([data-ce-leaving])`。
+- 组件整体 `destroy()` 不等动画。
+
+**开销（headless Chromium 实测，2000 项列表）**：`enter/leave` 的同步段增量约 0.1ms（`fill`，与条数线性相关）；逐 key 批量删除 1000 项从 3.6ms 增至 6.2ms（同帧多条离场共用一次强制重排）。`move` 的成本高一个量级——每次重排要做两次布局测量（变更前后的 rect）并为每个位移项创建一个 WAAPI 动画，2000 项 shuffle 约 28ms，**建议只在真正会发生重排的列表上开启**。
 
 ## 装饰器 Decorator
 

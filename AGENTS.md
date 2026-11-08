@@ -1,16 +1,16 @@
 # compelem — AI 速查手册
 
-> 本文件面向 AI 编码助手。内容依据 `src/` 源码逐条核实（对应 **v0.30.0-beta.4** working tree），**读取本文件即可获得完整公开 API，无需扫描包源码**。
+> 本文件面向 AI 编码助手。内容依据 `src/` 源码逐条核实（对应 **v0.30.0-beta.7** working tree），**读取本文件即可获得完整公开 API，无需扫描包源码**。
 > 信息不足时按文末「深入阅读」指引查阅，不要盲目 grep 整个包。
 
 ## 概览
 
-- **compelem** v0.30.0-beta.4（MIT，作者 holyhigh2）：现代化、响应式、轻量的 WebComponent 开发库，基于 Class + 装饰器构建。
+- **compelem** v0.30.0-beta.7（MIT，作者 holyhigh2）：现代化、响应式、轻量的 WebComponent 开发库，基于 Class + 装饰器构建。
 - TypeScript 编写；发布入口由 `package.json` `exports` 条件映射：`development` → `dist-dev/`，`production`/默认 → `dist/index.esm.js` / `index.cjs.js`，类型 `dist/index.d.ts`。**`myfx` 是 peerDependency（`^2.0.0-beta.4`），构建时作 external 处理、不打包进产物**——宿主工程必须自装，切勿假设 compelem 已内联它。配套编译插件 `@compelem/compiler` 同样把 `myfx` 声明为 peerDependency（源码 `codegen/template-dom.ts`、`codegen/attr-name.ts` 直接 `from 'myfx'` 导入），宿主工程也需自装。
 - 使用前提：TypeScript 需开启 `experimentalDecorators: true`；**必须挂载编译插件 `@compelem/compiler`（`compelemCompiler()` Vite 插件，仓库 `F:\github\compelem-compiler`）**——装饰器语义全部由编译期前移，运行时装饰器是 no-op 存根，约定违规仅由编译期报错。
-- 本仓库脚本：`npm run build`（= `build:prod` 压缩 + `build:dev` 未压缩，产物 `dist/` 与 `dist-dev/`）· `npm run typecheck`（tsc --noEmit）。**本仓库不依赖 `@compelem/compiler`，也没有 dev 页/探针页**——`dev/` 与 Vite 调试配置已外移到兄弟仓库 `F:\github\compelem-harness`（private 项目，`npm run dev` 起 :8818，别名 `compelem` → `../compelem/src/index.ts`）。⚠️ `npm run lint` 的 eslint 配置是旧格式（会报 config migration 错误），不要依赖。
+- 本仓库脚本：`npm run build`（= `build:prod` 压缩 + `build:dev` 未压缩，产物 `dist/` 与 `dist-dev/`）· `npm run typecheck`（tsc --noEmit）· `npm run verify:dist`（产物冒烟：`transition/` 目录存在、运行时字面量存在、产物 mtime 不得早于 `src` 最新改动、包入口字段指向的文件必须存在）。`npm pack` / `npm publish` 前由 `prepack` 自动跑 `typecheck + build + verify:dist`——`dist*` 被 gitignore，不重建就可能把旧产物发出去。**本仓库不依赖 `@compelem/compiler`，也没有 dev 页/探针页**——`dev/` 与 Vite 调试配置已外移到兄弟仓库 `F:\github\compelem-harness`（private 项目：`npm run dev` 起 :8818，`compelem` 说明符走 npm 发布版、只有 `compelem/src` 精确别名指向 `../compelem/src/index.ts`；`npm run dev:dist` 起 :8819，同一个 `dev/transition.html` 与同一批探针脚本，但 `compelem/src` 改指 `../compelem/dist/index.esm.js`，用于验证发布物）。⚠️ `npm run lint` 的 eslint 配置是旧格式（会报 config migration 错误），不要依赖。⚠️ 宿主若挂了删除保护（如 WorkBuddy 的 safe-delete shim），`emptyOutDir` 批量清理 `dist` 会失败且**可能只删掉一半产物**；此时先 `cp -r dist ../dist-snapshot` 留快照，再用 `npx vite build --mode production --emptyOutDir false` 覆盖重建（`dist*` 被 gitignore，没有第二份拷贝）。
 - 构建产物差异：prod 出 `index.esm.js` + `index.cjs.js`（terser 压缩、drop `debug/info/log`）；dev 额外产出 UMD `compelem.umd.js`（挂 `window.compelem`，myfx 全局名 `myff`）。
-- 验证手段：headless Chrome + CDP 探针，脚本在 harness（`compelem-harness/dev/_round4_probe.mjs`、`_slot_probe.mjs`，可复用于任意探针页 URL）。改过本库或编译器 dist 后，先在 harness 里 `rm -rf node_modules/.vite` 再起服务，避免依赖重新优化的瞬时假失败。仓库根的 `test/` 是空目录。
+- 验证手段：headless Chrome + CDP 探针，脚本在 harness（`compelem-harness/dev/_round4_probe.mjs`、`_slot_probe.mjs`，可复用于任意探针页 URL）。**过渡的全部场景有现成演示页**：`F:\github\compelem-harness\dev\transition.html`（源码 `transition-demo.ts`，探针 `_transition_probe.mjs`），走 `compelem/src` 精确别名直连本地源码、不必先 build。改过本库或编译器 dist 后，先在 harness 里 `rm -rf node_modules/.vite` 再起服务，避免依赖重新优化的瞬时假失败。仓库根的 `test/` 是空目录。
 - 类型权威以 `src/index.ts`、`src/types.ts` 和本文件为准；`dist/*.d.ts` 仅作参考。
 
 ## 心智模型
@@ -74,18 +74,61 @@ render(): Template | null {
 | 指令 | 位置 | 签名 | 说明 |
 |---|---|---|---|
 | `bind` | TAG | `(obj: Record<string, any>)` | 组件标签自动区分 prop/attr |
-| `show` | TAG | `(visible: boolean, cbk?: (el, visible) => void)` | 基于 display 切换 |
+| `show` | TAG | `(visible: boolean, cbk?: ((el, visible) => void) \| ShowOptions, opts?: ShowOptions)` | 基于 display 切换；带 `transition` 时改为「淡出结束后再 display:none」。第二参可直接传选项（`show(v, { transition: 'fade' })`），内部按 `typeof` 区分回调与选项。**回调时序不对称**：显示时同步调用 `cb(el, true)`；隐藏时等离场落定、`display:none` 之后才调用 `cb(el, false)` |
 | `model` | TAG | `(value: any, updateProp = 'value', modelProp?: string)` | 双向绑定；监听 `update:xxx`，input/textarea/select/checkbox 自动适配。**仅支持静态路径** |
 | `classes` | TAG | `(cls: Record<string, boolean\|string> \| string[] \| string)` | 可与静态 class 混写 |
 | `styles` | TAG | `(style: Record<string, string> \| string \| Array<...>)` | 值支持 `{value, important}`；可与静态 style 混写 |
-| `forEach` | TEXT/SLOT | `(value: any[] \| Record, keyFn: KeyFn, tmpl: TplFn)` | keyed diff；**key 重复/nil 时该项被跳过并 showError**（nil 仅 DEV 下报） |
-| `ifTrue` | TEXT/SLOT | `(cond: boolean, tplFn: TplFn)` | 条件渲染 |
-| `ifElse` | TEXT/SLOT | `(cond: boolean, ifTmpl: TplFn, elseTmpl: TplFn)` | 二分支 |
-| `when` | TEXT/SLOT | `(value: string \| number, cases: Array<[(v)=>boolean, TplFn]> \| Record<key, TplFn>)` | switch 模式时 `'default'` 是关键字 key |
+| `forEach` | TEXT/SLOT | `(value: any[] \| Record, keyFn: KeyFn, tmpl: TplFn, opts?: StructureTransitionOptions)` | keyed diff；**key 重复/nil 时该项被跳过并 showError**（nil 仅 DEV 下报）；`opts.enter/leave` 走过渡 |
+| `ifTrue` | TEXT/SLOT | `(cond: boolean, tplFn: TplFn, opts?: StructureTransitionOptions)` | 条件渲染；`opts.enter/leave` 走过渡 |
+| `ifElse` | TEXT/SLOT | `(cond: boolean, ifTmpl: TplFn, elseTmpl: TplFn, opts?: StructureTransitionOptions)` | 二分支；切换时旧分支走 leave、新分支走 enter，短暂并存 |
+| `when` | TEXT/SLOT | `(value: string \| number, cases: Array<[(v)=>boolean, TplFn]> \| Record<key, TplFn>, opts?: StructureTransitionOptions)` | switch 模式时 `'default'` 是关键字 key；分支切换走 leave/enter，`opts` 可写字面量 |
 | `slot` | SLOT | `(cbk: TplFn, slotName?: string)` | 函数型插槽，见下「插槽与 provenance」 |
 | `html` | TAG/TEXT/SLOT | `(htmlStr?: string)` | 插入原始 HTML；同文件模块级 `const` 字符串可被编译器折进建树序列（零运行期开销），否则走运行期 `convertHTML` |
 
-**没有 transition 指令 / `<transition>` 伪标签 / 动画运行时**——旧文档相关内容已随 `src/animate/` 的移除全部失效。
+**没有 `transition` 指令 / `<transition>` 伪标签**。过渡走「结构指令末尾实参 + 类契约」，见下节。
+
+## 过渡（`src/transition/`）
+
+DOM 级过渡，不是组件包装器。四个收口点：**入口** = `insertSubView`（`render.ts`）/ `reconcileEach` 的 add 分支 / `#swapSlotNodes`；**出口** = `commitRemove`（结构指令删除的唯一汇集点）+ `#updateSlot` 的 `onCleanup`；**移动** = `reconcileEach` 的 FLIP（`captureRects` 在变更前读、`playMove` 在 `writeCells` 之后播）；**插槽** = `<slot transition="fade">`。
+
+`src/transition/core.ts` 是 enter/leave 共用的唯一运行时（`leave.ts` / `enter.ts` 只是再导出）：同一队列、双 rAF 起跑、写阶段换类 → 一次强制重排 → 读阶段逐元素取实际创建的动画。
+
+```ts
+${ifTrue(this.open, () => h`<dl>…</dl>`, { enter: 'slide-up', leave: 'fade' })}
+${ifElse(cond, tplA, tplB, { enter: 'fade', leave: 'fade' })}          // 切换时新旧并存
+${forEach(rows, r => r.id, r => h`<li>…</li>`, { enter: 'fade', leave: 'fade', move: 'slide' })}
+<p ${show(this.on, { transition: 'fade' })}>…</p>
+<slot transition="fade" name="body"></slot>                                // 子组件模板里声明
+```
+
+| 能力 | 说明 |
+|---|---|
+| 类契约 | `ce-{name}-enter-from/-active/-to`、`ce-{name}-leave-from/-active/-to`；`name` 缺省时前缀为 `ce`。预设样式见 `TRANSITION_CSS`（`css` 模板） |
+| 样式注入 | **不自动注入**：结构指令的 DOM 在 shadow root 内，document 层样式无效。两条路：① `setDefaults({ css: [TRANSITION_CSS] })`（全局进每个组件 shadow）；② 组件静态 `css` getter 里 `return [style, TRANSITION_CSS]`（**必须排在末尾**，否则被同特异性的组件 transition 覆盖） |
+| css getter 入参 | 静态 `css` getter 与 `insertStyleSheet()` 只认 `CssTemplate` 与 `CSSStyleSheet`：CSS 文件用 `?tmpl` 导入（编译插件转成 `CssTemplate`），或 `?inline` 取字符串后自己 `new CSSStyleSheet().replaceSync()`。**裸字符串不在契约内**，传进去会被忽略 |
+| 离场顺序 | `UpdatePoint.freeze()` / `freezeSubComponents()` 冻结订阅（后者遍历整棵离场子树并穿透 shadowRoot，含嵌套子组件）→ 摘 `__c-*` key 标记 → 类动画 → `finalize` 才 `remove` + `destroy` |
+| 首屏 | `appear` 恒关闭：`buildStaticView` 期间置 `component.__firstBuild`，`insertSubView` / `show` 据此跳过入场 |
+| 时长判定 | 起跑用**双 rAF**（起始帧先绘制，否则过渡不触发）；换到 `-to` 并强制重排后，用 `el.getAnimations()` 只挑**实际创建**的 `CSSTransition`/`CSSAnimation`，逐条等 `finished` 全部结束。数量天然精确：`transition: all` 不会把多属性算成 1 个、属性值未变化时不产生动画对象，因此也不会空等超时。没有动画对象时立即落定（显式 `duration` 仍按它计时，保持「声明了动画就等」的语义）；`getAnimations` 不可用时退回「解析 computed style + `transitionend` 计数」的旧路径。元素逐个计时，多根子视图不会被首个元素截断 |
+| `delay` | 写进元素内联 `transition-delay` / `animation-delay`，**真的延后播放**（不是只加超时预算）。内联长属性优先级高于使用者的 `.ce-*-active` 规则（含其中的 `transition` 简写），所以传了就会覆盖 CSS 自带的 delay；`cleanup` 与 `cancelEnter` 按写入前的基线恢复，不残留。`startClasses` 在插入前/离场前写，落定前一直有效 |
+| 超时预算 | `getAnimations` 路径用 `totalMsOf(anims)`，**不再叠加** `job.delay` —— `effect.getTiming()` 里已经含它，重复加会变成 `duration + 2×delay` 的兜底。显式 `duration` 且无动画对象时才用 `duration + delay` 计时 |
+| `--ce-i` | 过渡期间写在元素上的序号（`INDEX_VAR`），`cleanup` / `cancelEnter` 时移除。结构指令按**批内下标**（`ifTrue` 多根 = 0/1/2）；`forEach` 逐项插入/删除、每项各成一批，下标推不出来，由 `adds.forEach((add, addIndex))` 与 `delKeysArr.forEach((k, delIndex))` 传**本批第几个**。取列表绝对位置会让「长列表追加一项」算出几秒延迟。使用者 `transition-delay: calc(var(--ce-i, 0) * 70ms)`；传了 `delay` 时内联值覆盖它 |
+| 零时长 | `duration: 0` / `prefers-reduced-motion: reduce` 时 enter 不挂类、leave 同步 finalize（`delay` 一并忽略，不写内联） |
+| 动效偏好 | `prefers-reduced-motion: reduce` 时全部退化为同步路径（`prefersReducedMotion()`） |
+| `when` 的 opts | `when(value, cases, opts?)` 的第三参可直接写对象字面量：`TEMPLATE_ARG_INDEX` 里 `when: [1]`，只有第 2 参是模板位（cases 由 `collectWhenCases` 逐个展开分支），第 3 参归调用方作用域。运行时 `execCond` 的 REPLACE 与 `ifElse` 走同一条 `replaceSubView` + `optsOf`（`transitionOptsOf` 从实参尾部嗅探带 `enter`/`leave` 的对象）。cases 本身仍必须是字面量对象/数组 |
+| 状态翻转 | `show()` 按「显示代次」守卫离场落定：动画期间再次切换会取消上一次离场/入场（`ActiveLeave` + `cancelEnter`），旧落定作废 |
+| 中断 | 离场期间同 key 重插会并存，动画结束后收敛；`runLeave` 返回取消器 |
+| 离场标记 | 离场节点带 `data-ce-leaving`（`@query`/`@queryAll` 仍能查到，业务侧需自行过滤） |
+| 列表 move | `reconcileEach` 的 FLIP：变更前批量读一次 rect（读到的是**含动画位移**的屏幕位置，即新动画要接上的起点）；变更后 `playMove` 先 `cancel()` 上一段动画、再批量读新位置与基础 transform，然后用 **WAAPI**（`fill: 'none'`）从反向位移归零。取消必须在读 rect 之前：带旧动画读数会把旧动画的当前偏移算进位移量，连续重排时元素会先跳一下再走；取消与重新起动画在同一次任务内完成，中间不产生绘制。不写内联 `transform/transition`，结束/取消自动还原。只测元素根（文本节点无盒子）。字符串 spec 只表示启用（默认 200ms `cubic-bezier(.4,0,.2,1)`，与预设同一曲线），不再映射预设名 |
+| 离场占位（最容易当成 bug） | 离场节点在落定前**仍在原位占位**（只改 opacity）。三种表现：列表删除时剩余项在落定瞬间跳一下；`ifElse` / `when` 换分支时新旧节点在 flex 容器里**并排**，落定后整体横跳（实测错开 67px）；函数型插槽换内容时新旧是**块级堆叠**，落定后高度从 90px 塌回 58px、新内容纵向跳 36px。三种观感都是「闪一下」。修法是使用者给离场项脱流：容器 `position:relative` + `[data-ce-leaving]{position:absolute;left:0;top:0}`。用属性选择器而非 `-leave-active`，不依赖 prefix 且覆盖 leave 全阶段。插槽场景下脱流的绝对定位基准是**宿主元素**，偏移要算上插槽容器自身的 border + padding，否则落定瞬间仍有 1~8px 微跳。Vue 的 `<TransitionGroup>` 同样要求，框架不强制 |
+| 交叉的「不明显」 | 两头都停在原位时，两段不同文字会叠成虚影（旧 24% + 新 76% 实测），看起来是「颜色变了」而不是「换了一个」。要方向感得自定义预设给位移：`enter-from{transform:translateX(16px)}` + `leave-to{transform:translateX(-16px)}`，配合上面的脱流 |
+| 插槽过渡 | 子组件模板写 `<slot transition="fade" name="x">`（**静态属性**），父组件用**函数型插槽** `slot(cbk, name)` 换内容时旧内容离场、新内容入场。直接往组件里塞 light DOM 子节点走的是父组件自己的结构指令，不经过这条路径。实现上 `#updateSlot` 的 effect `onCleanup` 改为「冻结 + 按节点标记 `#leavingNodes`（WeakSet）+ 延后收尾」，`#swapSlotNodes` 见到任一旧节点在标记里就跳过摘除，多代重叠时各代只清自己的标记。组件销毁（`isDestroyed`）时退回同步拆除 |
+| 插槽样式作用域 | slotted 内容在**宿主元素的 light DOM**：`.ce-*` 规则与脱流规则都要写在 document 或父组件 shadow root，写在子组件 shadow root 里对插槽内容无效 |
+| 未覆盖 | `destroy()` 整体销毁（不等动画） |
+| 覆盖边界 | 结构指令只覆盖「节点增删」。**同一节点的状态切换**（`is-collapsed + max-height`、`display` 直切、`transform` 位移）不在覆盖范围内——那类由组件自己的 CSS transition 负责。判断某处能不能用：看该处是不是 `ifTrue`/`ifElse`/`when`/`forEach`/`slot` 产出的节点增删 |
+
+包根导出：`withViewTransition(update, opts?)`（原生 View Transitions，`opts.name` 选 `fade/slide-up/slide-down/scale`，自动注入 `VIEW_TRANSITION_CSS`）、`createViewTransition(opts?)` + 类型 `ViewTransitionHandle`（分段式，`started` / `commit()` / `finished`；路由这类「更新时机不在自己手上」的场景用）、`supportsViewTransition()`、`installViewTransitionStyles()`、`transitionMsOf(el)`、`whenTransitionEnds(el, ms, done, prop?)`、`TRANSITION_CSS`、`VIEW_TRANSITION_CSS`，以及类型 `ViewTransitionOptions`（`TransitionSpec` / `MoveSpec` / `StructureTransitionOptions` 由 `./types` 提供）。后两个函数是**公开**工具而非内部符号：`compelem-ui` 的 `Drawer` / `Overlay` / `Tooltip` / `LoopList` 从包根引用它们做「等自己的 CSS transition 结束」的判定，不能收。其余运行时符号（`prepareEnter` / `cancelEnter` / `runLeave` / `captureRects` / `playMove` / `transitionInfoOf` / `stripViewKeyMarkers` / `transitionOptsOf` / `nextFrame` / `normalizeSpec`）**不进包根出口**——`src/transition/index.ts` 仍是内部 barrel，框架与 harness 探针按深路径引用。
+
+`withViewTransition` 的 `update` 必须**同步**改状态（内部随后调 `flushSync()`），否则快照停在旧 DOM；`finished` / `ready` 在过渡被 skip 时 reject，已统一收敛为成功；`update` 自身抛出的异常会透传给调用方。同一文档后发起的调用接管 `data-ce-vt` 标记，先前调用的收尾不会误清。`createViewTransition()` 的 `finished` 额外与 `ready` 的拒绝赛跑：update 回调的 promise 一直 pending（没 `commit`）时，Chrome 连 `skipTransition()` 都不结算原生 `finished`，不兜住就会挂住调用方并漏掉 `data-ce-vt` 清理。
 
 ## 渲染 / 响应式原语
 
@@ -117,7 +160,9 @@ render(): Template | null {
 
 `slots`（`Record<string, Node[]>`，无名插槽为 `default`）由**构造器装到具体子类的原型**上（读内部 `__s.slots` 信号，模板里 `this.slots.xxx` 可作依赖源）；基类只留 `declare slots` 类型声明。**子类类体自己声明 `get slots()` 会顶掉框架实现、恒读空桩**——不要在子类写 slots 访问器。
 
-方法：`emit(evName, arg?, event?)` · `nextTick(cbk)` · `forceUpdate()` · `updateProps(props, force?)` · `insertStyleSheet(sheet): CSSStyleSheet \| null` · `getSubViewNodes(tmplFn, ...args): Node[]`（把已编译子模板回调渲染成节点；回调必须带 provenance——经 `slot()` 登记，否则 DEV 报错返回 `[]`）· `destroy()`
+方法：`emit(evName, arg?, event?)` · `nextTick(cbk)` · `forceUpdate()` · `updateProps(props, force?)` · `insertStyleSheet(sheet): CSSStyleSheet \| null` · `getSubViewNodes(tmplFn, ...args): Node[]`（把已编译子模板回调渲染成节点；回调必须带 provenance——经 `slot()` 登记，否则 DEV 报错返回 `[]`）· `destroy()` = `__freeze()` + `__finalize()`
+
+销毁拆两段：`__freeze()` 只停「响应能力」（`beforeDestroyed()` → 事件 → 视图/setup effect → 资源），**DOM 与 shadow 原样保留**；`__finalize()` 才清 shadow/槽、`remove()`、触发 `destroyed()`。`isDestroyed` 在 freeze 后即为 true（离场动画期间组件已不可用）。离场路径由 `commitRemove` 与 `#updateSlot` 的离场分支调 `freezeSubComponents()` 冻结整棵子树，动画结束后 `destroy()` 收尾。
 
 生命周期（按序）：`propsReady(props)` → `render()`（**运行时为存根**，视图唯一来源是编译产物 `__ce_static__.buildTemplate`；源码里仍写 `render()` 返回 `h` 模板）→ `beforeMount()` → `mounted()`；更新时**没有** `shouldUpdate(changed)`/`updated(changed)` 钩子——一轮 flush 结束后、且本组件有视图 effect 真的跑过时触发 `afterUpdate()`（`@watch`/`cssVars` 变化不触发；无视图组件永不触发）；`<slot>` 变动时 `slotChange(slot, name)`；外部属性变更时 `attributeChangedCallback(name, oldValue, newValue)`；销毁时 `beforeDestroyed()` → `destroyed()`。
 

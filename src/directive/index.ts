@@ -6,6 +6,10 @@ import { commitRemove } from "../render/commitRemove";
 import { buildSubTemplate, getSubFx, insertSubView, registerSubViewEffects, renderTemplate, rerunSubViewEffects } from "../render/render";
 import { UpdatePoint } from "../render/UpdatePoint";
 import { batch, signal } from "../signal";
+import type { TransitionOpts } from "../transition/opts";
+import { transitionOptsOf } from "../transition/opts";
+import { prepareEnter } from "../transition/enter";
+import { captureRects, playMove } from "../transition/flip";
 import { DirectiveExecutor, DirectiveInstance, DirectiveUpdateTag, EnterPointType } from "../types";
 import { showError } from "../utils";
 
@@ -45,8 +49,10 @@ function groupAddNodes(adds: Record<string, any>[]) {
 
 /**
  * 摘掉一个指令点当前挂着的子视图：收节点 + 收 UpdatePoint + 销毁
+ *
+ * `leave` 存在时延后摘除（冻结后跑离场动画），语义见 commitRemove。
  */
-function detachSubView(up: UpdatePoint, component: CompElem<any>) {
+function detachSubView(up: UpdatePoint, component: CompElem<any>, leave?: TransitionOpts['leave']) {
   const roots = up.subViewRootNodes
   const nodes: Node[] = []
   if (roots) {
@@ -62,13 +68,23 @@ function detachSubView(up: UpdatePoint, component: CompElem<any>) {
   up.subViewRootNodes = isArray(roots) ? [] : {}
   up.subCells = undefined
   up.children = []
-  commitRemove(nodes, oldUps, component)
+  commitRemove(nodes, oldUps, component, leave)
 }
 
-/** 拆掉旧子视图，换成回调 `tmplFn` 的新子视图 */
-function replaceSubView(pointNode: Node, up: UpdatePoint, tmplFn: any, tmplM: any, component: CompElem<any>) {
-  detachSubView(up, component)
-  insertSubView(pointNode, up, tmplFn, tmplM, component)
+/**
+ * 结构指令末尾实参里的过渡声明：`{ enter, leave }`
+ *
+ * 位置随指令而异（`ifTrue(cond, tpl, opts)` 在 2、`ifElse(cond, a, b, opts)` 在 3、
+ * `forEach(v, key, tpl, opts)` 在 3），解析逻辑收在 `transitionOptsOf`。
+ */
+function optsOf(inst?: DirectiveInstance): TransitionOpts {
+  return transitionOptsOf(inst?.[1])
+}
+
+/** 拆掉旧子视图，换成回调 `tmplFn` 的新子视图（可同时带离场与入场） */
+function replaceSubView(pointNode: Node, up: UpdatePoint, tmplFn: any, tmplM: any, component: CompElem<any>, opts?: TransitionOpts) {
+  detachSubView(up, component, opts?.leave)
+  insertSubView(pointNode, up, tmplFn, tmplM, component, undefined, undefined, opts?.enter)
 }
 
 /** REFRESH：keys 未变时的快路径，只把新值回写进已有 cell，由 cell 的 effect 各自更新 DOM */
@@ -138,14 +154,14 @@ export function execEach(comp: CompElem<any>, node: Node, nv: any, ov: any, inst
   if (!rs) return
   switch (rs[0]) {
     case DirectiveUpdateTag.UPDATE:
-      reconcileEach(node, up, rs, comp)
+      reconcileEach(node, up, rs, comp, optsOf(inst))
       return
     case DirectiveUpdateTag.REFRESH:
       // rs = [REFRESH, null, keys, vals]
       writeCells(up, rs[2], rs[3])
       return
     case DirectiveUpdateTag.REMOVE:
-      detachSubView(up, comp)
+      detachSubView(up, comp, optsOf(inst).leave)
       return
     default:
       // INIT / NONE：更新期不该出现（effect 只在值变化时进来），忽略
@@ -168,12 +184,12 @@ export function execCond(comp: CompElem<any>, node: Node, nv: any, ov: any, inst
       applyRefresh(up, rs[1])
       return
     case DirectiveUpdateTag.REMOVE:
-      detachSubView(up, comp)
+      detachSubView(up, comp, optsOf(inst).leave)
       return
     case DirectiveUpdateTag.REPLACE: {
       // rs = [REPLACE, tmplFn, tmplM]
       const [, tmplFn, tmplM] = rs
-      replaceSubView(node, up, tmplFn, tmplM, comp)
+      replaceSubView(node, up, tmplFn, tmplM, comp, optsOf(inst))
       return
     }
     default:
@@ -208,11 +224,11 @@ export function execDir(comp: CompElem<any>, node: Node, nv: any, ov: any, inst?
       applyRefresh(up, rs[1])
       return
     case DirectiveUpdateTag.REMOVE:
-      detachSubView(up, comp)
+      detachSubView(up, comp, optsOf(inst).leave)
       return
     case DirectiveUpdateTag.REPLACE: {
       const [, tmplFn, tmplM] = rs
-      replaceSubView(node, up, tmplFn, tmplM, comp)
+      replaceSubView(node, up, tmplFn, tmplM, comp, optsOf(inst))
       return
     }
     default:
@@ -222,11 +238,18 @@ export function execDir(comp: CompElem<any>, node: Node, nv: any, ov: any, inst?
 
 /* ═══════════════════════ forEach 的 keyed 协调器 ═══════════════════════ */
 
-function moveGroupNodes(moveGroup: MovePosition[], oldNodeKeyMap: Record<string, Node[]>, oldKeys: string[]) {
+/**
+ * 按组搬节点。
+ *
+ * `headAnchorKey` 是 `AFTER_BEGIN` 的锚点，必须指向**留在列表里的**第一项：
+ * 带 `leave` 时被删节点仍在原位等动画，拿它当锚点会把存活项插到它前面，
+ * 离场节点于是被一路挤到后面。
+ */
+function moveGroupNodes(moveGroup: MovePosition[], oldNodeKeyMap: Record<string, Node[]>, headAnchorKey: string) {
   moveGroup.forEach(({ refKey, newKey }) => {
     let moveNodes = oldNodeKeyMap[newKey]!
     if (refKey === MovePositionType.AFTER_BEGIN) {
-      let nodes = oldNodeKeyMap[oldKeys[0]]
+      let nodes = oldNodeKeyMap[headAnchorKey]
       let refNode = nodes?.[0] as Element
       refNode.before(...moveNodes)
     } else if (oldNodeKeyMap[refKey]) {
@@ -240,7 +263,7 @@ function moveGroupNodes(moveGroup: MovePosition[], oldNodeKeyMap: Record<string,
 /**
  * forEach 的 UPDATE 分支：按 key 做增 / 删 / 移的 diff
  */
-function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderComponent: CompElem<any>) {
+function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderComponent: CompElem<any>, opts?: TransitionOpts) {
   const [, tmplM, newKeys, oldKeys, tmplFn, newAryOrObj] = rs as [
     DirectiveUpdateTag, any, string[], string[], any, any
   ]
@@ -265,7 +288,7 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
 
   let updatePoints = up.children!
   if (isEmpty(subViewRootNodes)) {
-    insertSubView(pointNode, up, tmplFn, tmplM, renderComponent, newAryOrObj, (_v, _k, i) => newKeys[i])
+    insertSubView(pointNode, up, tmplFn, tmplM, renderComponent, newAryOrObj, (_v, _k, i) => newKeys[i], opts?.enter)
     return
   }
 
@@ -300,6 +323,11 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
     }
   })
 
+  // FLIP 的「First」：必须在任何 DOM 变更之前把旧位置读出来。
+  // 未启用 move 时零测量、零分配。
+  const moveSpec = opts?.move
+  const beforeRects = moveSpec ? captureRects(oldNodeKeyMap) : undefined
+
   let oldSeq = oldKeys as string[]
   let newSeq = newKeys as string[]
   let oldSeqMap = new Map<string, number>()
@@ -320,6 +348,22 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
   for (let i = 0; i < oldSeq.length; i++) {
     if (!oldUsed[i]) {
       delKeysArr.push(oldSeq[i])
+    }
+  }
+
+  // 删除会整体前移其后各项的旧下标：不折掉这段偏移，
+  // 单纯「删前 N 项」会把所有存活项误判成需要移动（存活项被挪到离场节点之前）。
+  const delBefore = new Uint32Array(oldSeq.length + 1)
+  for (let i = 0; i < oldSeq.length; i++) {
+    delBefore[i + 1] = delBefore[i] + (oldUsed[i] ? 0 : 1)
+  }
+
+  // 列表头部的锚点取第一个**存活**旧键；全删时退回 oldSeq[0]
+  let headAnchorKey = oldSeq[0]
+  for (let i = 0; i < oldSeq.length; i++) {
+    if (oldUsed[i]) {
+      headAnchorKey = oldSeq[i]
+      break
     }
   }
 
@@ -345,7 +389,8 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
         edgeOffset++
         continue
       }
-      if (oldI > -1 && oldI !== (i - edgeOffset)) {
+      // 旧序列里扣掉它前面被删除的项，才与新序列的存活位次可比
+      if (oldI > -1 && oldI - delBefore[oldI] !== (i - edgeOffset)) {
         if (lastMoveIndex < 0 || Math.abs(lastMoveIndex - oldI) === 1) {
           let lastEl = lastGroup[lastGroup.length - 1]
           let refKey = i === 0 ? MovePositionType.AFTER_BEGIN : (lastEl ? lastEl.newKey : newSeq[i - 1])
@@ -384,7 +429,7 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
             moveGroup = moveGroup.slice(0, -1)
           }
         }
-        moveGroupNodes(moveGroup, oldNodeKeyMap, oldKeys)
+        moveGroupNodes(moveGroup, oldNodeKeyMap, headAnchorKey)
       } else {
         //注意：不可按「相邻moveIndex」丢弃组——单项反转（如[1,2,3]→[3,2,1]产生两个moveIndex相邻的
         //单元素组）会被误删导致后半组节点永不移动（实测 sort/下标互换渲染错乱）
@@ -393,7 +438,7 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
             moveAfterAddGroups.push(moveGroup)
             return
           }
-          moveGroupNodes(moveGroup, oldNodeKeyMap, oldKeys)
+          moveGroupNodes(moveGroup, oldNodeKeyMap, headAnchorKey)
         })
       }
     }//endif
@@ -402,7 +447,7 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
   //add
   let addGroup
   if (adds.length > 0) {
-    adds.forEach(add => {
+    adds.forEach((add, addIndex) => {
       let i = add.newIndex
       let val = newValueAry[i]
       const built = buildSubTemplate(renderComponent, tmplFn)
@@ -414,6 +459,9 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
         ; (up.subCells ??= {})[add.newKey] = cell
       registerSubViewEffects(renderComponent, tmplFn, cell, add.newKey, i, (built?.nodes ?? []) as Node[], upAry, () => (up.value as any)?.[1]?.[2])
       add.fragment = rs
+      // 插入前挂入场类（rs 仍是游离 fragment，不会被绘制）。
+      // 序号用本批第几个（不是列表位置）：否则长列表追加一项会算出几秒延迟。
+      if (opts?.enter) prepareEnter(toArray(rs.childNodes), opts.enter, addIndex)
       each(upAry, (nUp: UpdatePoint) => {
         nUp.key = add.newKey
         nUp.parent = up
@@ -436,7 +484,7 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
 
     addGroup.forEach((v, _i) => {
       let treeNode = v.fragment
-      let nodes = oldNodeKeyMap[v.refKey ?? oldKeys[0]]
+      let nodes = oldNodeKeyMap[v.refKey ?? headAnchorKey]
       let refFirstNode = nodes?.[0] as Element
       let refLastNode = nodes?.[nodes.length - 1] as Element
 
@@ -466,7 +514,7 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
 
   //afterAdd move
   each(moveAfterAddGroups, moveGroup => {
-    moveGroupNodes(moveGroup, oldNodeKeyMap, oldKeys)
+    moveGroupNodes(moveGroup, oldNodeKeyMap, headAnchorKey)
   })
 
   //del
@@ -474,8 +522,8 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
   if (delCells !== undefined) {
     for (let di = 0; di < delKeysArr.length; di++) delete delCells[delKeysArr[di]]
   }
-  delKeysArr.forEach(k => {
-    commitRemove(oldNodeKeyMap[k] || [], oldUpKeyMap[k] || [], renderComponent)
+  delKeysArr.forEach((k, delIndex) => {
+    commitRemove(oldNodeKeyMap[k] || [], oldUpKeyMap[k] || [], renderComponent, opts?.leave, delIndex)
   })
 
   //移动顺序
@@ -492,7 +540,9 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
 
     if (movedUpAry.length !== updatePoints.length) {
       const redundant = except<UpdatePoint>(updatePoints, movedUpAry)
-      redundant.forEach(up => up.destroy(renderComponent))
+      // 已冻结的更新点归属一次**延后**的 commitRemove（离场动画中），
+      // 这里不能立刻 destroy —— 否则 DOM 会在动画第一帧被摘掉
+      redundant.forEach(up => { if (!up.__frozen) up.destroy(renderComponent) })
     }
     up.children = movedUpAry
   }
@@ -508,6 +558,10 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
   }
 
   writeCells(up, newKeys, newValueAry)
+
+  // FLIP 的「Last / Invert / Play」放在最后：cell 回写会改文本、可能改变布局，
+  // 必须等这一轮全部落盘后再测量，否则位移量算错。
+  if (beforeRects && moveSpec) playMove(beforeRects, oldNodeKeyMap, newKeys, moveSpec)
 }
 
 /**

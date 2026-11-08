@@ -1,10 +1,10 @@
 {
   "name": "compelem",
-  "version": "0.30.0-beta.6",
+  "version": "0.30.0-beta.7",
   "description": "A modern, reactive, fast, lightweight and flexible lib for building web components",
-  "main": "dist/index.js",
-  "module": "dist/index.js",
-  "types": "index.d.ts",
+  "main": "dist/index.cjs.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "development": {
@@ -22,7 +22,7 @@
         "default": "./dist/index.esm.js"
       },
       "require": {
-        "types": "./dist/index.d.cts",
+        "types": "./dist/index.d.ts",
         "default": "./dist/index.cjs.js"
       }
     }

@@ -1,7 +1,7 @@
 ﻿import { CompElem } from "../CompElem";
 import { directive } from "../directive/index";
 import { resolveSubTemplateMeta } from "../render/render";
-import { DirectiveUpdateTag, EnterPointType, TplFn } from "../types";
+import { DirectiveUpdateTag, EnterPointType, StructureTransitionOptions, TplFn } from "../types";
 
 const IfTmplMap = new WeakMap()
 const ElseTmplMap = new WeakMap()
@@ -20,7 +20,7 @@ function resolveBranch(cacheMap: WeakMap<Node, any>, pointNode: Node, renderComp
  * @param condition 条件
  * @param tmpl 模板
  */
-export const ifElse = directive(function IfElse(condition: boolean, ifTmpl: TplFn, elseTmpl: TplFn) {
+export const ifElse = directive(function IfElse(condition: boolean, ifTmpl: TplFn, elseTmpl: TplFn, options?: StructureTransitionOptions) {
   const executor = (pointNode: Node, [condi, ifTmpl, elseTmpl]: any[], oldArgs: any[] | undefined, { renderComponent }: { renderComponent: CompElem }): [DirectiveUpdateTag, ...any[]] | void => {
     if (oldArgs && !!condi === !!oldArgs[0]) {
       //更新：分支未切换

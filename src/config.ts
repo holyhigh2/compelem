@@ -1,6 +1,7 @@
 import { each, flatMap, isString } from "myfx"
 import { CssScopeCacheMap } from "./constants"
 import { Csscope } from "./decorators/csscope"
+import { CssTemplate, sheetOfCssTemplate } from "./render/CssTemplate"
 import type { DefaultProps } from "./types"
 
 //全局/组件默认属性
@@ -12,8 +13,10 @@ let DefaultComponentProps: Record<string, Record<string, any>> = {}
  * @param options
  */
 export function setDefaults(options: DefaultProps) {
-  DefaultCss = flatMap<string | CSSStyleSheet, CSSStyleSheet>(options.css!, c => {
-    if (isString(c)) {
+  DefaultCss = flatMap<CssTemplate | string | CSSStyleSheet, CSSStyleSheet>(options.css!, c => {
+    if (c instanceof CssTemplate) {
+      return sheetOfCssTemplate(c)
+    } else if (isString(c)) {
       let sheet = new CSSStyleSheet();
       sheet.replaceSync(c)
       return sheet

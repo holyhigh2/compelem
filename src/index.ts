@@ -40,6 +40,10 @@ export type { SlotOrigin } from './render/slot-provenance';
 export { createResource, RESOURCE_TIMEOUT } from './resource';
 export type { Resource, ResourceOptions, ResourceStatus, ResourceTimeout, ResourceView } from './resource';
 export { batch, effect, flushSync, onCleanup, onEffectError, signal, computed as signalComputed, untrack } from './signal';
+export {
+    createViewTransition, installViewTransitionStyles, supportsViewTransition, TRANSITION_CSS, transitionMsOf, VIEW_TRANSITION_CSS, whenTransitionEnds, withViewTransition
+} from './transition';
+export type { ViewTransitionHandle, ViewTransitionOptions } from './transition';
 export { createRef, css, h, Template };
 export function defineComponents() {
     each(DefinitionComponentMap, (clz, name) => {

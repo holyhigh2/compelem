@@ -21,7 +21,6 @@ export const DefinitionComponentMap = {} as Record<string, Function>;
 export const CssTemplateCacheMap = new WeakMap<TemplateStringsArray, CssTemplate>()
 export const CssStyleSheetCacheMap = new WeakMap<TemplateStringsArray, CSSStyleSheet>()
 export const CssScopeCacheMap = new WeakMap<Function, Map<string, CSSStyleSheet[]>>()
-export const CssTemplateSheetMap = new WeakMap<CssTemplate, CSSStyleSheet>()
 export const CssVarKeyCacheMap = new WeakMap<Function, Map<string, string>>()
 
 export const DirectiveScopeMap = new WeakMap<Function, string[]>()

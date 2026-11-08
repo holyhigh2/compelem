@@ -9,6 +9,9 @@ import { CompElem } from "../CompElem";
 import { ComponentUninitializedWrapperComponentMap, CssTemplateCacheMap, NO_CHILD_EFFECT } from "../constants";
 import { bindEvents, getEventBindList } from "../events/event";
 import { effect, signal, SignalNode } from "../signal";
+import type { EnterSpec } from "../transition/enter";
+import { prepareEnter } from "../transition/enter";
+import { transitionOptsOf } from "../transition/opts";
 import { DirectiveInstance, KeyFn, TplFn } from "../types";
 import { addUninitializedSubComponentProp, isCompElemNode, showTagError } from "../utils";
 import { CssTemplate } from "./CssTemplate";
@@ -51,6 +54,14 @@ function resolvePath(root: Node, path: readonly number[]): Node {
   let n: any = root
   for (let i = 0; i < path.length; i++) n = n.childNodes[path[i]]
   return n as Node
+}
+
+/** fragment 的直接子节点快照（入场挂类需要在插入前拿到节点数组） */
+function childNodesOf(fragment: DocumentFragment): Node[] {
+  const out: Node[] = []
+  const cn = fragment.childNodes
+  for (let i = 0; i < cn.length; i++) out.push(cn[i])
+  return out
 }
 
 export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, built?: {
@@ -178,7 +189,7 @@ export function renderTemplate(component: CompElem<any>, tmplM: TemplateMeta, bu
     let tmpl = executor(currentNode, args, undefined, { renderComponent: component, slotComponent, varChain, attrName, pointType: newUp.directiveType })
     if (tmpl && tmpl.length > 1 && tmpl[1] && tmpl[2]) {
       let [, tmplFn, tmplM, newAry, keyFn] = tmpl
-      insertSubView(currentNode, newUp, tmplFn, tmplM, component, newAry, keyFn)
+      insertSubView(currentNode, newUp, tmplFn, tmplM, component, newAry, keyFn, transitionOptsOf(args).enter)
     }
   })
   direcitves.forEach(([currentNode, attrName, slotComponent, executor, args, varChain, pointType]) => {
@@ -246,9 +257,18 @@ export function buildStaticView(component: CompElem<any>): DocumentFragment {
   const nodes = out.nodes || []
   const fx = ceStatic.fx as any[] | undefined
     ; (component as any).__dirNodeMap = new Map<Node, UpdatePoint>()
-  const [rs, upAry] = renderTemplate(component, tmplM, out, {
-    fx,
-  })
+  let rendered: [DocumentFragment, UpdatePoint[]]
+  // 首屏建树期间关闭入场：升级型组件（先入文档、后 define）在插入时 isConnected 已是 true，
+  // 只能靠这个标记区分「首屏」与「后续更新」
+  ; (component as any).__firstBuild = true
+  try {
+    rendered = renderTemplate(component, tmplM, out, {
+      fx,
+    })
+  } finally {
+    ; (component as any).__firstBuild = false
+  }
+  const [rs, upAry] = rendered
   component.__updateTree = upAry
   const factories = resolvePointFactories(ceStatic)
   // 每个点的取值表达式都内联在 fx 工厂里，工厂不需要额外的取值解析实参。
@@ -476,7 +496,7 @@ export function registerSubViewEffects(
   if (host !== undefined) (host.subEffects ??= []).push(e)
 }
 
-export function insertSubView(node: Node, point: UpdatePoint, tmplFn: TplFn, tmplM: TemplateMeta, component: CompElem<any>, valueAry?: any[], keyFn?: KeyFn) {
+export function insertSubView(node: Node, point: UpdatePoint, tmplFn: TplFn, tmplM: TemplateMeta, component: CompElem<any>, valueAry?: any[], keyFn?: KeyFn, enter?: EnterSpec | null) {
   let upList: any = []
   let rootNodes = keyFn ? {} as Record<string, any> : undefined
   valueAry = valueAry ?? [0]
@@ -538,6 +558,9 @@ export function insertSubView(node: Node, point: UpdatePoint, tmplFn: TplFn, tmp
   let len = fragment ? fragment.childNodes.length : 0
   if (len > 0) {
     bindEvents(component)
+    // 挂类必须在插入前：此刻节点还在游离 fragment 里，不会被绘制。
+    // 首屏建树一律不入场（`appear` 默认关闭），否则会拖慢首次绘制。
+    prepareEnter(childNodesOf(fragment!), (component as any).__firstBuild ? null : enter)
     node.parentNode!.insertBefore(fragment!, node);
   }
 }

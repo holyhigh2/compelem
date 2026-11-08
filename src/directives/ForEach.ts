@@ -8,7 +8,7 @@ import { CompElem } from "../CompElem";
 import { directive } from "../directive/index";
 import { resolveSubTemplateMeta } from "../render/render";
 import type { UpdatePoint } from "../render/UpdatePoint";
-import { DirectiveUpdateTag, EnterPointType, KeyFn, TplFn } from "../types";
+import { DirectiveUpdateTag, EnterPointType, KeyFn, StructureTransitionOptions, TplFn } from "../types";
 import { showError } from "../utils";
 
 const LastKeysMap = new WeakMap()
@@ -21,7 +21,7 @@ const EachTmplMap = new WeakMap()
  * 1. 支持多根输出
  * 2. 
  */
-export const forEach = directive(function ForEach(value: any[] | Record<string, any>, keyFn: KeyFn, tmpl: TplFn) {
+export const forEach = directive(function ForEach(value: any[] | Record<string, any>, keyFn: KeyFn, tmpl: TplFn, options?: StructureTransitionOptions) {
   return (pointNode: Node, newArgs: any[], oldArgs: any[] | undefined, { renderComponent }: { renderComponent: CompElem, varChain: string[], up?: UpdatePoint }) => {
     let newAryOrObj = newArgs[0]
     if (isEmpty(newAryOrObj) && isUndefined(oldArgs)) return [DirectiveUpdateTag.INIT]

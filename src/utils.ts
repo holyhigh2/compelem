@@ -113,6 +113,35 @@ export const DomUtil = {
   }
 }
 
+/**
+ * 冻结一棵子树里的全部组件实例，含 `root` 自身。
+ *
+ * 离场保留 DOM 期间调用：`__freeze()` 只回收实例自己的 effect，
+ * 嵌套子组件的 effect 记在它们各自实例上，必须逐个点名。
+ * 收集时穿透 shadowRoot —— 子组件通常渲染在父组件的 shadow 里，
+ * 只走 light DOM 的 childNodes 会漏掉这一类。
+ *
+ * 先收集后处理：用户的 `beforeDestroyed()` 可能改动 DOM。
+ * `__freeze()` 幂等，重复调用无害。
+ */
+export function freezeSubComponents(root: Node) {
+  if (!root) return
+  const comps: CompElem[] = []
+  const collect = (node: Node) => {
+    if (node.nodeType !== Node.ELEMENT_NODE) return
+    if (node instanceof CompElem) comps.push(node)
+    const shadow = (node as Element).shadowRoot
+    if (shadow) collectAll(shadow)
+    collectAll(node)
+  }
+  const collectAll = (container: Node) => {
+    const children = container.childNodes
+    for (let i = 0, l = children.length; i < l; i++) collect(children[i])
+  }
+  collect(root)
+  for (let i = 0, l = comps.length; i < l; i++) comps[i].__freeze()
+}
+
 export function isCompElemNode(node: Element) {
   return !!DefinitionComponentMap[tagNameLower(node.tagName) as string]
 }

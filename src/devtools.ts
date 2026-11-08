@@ -10,7 +10,7 @@
  *
  */
 
-import { CssScopeCacheMap, CssStyleSheetCacheMap, CssTemplateSheetMap, DefinitionCompEmitMap } from "./constants";
+import { CssScopeCacheMap, CssStyleSheetCacheMap, DefinitionCompEmitMap } from "./constants";
 import { CssTemplate } from "./render/CssTemplate";
 
 export interface CompElemCoreMeta {
@@ -146,7 +146,7 @@ function cssScopeDecls(ctor: Function): CssScopeDecl[] {
         if (it instanceof CssTemplate) {
           seenGetters.add(name);
           const text = String(it.getCssText());
-          let sheet: CSSStyleSheet | null = CssTemplateSheetMap.get(it) ?? CssStyleSheetCacheMap.get(it.strings) ?? null;
+          let sheet: CSSStyleSheet | null = CssStyleSheetCacheMap.get(it.strings) ?? null;
           const scopes: string[] = [];
           if (sheet) {
             if (sheetsByScope.inner.includes(sheet)) scopes.push('inner');

@@ -2,6 +2,7 @@
  * @author holyhigh2
  */
 import { CompElem } from "./CompElem";
+import type { CssTemplate } from "./render/CssTemplate";
 import { Template } from "./render/Template";
 import type { UpdatePoint } from "./render/UpdatePoint";
 
@@ -78,6 +79,47 @@ export type SlotOptions = {
 
 export type TplFn = (...args: any[]) => Template;
 export type KeyFn = (item: any, k: string | number, i: number) => string | number;
+
+/**
+ * 入场 / 离场过渡声明：预设名字符串，或规整对象。
+ *
+ * 类前缀为 `ce-{name}`（name 缺省时 `ce`），`duration` 覆盖从 computed style
+ * 反推的时长，`delay` 写进内联样式、让过渡真的延后播放（同时计入超时预算）。
+ */
+export type TransitionSpec = string | {
+    name?: string
+    /** 毫秒；不传则从 computed style 反推 */
+    duration?: number
+    /** 毫秒；延迟播放，并覆盖 CSS 里自带的 transition-delay */
+    delay?: number
+}
+
+/**
+ * 列表重排（FLIP）动画声明：字符串表示启用默认 200ms 位移，对象可调时长/缓动。
+ * 字符串不再对应预设名（位移量由前后 rect 决定，类名不作为契约）。
+ */
+export type MoveSpec = string | {
+    /** 毫秒，默认 200 */
+    duration?: number
+    /** CSS easing，默认 `cubic-bezier(.4,0,.2,1)` */
+    easing?: string
+}
+
+/**
+ * 结构指令末尾实参：过渡选项
+ *
+ * `leave` 存在时，被删除的子视图先冻结再跑离场动画，结束后才真正摘除；
+ * `enter` 存在时，新增的子视图从 `-enter-from` 起步再过渡到终态；
+ * 都不传则维持原来的同步行为（零开销）。
+ */
+export type StructureTransitionOptions = {
+    /** 离场预设名（如 `'fade'`）或其规整对象 */
+    leave?: TransitionSpec | null
+    /** 入场预设名或其规整对象 */
+    enter?: TransitionSpec | null
+    /** 列表重排的位移过渡（FLIP）：任意字符串或 `{ duration, easing }` */
+    move?: MoveSpec | null
+}
 
 /**
  * 属性定义
@@ -191,7 +233,7 @@ export enum DirectiveUpdateTag {
 
 export type DefaultProps = Partial<{
     //全局默认样式
-    css: Array<string | CSSStyleSheet>,
+    css: Array<CssTemplate | string | CSSStyleSheet>,
     //全局默认prop
     global: Record<string, any>,
     //组件的默认prop

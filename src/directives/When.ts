@@ -4,7 +4,7 @@ import { directive } from "../directive/index";
 import { resolveSubTemplateMeta } from "../render/render";
 import type { TemplateMeta } from "../render/TemplateMeta";
 import type { UpdatePoint } from "../render/UpdatePoint";
-import { DirectiveUpdateTag, EnterPointType, TplFn } from "../types";
+import { DirectiveUpdateTag, EnterPointType, StructureTransitionOptions, TplFn } from "../types";
 import { showTagError } from "../utils";
 const LastConditionMap = new WeakMap()
 const BranchTmplMMap = new WeakMap<Node, TemplateMeta[]>()
@@ -28,8 +28,9 @@ const CasesCacheMap = new WeakMap<Node, { cases: any, conditionList: any[], tmpl
  * 
  * @param condition 条件 
  * @param tmpl 模板
+ * @param options 过渡选项；`enter`/`leave` 非空时命中分支切换走过渡
  */
-export const when = directive(function When(value: string | number, cases: Array<[(v: any) => boolean, TplFn]> | Record<string | number, TplFn>) {
+export const when = directive(function When(value: string | number, cases: Array<[(v: any) => boolean, TplFn]> | Record<string | number, TplFn>, options?: StructureTransitionOptions) {
   const executor = (pointNode: Node, [value, cases]: [string | number, Array<[(v: any) => boolean, TplFn]> | Record<string | number, TplFn>], oldArgs: any[] | undefined, { renderComponent, up }: { renderComponent: CompElem, up?: UpdatePoint }): [DirectiveUpdateTag, ...any[]] | void => {
     let cc = CasesCacheMap.get(pointNode)
     if (!cc || cc.cases !== cases) {

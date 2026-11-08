@@ -1,15 +1,16 @@
 ﻿import { CompElem } from "../CompElem";
 import { directive } from "../directive/index";
 import { resolveSubTemplateMeta } from "../render/render";
-import { DirectiveUpdateTag, EnterPointType, TplFn } from "../types";
+import { DirectiveUpdateTag, EnterPointType, StructureTransitionOptions, TplFn } from "../types";
 
 const TmplMap = new WeakMap()
 /**
  * 条件为真时返回内容，仅能用于文本节点
  * @param condition 条件 
  * @param tmpl 模板
+ * @param options 过渡选项；`leave` 非空时删除走离场动画
  */
-export const ifTrue = directive(function IfTrue(condition: boolean, tplFn: TplFn) {
+export const ifTrue = directive(function IfTrue(condition: boolean, tplFn: TplFn, options?: StructureTransitionOptions) {
   const executor = (pointNode: Node, newArgs: any[], oldArgs: any[] | undefined, { renderComponent }: { renderComponent: CompElem }): [DirectiveUpdateTag, ...any[]] | void => {
     const condi = newArgs[0]
     const render = newArgs[1]
