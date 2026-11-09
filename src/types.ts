@@ -153,6 +153,14 @@ export type StateOption = {
      */
     shallow?: boolean,
     /**
+     * 变化时让**每个视图点**都重算一次（粗粒度失效扳机），默认 false。
+     *
+     * 用于模板表达式不直接读取、但会改变视图结果的 state（版本号 / 序号 / 开关）。
+     * 编译器把这类 state 作为依赖注册注入每个 point effect 体；不写则只有真正被
+     * 表达式读到的信号才建立订阅。
+     */
+    trigger?: boolean,
+    /**
      * 是否发生变更，如果未指定使用严格相等
      * @param newValue 
      * @param oldValue 
