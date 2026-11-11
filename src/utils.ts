@@ -1,4 +1,4 @@
-import { camelCase, each, get, isBlank, isString, isUndefined, kebabCase, parseJSON, some } from "myfx";
+import { camelCase, each, get, isBlank, isString, isUndefined, kebabCase, memoize, parseJSON, some } from "myfx";
 import { CompElem } from "./CompElem";
 import { ComponentUninitializedSubComponentPropMap, CssVarKeyCacheMap, DefinitionComponentMap } from "./constants";
 import { Constructor, StyleValueObjectType } from "./types";
@@ -206,24 +206,14 @@ export function _observedAttrs(ctor: Function): string[] {
 }
 
 /**
- * 单参数纯函数的记忆化包装：返回行为等价的函数，命中缓存直接返回，未命中算一次后写入。
+ * 单参数纯函数的记忆化包装
  *
  * 缓存是强引用 `Map`，故只适用于**值类型键**（string/number/boolean 等）；对象键会被
  * 缓存强引用住而阻止回收，那种场景得用 `WeakMap` 手写（见 `typeNameLower`）。
- * 满 `maxSize` 后整表清空（非 LRU：clear 是 O(1)，重排成本高于重算这些廉价函数的收益）。
- *
- * 约定：命中判定为 `!== undefined`，故 `fn` 返回 `undefined` 时**不缓存**（每次重算）。
+ * 满 `maxSize` 后整表清空；`fn` 返回 `undefined` 时**不缓存**（每次重算）。
  */
 export function memo<A, R>(fn: (a: A) => R, maxSize = 512): (a: A) => R {
-  const cache = new Map<A, R>()
-  return (a: A): R => {
-    let v = cache.get(a)
-    if (v !== undefined) return v
-    if (cache.size >= maxSize) cache.clear()
-    v = fn(a)
-    cache.set(a, v)
-    return v
-  }
+  return memoize(fn, { maxSize })
 }
 
 //kebabCase结果缓存

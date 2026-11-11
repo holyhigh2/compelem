@@ -11,6 +11,7 @@
  *   4. 每个元素等自己的全部动画结束，全部落定后再统一 cleanup/finalize
  */
 import type { TransitionSpec } from '../types'
+import { map, parseDuration } from 'myfx'
 import { showError } from '../utils'
 
 export const LEAVING_ATTR = 'data-ce-leaving'
@@ -93,6 +94,33 @@ export function normalizeSpec(spec: TransitionSpec): NormalizedSpec {
 
 /* ═══════════════════════ 时长与结束判定 ═══════════════════════ */
 
+/**
+ * 解析 CSS 时长列表（如 `0.3s, 0.5s`）为毫秒数组。
+ *
+ * myfx 2.0 移除了业务耦合的 parseDurations，这里在使用方就地实现：
+ * 空串返回 `[]`（保证 propCount 为 0），其余按逗号拆分后逐项 parseDuration。
+ */
+function parseDurations(value: string): number[] {
+  if (!value) return []
+  return map(value.split(','), parseDuration)
+}
+
+/**
+ * 一次过渡的总时长：各属性 `duration + delay` 的最大值。
+ *
+ * delay 数量少于 duration 时按取模循环复用（与 CSS 规范一致）。
+ * myfx 2.0 移除了该业务函数，这里在使用方独立实现。
+ */
+function durationTimeout(durations: number[], delays: number[]): number {
+  let max = 0
+  for (let i = 0; i < durations.length; i++) {
+    const delay = delays.length ? delays[i % delays.length] : 0
+    const total = durations[i] + delay
+    if (total > max) max = total
+  }
+  return max
+}
+
 type TransitionType = 'transition' | 'animation'
 
 export type TransitionInfo = {
@@ -101,32 +129,6 @@ export type TransitionInfo = {
   propCount: number
   transitionTimeout: number
   animationTimeout: number
-}
-
-/** `1.5s, 200ms` → [1500, 200]（逐项解析，不做聚合） */
-function times(value: string | null | undefined): number[] {
-  if (!value) return []
-  return value.split(',').map(toMs)
-}
-
-function toMs(value: string): number {
-  const t = value.trim()
-  // CSS 默认值可能是 'auto'
-  if (!t || t === 'auto') return 0
-  const n = parseFloat(t)
-  if (!isFinite(n)) return 0
-  return t.endsWith('ms') ? n : n * 1000
-}
-
-/** 每个 duration 与循环取到的 delay 配对，取最大和（与 Vue 的 getTimeout 一致） */
-function timeoutOf(durations: number[], delays: number[]): number {
-  let max = 0
-  for (let i = 0; i < durations.length; i++) {
-    const delay = delays.length ? delays[i % delays.length] : 0
-    const total = durations[i] + delay
-    if (total > max) max = total
-  }
-  return max
 }
 
 /**
@@ -138,12 +140,12 @@ function timeoutOf(durations: number[], delays: number[]): number {
  */
 export function transitionInfoOf(el: Element): TransitionInfo {
   const cs = getComputedStyle(el)
-  const transitionDurations = times(cs.transitionDuration)
-  const transitionDelays = times(cs.transitionDelay)
-  const animationDurations = times(cs.animationDuration)
-  const animationDelays = times(cs.animationDelay)
-  const transitionTimeout = timeoutOf(transitionDurations, transitionDelays)
-  const animationTimeout = timeoutOf(animationDurations, animationDelays)
+  const transitionDurations = parseDurations(cs.transitionDuration)
+  const transitionDelays = parseDurations(cs.transitionDelay)
+  const animationDurations = parseDurations(cs.animationDuration)
+  const animationDelays = parseDurations(cs.animationDelay)
+  const transitionTimeout = durationTimeout(transitionDurations, transitionDelays)
+  const animationTimeout = durationTimeout(animationDurations, animationDelays)
 
   if (transitionTimeout > 0 && transitionTimeout > animationTimeout) {
     return {
