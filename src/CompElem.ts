@@ -38,7 +38,7 @@ import { batch, effect, EffectNode, onCleanup, onFlushEnd, reportEffectError, si
 import { prepareEnter } from "./transition/enter";
 import { runLeave, stripViewKeyMarkers } from "./transition/leave";
 import { CompiledStatic, PropOption, SlotOptions, StateDefInternal, StateOption, TplFn } from "./types";
-import { _getSuper, camelCaseCached, DomUtil, freezeSubComponents, getBooleanValue, isBooleanProp, kebabCaseCached, showTagError, showWarn, tagNameLower } from "./utils";
+import { _getSuper, camelCaseCached, DomUtil, freezeSubComponents, getBooleanValue, isBooleanProp, kebabCaseCached, showError, showTagError, showWarn, tagNameLower } from "./utils";
 
 let CompElemSn = 0
 const SlotCompMap = new WeakMap()
@@ -163,8 +163,13 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
    */
   _hostUps: UpdatePoint[] | undefined
 
-  _subComponentEventSn = 0
-  _subComponentEventMap = new Map<number, Record<string, Function>>()
+  /**
+   * 子节点的组件事件登记：节点 → { 事件名 → 处理器 }。
+   *
+   * 以节点本身作 key，节点被回收时登记随之释放，无需在移除路径上手动清理；
+   * 归属仍是「写回调的那个组件」（插槽内容登记在 provenance owner 上）。
+   */
+  _subComponentEventMap = new WeakMap<Element, Record<string, Function>>()
 
   get [Symbol.toStringTag]() {
     return this.constructor.name;
@@ -211,7 +216,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   #slotNodes: Record<string, Node[]> = {};
   #mounted: boolean = false
 
-  #updateNextImmediatelyQ: Function[]
+  #updateNextImmediatelyQ: Function[] | undefined
 
   //////////////////////////////////// styles
   get cssVars(): Record<string, string | number | undefined> {
@@ -380,8 +385,14 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     this.#frozen = true
     this.#tearingDown = true
     try {
-      // 用户钩子放在最前：此时 effect/资源都还活着
-      this.beforeDestroyed()
+      // 用户钩子放在最前：此时 effect/资源都还活着。
+      // 异常必须就地隔离——否则下面的释放全部跳过，而 `#frozen` 已置位、
+      // 组件会停在「isDestroyed 为 true、事件/effect/资源仍在跑」的僵尸态
+      try {
+        this.beforeDestroyed()
+      } catch (err) {
+        showError(`<${this.tagName.toLowerCase()}> beforeDestroyed()`, err)
+      }
 
       //events
       releaseEventHandlers(this)
@@ -400,6 +411,13 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         e.dispose()
       }
       releaseResources(this)
+      // 挂载前入队、随后在挂载前被销毁：不会再有「挂载时统一 flush」的时机，
+      // 剩余回调直接进微任务（与销毁后调 nextTick 的语义一致）
+      const nextQ = this.#updateNextImmediatelyQ
+      if (nextQ) {
+        this.#updateNextImmediatelyQ = undefined
+        nextQ.forEach((cbk) => Promise.resolve().then(cbk as any))
+      }
       this.__f = false
     } finally {
       this.#tearingDown = false
@@ -413,70 +431,87 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     if (this.#destroyed) return
     this.#destroyed = true
 
-    //sup scope：宿主（父组件）指向本组件的更新点
-    const hostUps = this._hostUps
-    this._hostUps = undefined
-    if (hostUps && this.#parentComponent) {
-      let pComp = this.#parentComponent.deref()
-      if (pComp) {
-        for (let i = 0; i < hostUps.length; i++) {
-          const up = hostUps[i]
-          if (up.__destroyed) continue
-          up.destroy(pComp)
-          remove(up.parent ? up.parent.children! : pComp.__updateTree, c => c === up)
+    try {
+      //sup scope：宿主（父组件）指向本组件的更新点
+      const hostUps = this._hostUps
+      this._hostUps = undefined
+      if (hostUps && this.#parentComponent) {
+        let pComp = this.#parentComponent.deref()
+        if (pComp) {
+          for (let i = 0; i < hostUps.length; i++) {
+            const up = hostUps[i]
+            if (up.__destroyed) continue
+            up.destroy(pComp)
+            remove(up.parent ? up.parent.children! : pComp.__updateTree, c => c === up)
+          }
         }
       }
+      //sub scopes
+      //shadow 树内一次性清理全部嵌套子组件（含无插值覆盖的静态子组件，它们没有对应的更新点）
+      if (this.#shadow) DomUtil.clear(this.#shadow)
+      each(this.__updateTree, up => {
+        try {
+          up?.destroy(this)
+        } catch (err) {
+          showError('update point destroy', err)
+        }
+      })
+
+      //slots
+      each(this.#slotsEl, (slotEl) => {
+        SlotCompMap.delete(slotEl)
+        slotEl.remove()
+      })
+      each(this.#slotNodes, (nodes) => {
+        each(nodes, (node: Element) => node.remove())
+      })
+      each(this.__s?.slots?.value, (nodes: Node[], _k) => {
+        each(nodes, (node: Element) => node.remove())
+      })
+      // slots 订阅 effect
+      if (this.#slotSync !== undefined) {
+        this.#slotSync.dispose()
+        this.#slotSync = undefined
+      }
+    } finally {
+      // 清理链中途抛错（子组件的用户钩子等）也必须把 DOM 与引用落定，
+      // 否则元素会留在文档里而 `isDestroyed` 已为 true
+      this.#onSlotChangeHookBindThis = this.__thisRef =
+        this.#slotNodes = this.#slotsEl = this.#slotPropsMap = null as any
+      if (this.__s?.slots) this.__s.slots = null as any
+
+      this.remove()
+      // 挂载状态随 DOM 一起失效：销毁后 isMounted 与「DOM 可用」保持一致，
+      // 消费侧的 `if (!this.isMounted) return` 守卫与 @query 门控才能一并生效
+      this.#mounted = false
+
+      //data
+      this.#renderRoot = this.#renderRoots = this.#shadow =
+        this.#attrs =
+        this.#props =
+        this.#renderRoot =
+        this.#renderRoots =
+        this.#slotHooks =
+        this.__updateTree =
+        this.#parentComponent =
+        this.#wrapperComponent = null as any
+
+      this.destroyed()
     }
-    //sub scopes
-    //shadow 树内一次性清理全部嵌套子组件（含无插值覆盖的静态子组件，它们没有对应的更新点）
-    if (this.#shadow) DomUtil.clear(this.#shadow)
-    each(this.__updateTree, up => up?.destroy(this))
-
-    //slots
-    each(this.#slotsEl, (slotEl) => {
-      SlotCompMap.delete(slotEl)
-      slotEl.remove()
-    })
-    each(this.#slotNodes, (nodes) => {
-      each(nodes, (node: Element) => node.remove())
-    })
-    each(this.__s?.slots?.value, (nodes: Node[], _k) => {
-      each(nodes, (node: Element) => node.remove())
-    })
-    // slots 订阅 effect
-    if (this.#slotSync !== undefined) {
-      this.#slotSync.dispose()
-      this.#slotSync = undefined
-    }
-    this.#onSlotChangeHookBindThis = this.__thisRef =
-      this.#slotNodes = this.#slotsEl = this.#slotPropsMap = null as any
-    if (this.__s?.slots) this.__s.slots = null as any
-
-    this.remove()
-
-    //data
-    this.#renderRoot = this.#renderRoots = this.#shadow =
-      this.#attrs =
-      this.#props =
-      this.#renderRoot =
-      this.#renderRoots =
-      this.#slotHooks =
-      this.__updateTree =
-      this.#parentComponent =
-      this.#wrapperComponent = null as any
-    //unmount
-
-    this.destroyed()
   }
 
   destroy() {
     if (this.#destroyed || this.#tearingDown) return
-    this.__freeze()
-    this.#tearingDown = true
     try {
-      this.__finalize()
+      this.__freeze()
     } finally {
-      this.#tearingDown = false
+      // 冻结阶段抛错（用户钩子、释放路径）也必须落定，否则组件既不响应也不消失
+      this.#tearingDown = true
+      try {
+        this.__finalize()
+      } finally {
+        this.#tearingDown = false
+      }
     }
   }
 
@@ -588,8 +623,11 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
 
     this.#updateSlotsAry()
 
-    if (this.#updateNextImmediatelyQ) {
-      this.#updateNextImmediatelyQ.forEach((cbk) => Promise.resolve().then(cbk as any))
+    const nextQ = this.#updateNextImmediatelyQ
+    if (nextQ) {
+      // 取出即清空：否则数组连同闭包会一直留到实例回收
+      this.#updateNextImmediatelyQ = undefined
+      nextQ.forEach((cbk) => Promise.resolve().then(cbk as any))
     }
 
     bindEvents(this)
@@ -1295,7 +1333,14 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     if (event) {
       arg.event = event;
     }
-    arg.target = this;
+    // 组件实例与更新树互相引用（parent ↔ children），可作为可枚举字段直接让
+    // `JSON.stringify(arg)` 撞环；挂成不可枚举属性，读取 `arg.target` 不受影响
+    Object.defineProperty(arg, 'target', {
+      value: this,
+      enumerable: false,
+      configurable: true,
+      writable: true
+    })
 
     if (this.hasAttribute('emit-native')) {
       this.dispatchEvent(
@@ -1307,11 +1352,10 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         })
       );
     } else {
-      let evSrc = get<number>(this, '__c_emit_event_')
       if (!this.wrapperComponent) {
         return
       }
-      emitEvent(this.wrapperComponent, evSrc, evName, arg)
+      emitEvent(this.wrapperComponent, this, evName, arg)
     }
   }
   /**
@@ -1319,7 +1363,8 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
    * @param cbk
    */
   nextTick(cbk: () => void) {
-    if (!this.isMounted) {
+    // 销毁后不会再有「挂载时统一 flush」的时机，直接进微任务，否则回调滞留队列
+    if (!this.isMounted && !this.isDestroyed) {
       if (!this.#updateNextImmediatelyQ) {
         this.#updateNextImmediatelyQ = []
       }

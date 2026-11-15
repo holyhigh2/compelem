@@ -1,4 +1,4 @@
-import { debounce, each, get, isFunction, noop, once, set, throttle } from "myfx";
+import { debounce, each, get, isFunction, noop, once, throttle } from "myfx";
 import { CompElem } from "../CompElem";
 import { DefinitionCompEmitMap, DefinitionCompEventMap, DefinitionComponentMap } from "../constants";
 import { _getSuper, fieldGet, tagNameLower } from "../utils";
@@ -212,12 +212,10 @@ function applyEventModifiers(cbk: EvHadler, f: ModiFlags, delegated = false) {
 }
 
 export function addEmitEvent(node: Element, component: CompElem<any>, evName: string, c: EvHadler) {
-  let eventSourceSn = get<number>(node, '__c_emit_event_') ?? component._subComponentEventSn++
-  set(node, '__c_emit_event_', eventSourceSn)
-  let evMap = component._subComponentEventMap.get(eventSourceSn)
+  let evMap = component._subComponentEventMap.get(node)
   if (!evMap) {
     evMap = {}
-    component._subComponentEventMap.set(eventSourceSn, evMap)
+    component._subComponentEventMap.set(node, evMap)
   }
   evMap[evName] = c
 }
@@ -343,7 +341,14 @@ export function bindEvents(comp: CompElem<any>) {
       let evName = v[0], cbk = v[1], node = v[2]
       if (!node) continue
       if (v[3]) continue
-      if (!cbk || cbk === noop) continue
+      if (!cbk) continue
+      if (cbk === noop) {
+        const f = parseEventName(evName).flags
+        if (!f.prevent && !f.stop) continue
+        registerEvent(comp, evName, noop, node)
+        v[3] = noop
+        continue
+      }
       let handler = needBind(cbk) ? bindOnce(cbk, comp) : cbk
       registerEvent(comp, evName, handler, node)
       v[3] = noop
@@ -403,9 +408,8 @@ export function matchEmit(ctor: Function, evName: string): boolean {
   return false
 }
 
-export function emitEvent(comp: CompElem, evSrc: number, evName: string, arg: Record<string, any>) {
-  let evMap = comp._subComponentEventMap.get(evSrc)
-  let evFn = get(evMap, evName)
+export function emitEvent(comp: CompElem, node: Element, evName: string, arg: Record<string, any>) {
+  let evFn = get(comp._subComponentEventMap.get(node), evName)
   if (isFunction(evFn)) evFn.call(comp, arg)
 }
 
@@ -413,15 +417,12 @@ export function emitEvent(comp: CompElem, evSrc: number, evName: string, arg: Re
  * 父端是否给本节点注册过 `evName` 组件事件监听
  *
  * @param comp 父组件（事件的接收方）；无父组件时传 undefined
- * @param node 子节点（注册监听时挂了 `__c_emit_event_` 序号）
+ * @param node 子节点（注册监听时作为登记表的 key）
  * @param evName 事件全名，如 `update:value`
  */
 export function hasEmitListener(comp: CompElem | undefined, node: Element, evName: string): boolean {
   if (!comp) return false
-  let evSrc = get<number>(node, '__c_emit_event_')
-  // 无序号 = 从未注册过任何组件事件监听
-  if (evSrc === undefined) return false
-  return isFunction(get(comp._subComponentEventMap.get(evSrc), evName))
+  return isFunction(get(comp._subComponentEventMap.get(node), evName))
 }
 
 /**

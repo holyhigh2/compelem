@@ -29,7 +29,7 @@ export interface IComponent<T = HTMLElement> {
   get slotHooks(): Record<string, (...args: any[]) => Template>;
   //通过静态getter创建的所有样式表对象，所有实例共享
   get cssSheets(): CSSStyleSheet[];
-  //是否已挂载
+  //是否处于挂载状态（DOM 已渲染且未销毁）
   get isMounted(): boolean;
   //响应式css变量
   get cssVars(): Record<string, string | number | undefined>

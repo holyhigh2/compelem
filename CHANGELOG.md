@@ -3,6 +3,16 @@
 ## 0.30.x 
 基于signal模型的编译架构
 
+### 修复
+
+- `isMounted` 在 `__finalize()` 随 DOM 拆解清零：销毁后 `@query` 返回 `undefined`；`nextTick()` 回调也不再滞留——未挂载即被销毁时转进微任务，挂载时 flush 后清空队列。
+- 静态事件修饰符恢复生效：编译产物中的无回调事件（如 `<form @submit.prevent>`、`@click.stop`）此前被整条跳过，现在按 `prevent` / `stop` 注册空处理器。
+- 组件事件登记表改为「节点 → 处理器」的 `WeakMap`，挂在写回调的那个组件上：节点回收即释放，移除路径上不再需要显式清理。此前按宿主局部序号登记，插槽内容会拿宿主的号误删宿主自身子节点的绑定。
+- 修正插槽内容换代后事件绑定不重建：`buildSubTemplateView` 构建末尾补 `bindEvents(ctx)`。此前只有首屏挂载末尾那次 flush，第二代起插槽内容的 `@close` 等绑定全部静默失效。
+- 销毁链异常隔离：`beforeDestroyed()` 抛错不再跳过事件/effect/资源释放与 DOM 拆解；`__finalize()` 用 try/finally 保证引用与元素落定；批量移除（`DomUtil.clear` / `commitRemove` / `UpdatePoint.destroy`）逐个隔离，单个节点的用户钩子抛错不会让同批其余节点留在文档里。此前组件会停在「isDestroyed 为 true、仍响应且元素不消失」的僵尸态。
+- `@query(selector, QueryCache.ONCE)` 现在只缓存首次**查到**的结果：空结果入表会让后续出现/替换的节点永远读不到。非 ONCE 不再写缓存（原本每次都会重查，写入只是让表强引用住已被替换的旧元素）。
+- `emit()` 把 `target` 作为不可枚举属性挂到载荷：`arg.target` 读取不受影响，`JSON.stringify(arg)` 不再因组件实例的 `parent ↔ children` 更新树成环而抛 TypeError。
+
 ### 过渡（transition）
 
 - 新增 DOM 级过渡：结构指令（`ifTrue` / `ifElse` / `when` / `forEach`）可带 `{ enter, leave, move }`，`show` 可带 `{ transition }`，函数型插槽用 `<slot transition="…">`。

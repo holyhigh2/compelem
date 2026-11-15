@@ -1,7 +1,7 @@
 import { closest } from "myfx";
 import { CompElem } from "../CompElem";
 import type { EffectNode, SignalNode } from "../signal";
-import { DomUtil } from "../utils";
+import { DomUtil, showError } from "../utils";
 import { UpdatePointMeta } from "./UpdatePointMeta";
 
 /**
@@ -102,7 +102,11 @@ export class UpdatePoint {
         //sub scopes
         let updatePoints = children
         updatePoints?.forEach((up, _i) => {
-            up.destroy(contextComponent);
+            try {
+                up.destroy(contextComponent);
+            } catch (err) {
+                showError('child update point destroy', err)
+            }
         });
 
         if (node instanceof CompElem) {

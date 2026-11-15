@@ -8,7 +8,7 @@
 - **compelem** v0.30.0-beta.7（MIT，作者 holyhigh2）：现代化、响应式、轻量的 WebComponent 开发库，基于 Class + 装饰器构建。
 - TypeScript 编写；发布入口由 `package.json` `exports` 条件映射：`development` → `dist-dev/`，`production`/默认 → `dist/index.esm.js` / `index.cjs.js`，类型 `dist/index.d.ts`。**`myfx` 是 peerDependency（`^2.0.0-beta.4`），构建时作 external 处理、不打包进产物**——宿主工程必须自装，切勿假设 compelem 已内联它。配套编译插件 `@compelem/compiler` 同样把 `myfx` 声明为 peerDependency（源码 `codegen/template-dom.ts`、`codegen/attr-name.ts` 直接 `from 'myfx'` 导入），宿主工程也需自装。
 - 使用前提：TypeScript 需开启 `experimentalDecorators: true`；**必须挂载编译插件 `@compelem/compiler`（`compelemCompiler()` Vite 插件，仓库 `F:\github\compelem-compiler`）**——装饰器语义全部由编译期前移，运行时装饰器是 no-op 存根，约定违规仅由编译期报错。
-- 本仓库脚本：`npm run build`（= `build:prod` 压缩 + `build:dev` 未压缩，产物 `dist/` 与 `dist-dev/`）· `npm run typecheck`（tsc --noEmit）· `npm run verify:dist`（产物冒烟：`transition/` 目录存在、运行时字面量存在、产物 mtime 不得早于 `src` 最新改动、包入口字段指向的文件必须存在）。`npm pack` / `npm publish` 前由 `prepack` 自动跑 `typecheck + build + verify:dist`——`dist*` 被 gitignore，不重建就可能把旧产物发出去。**本仓库不依赖 `@compelem/compiler`，也没有 dev 页/探针页**——`dev/` 与 Vite 调试配置已外移到兄弟仓库 `F:\github\compelem-harness`（private 项目：`npm run dev` 起 :8818，`compelem` 说明符走 npm 发布版、只有 `compelem/src` 精确别名指向 `../compelem/src/index.ts`；`npm run dev:dist` 起 :8819，同一个 `dev/transition.html` 与同一批探针脚本，但 `compelem/src` 改指 `../compelem/dist/index.esm.js`，用于验证发布物）。⚠️ `npm run lint` 的 eslint 配置是旧格式（会报 config migration 错误），不要依赖。⚠️ 宿主若挂了删除保护（如 WorkBuddy 的 safe-delete shim），`emptyOutDir` 批量清理 `dist` 会失败且**可能只删掉一半产物**；此时先 `cp -r dist ../dist-snapshot` 留快照，再用 `npx vite build --mode production --emptyOutDir false` 覆盖重建（`dist*` 被 gitignore，没有第二份拷贝）。
+- 本仓库脚本：`npm run build`（= `build:prod` 压缩 + `build:dev` 未压缩，产物 `dist/` 与 `dist-dev/`）· `npm run typecheck`（tsc --noEmit）。`npm pack` / `npm publish` 前由 `prepack` 自动跑 `typecheck + build`——`dist*` 被 gitignore，不重建就可能把旧产物发出去。**本仓库不依赖 `@compelem/compiler`，也没有 dev 页/探针页**——`dev/` 与 Vite 调试配置已外移到兄弟仓库 `F:\github\compelem-harness`（private 项目：`npm run dev` 起 :8818，`compelem` 说明符走 npm 发布版、只有 `compelem/src` 精确别名指向 `../compelem/src/index.ts`；`npm run dev:dist` 起 :8819，同一个 `dev/transition.html` 与同一批探针脚本，但 `compelem/src` 改指 `../compelem/dist/index.esm.js`，用于验证发布物）。⚠️ `npm run lint` 的 eslint 配置是旧格式（会报 config migration 错误），不要依赖。⚠️ 宿主若挂了删除保护（如 WorkBuddy 的 safe-delete shim），`emptyOutDir` 批量清理 `dist` 会失败且**可能只删掉一半产物**；此时先 `cp -r dist ../dist-snapshot` 留快照，再用 `npx vite build --mode production --emptyOutDir false` 覆盖重建（`dist*` 被 gitignore，没有第二份拷贝）。
 - 构建产物差异：prod 出 `index.esm.js` + `index.cjs.js`（terser 压缩、drop `debug/info/log`）；dev 额外产出 UMD `compelem.umd.js`（挂 `window.compelem`，myfx 全局名 `myff`）。
 - 验证手段：headless Chrome + CDP 探针，脚本在 harness（`compelem-harness/dev/_round4_probe.mjs`、`_slot_probe.mjs`，可复用于任意探针页 URL）。**过渡的全部场景有现成演示页**：`F:\github\compelem-harness\dev\transition.html`（源码 `transition-demo.ts`，探针 `_transition_probe.mjs`），走 `compelem/src` 精确别名直连本地源码、不必先 build。改过本库或编译器 dist 后，先在 harness 里 `rm -rf node_modules/.vite` 再起服务，避免依赖重新优化的瞬时假失败。仓库根的 `test/` 是空目录。
 - 类型权威以 `src/index.ts`、`src/types.ts` 和本文件为准；`dist/*.d.ts` 仅作参考。
@@ -62,7 +62,7 @@ render(): Template | null {
 选项类型（均已导出，权威定义在 `src/types.ts`）：
 
 - `PropOption`: `{ type?, required?, model?, attribute?(默认 true), shallow?, hasChanged?(nv, ov, chain, subNv, subOv), converter?(stringValue => any), isValid?(value, props?) }`
-  - `model: true` → 赋值走 `writeModelProp`（`events/event.ts`，包根导出）按宿主三路分派：①父端接了 `update:xxx`（已登记 `_subComponentEventMap`）⇒ 只 emit 不写本地；②没人接 ⇒ 本地兜底；③没人接但有 `emit-native` 特性 ⇒ 本地兜底 + 发原生 CustomEvent。判据是「有没有人注册监听」而非「有没有父组件」
+  - `model: true` → 赋值走 `writeModelProp`（`events/event.ts`，包根导出）按宿主三路分派：①父端接了 `update:xxx`（父组件的 `_subComponentEventMap` 里该节点有记录）⇒ 只 emit 不写本地；②没人接 ⇒ 本地兜底；③没人接但有 `emit-native` 特性 ⇒ 本地兜底 + 发原生 CustomEvent。判据是「有没有人注册监听」而非「有没有父组件」
 - `StateOption`: `{ shallow?, hasChanged?(...) }`。**`{prop: 'x'}` 已废弃**——用初始化器播种：`@state page = this.pageSize`（播种发生在 props 落定之后）；写 `@state({prop})` 会被编译期报 `E-STATE-ARG`。`options` 里也不支持 `type` / `defaultValue`（`E-FIELD-ARG`）
 - `WatchOptions`: `{ immediate?, deep?, once? }`
 - `Csscope`: `INNER`('inner' 组件内/shadowDOM) | `HOST`('host' 宿主) | `GLOBAL`('global' document)
@@ -156,13 +156,21 @@ ${forEach(rows, r => r.id, r => h`<li>…</li>`, { enter: 'fade', leave: 'fade',
 
 ## CompElem 内置成员（`src/CompElem.ts`）
 
-只读 getter：`cid` · `attrs` · `props` · `renderRoot` / `renderRoots`（WeakRef 快照）· `parentComponent` · `wrapperComponent` · `rootComponent` · `slotHooks` · `cssSheets` · `isMounted` · `isDestroyed` · `cssVars`（返回 `{ c: v }` 自动生成 `--c` 类变量并建 effect）
+只读 getter：`cid` · `attrs` · `props` · `renderRoot` / `renderRoots`（WeakRef 快照）· `parentComponent` · `wrapperComponent` · `rootComponent` · `slotHooks` · `cssSheets` · `isMounted`（DOM 是否可用：首屏渲染时先置 true 再调 `mounted()`，`__finalize()` 随 DOM 拆解清零）· `isDestroyed`（freeze 或 finalize 之后即为 true）· `cssVars`（返回 `{ c: v }` 自动生成 `--c` 类变量并建 effect）
 
 `slots`（`Record<string, Node[]>`，无名插槽为 `default`）由**构造器装到具体子类的原型**上（读内部 `__s.slots` 信号，模板里 `this.slots.xxx` 可作依赖源）；基类只留 `declare slots` 类型声明。**子类类体自己声明 `get slots()` 会顶掉框架实现、恒读空桩**——不要在子类写 slots 访问器。
 
 方法：`emit(evName, arg?, event?)` · `nextTick(cbk)` · `forceUpdate()` · `updateProps(props, force?)` · `insertStyleSheet(sheet): CSSStyleSheet \| null` · `getSubViewNodes(tmplFn, ...args): Node[]`（把已编译子模板回调渲染成节点；回调必须带 provenance——经 `slot()` 登记，否则 DEV 报错返回 `[]`）· `destroy()` = `__freeze()` + `__finalize()`
 
-销毁拆两段：`__freeze()` 只停「响应能力」（`beforeDestroyed()` → 事件 → 视图/setup effect → 资源），**DOM 与 shadow 原样保留**；`__finalize()` 才清 shadow/槽、`remove()`、触发 `destroyed()`。`isDestroyed` 在 freeze 后即为 true（离场动画期间组件已不可用）。离场路径由 `commitRemove` 与 `#updateSlot` 的离场分支调 `freezeSubComponents()` 冻结整棵子树，动画结束后 `destroy()` 收尾。
+`emit()` 把 `event`（传入时）与 `target`（组件实例）挂到 `arg` 上；`target` 是**不可枚举**属性，读取正常，但 `JSON.stringify(arg)` 不会因实例更新树的 `parent ↔ children` 成环而抛 TypeError。
+
+`@query(selector, QueryCache.ONCE)` 只缓存首次查到的**非空**结果；空结果（节点尚未出现）不占缓存。未传 ONCE 时每次重查且不写缓存。`isMounted` 为 false 时 `_queryGet` 直接返回 `undefined` 且不写缓存。
+
+销毁拆两段：`__freeze()` 只停「响应能力」（`beforeDestroyed()` → 事件 → 视图/setup effect → 资源），**DOM 与 shadow 原样保留**；`__finalize()` 才清 shadow/槽、`remove()`、触发 `destroyed()`。`isDestroyed` 在 freeze 后即为 true（离场动画期间组件已不可用）。`isMounted` 是「DOM 可用」判据，在 `__finalize()` 里随 DOM 拆解清零——freeze 期间仍为 true（shadow 未拆、可读），销毁落定后为 false，与 @query 门控一致。离场路径由 `commitRemove` 与 `#updateSlot` 的离场分支调 `freezeSubComponents()` 冻结整棵子树，动画结束后 `destroy()` 收尾。
+
+清理链全程异常隔离：`beforeDestroyed()` 与嵌套子组件的用户钩子抛错时记一条错误日志并继续释放，不跳过后续步骤（否则组件会停在「已销毁、仍响应、元素不消失」的僵尸态）；`__freeze()` / `__finalize()` 各自用 try/finally 保证状态与 DOM 落定；批量移除路径（`DomUtil.clear` / `commitRemove` / `UpdatePoint.destroy`）逐个隔离，单个节点抛错不会让同批其余节点留在文档里。`destroyed()` 位于清理末尾，异常在清理完成后照常上抛。
+
+`nextTick(cbk)` 的队列只在挂载期间存在：`__freeze()` 把剩余回调全部执行（不静默丢弃），未挂载即被销毁的实例直接进微任务。所以销毁后回调仍会执行一次，但此时 `renderRoot` 是 `undefined`（读取本身不抛，后续 `.querySelector` / `.offsetHeight` 才抛）——回调里只能做清理，不能读 DOM。
 
 生命周期（按序）：`propsReady(props)` → `render()`（**运行时为存根**，视图唯一来源是编译产物 `__ce_static__.buildTemplate`；源码里仍写 `render()` 返回 `h` 模板）→ `beforeMount()` → `mounted()`；更新时**没有** `shouldUpdate(changed)`/`updated(changed)` 钩子——一轮 flush 结束后、且本组件有视图 effect 真的跑过时触发 `afterUpdate()`（`@watch`/`cssVars` 变化不触发；无视图组件永不触发）；`<slot>` 变动时 `slotChange(slot, name)`；外部属性变更时 `attributeChangedCallback(name, oldValue, newValue)`；销毁时 `beforeDestroyed()` → `destroyed()`。
 
@@ -178,11 +186,13 @@ ${forEach(rows, r => r.id, r => h`<li>…</li>`, { enter: 'fade', leave: 'fade',
 
 1. **原生事件**：`<div @click>` → 回调收原生 Event
 2. **扩展原生事件**（`events/extends.ts`）：`resize`（ResizeObserver）· `outside[.mousedown/mouseup/click/dblclick]`（默认 click）· `mutate[.attr/child/char/tree]`（MutationObserver，必须带修饰符，裸 `@mutate` 报 `E-MUTATE-MODIFIER`）
-3. **组件事件**：`emit()` 运行期**不校验** `@emits`；`@emits` 决定的是「父端能否用 `@xxx` 绑定」——未声明的名字会被 `registerEvent` 当原生事件监听（`matchEmit` 沿父类链查 `DefinitionCompEmitMap`，支持通配 `update:*`）。`emit()` 无 `wrapperComponent` 时直接 `return`（事件丢弃）；宿主带 `emit-native` 特性时改走 `dispatchEvent(new CustomEvent(...))`（`bubbles:false, composed:false, cancelable:true`，载荷在 `detail`）
+3. **组件事件**：`emit()` 运行期**不校验** `@emits`；`@emits` 决定的是「父端能否用 `@xxx` 绑定」——未声明的名字会被 `registerEvent` 当原生事件监听（`matchEmit` 沿父类链查 `DefinitionCompEmitMap`，支持通配 `update:*`）。`emit()` 无 `wrapperComponent` 时直接 `return`（事件丢弃）；宿主带 `emit-native` 特性时改走 `dispatchEvent(new CustomEvent(...))`（`bubbles:false, composed:false, cancelable:true`，载荷在 `detail`）。处理器登记在**写回调的那个组件**（provenance owner）的 `_subComponentEventMap` 上，key 是子节点本身（`WeakMap`）：节点回收即释放，移除路径上不需要显式清理；插槽内容登记在父组件、宿主自己的子节点登记在宿主，两边互不可见
 
 事件修饰符（`.` 连接，可组合）：通用 `debounce:100/throttle:100/once/capture/passive`；原生 `stop/prevent/self`；鼠标 `left/right/middle`；键盘 `ctrl/alt/shift/meta`（可组合）+ `esc/字母...`（并列可选、不可组合）。跨框架（React/Vue）时给标签加 `emit-native` 属性把组件事件转 CustomEvent。
 
 委托机制（`events/event.ts`）：`focus/blur/visibilitychange/wheel` 恒走捕获（`CAPTURE_EVENTS`）；`mouseenter/mouseleave/pointerenter/pointerleave` 不委托（`NO_DELEGATE_EVENTS`）；`scroll` 等元素级事件独立注册（`ELEMENT_EVENTS`）；其余在 `renderRoot` 上做委托，捕获/冒泡分桶（`::c` / `::b`）以免同节点混写时重复派发。
+
+子模板（`buildSubTemplateView`，插槽内容与 `getSubViewNodes`）的事件条目在 `renderTemplate` 里只压进 owner 的 `bindList`，构建末尾统一 `bindEvents(ctx)` flush。首屏那次挂载末尾的 flush 只覆盖首代，换代时必须靠这一句，否则第二代起插槽内容的绑定全部失效。
 
 ## 样式
 

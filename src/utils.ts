@@ -3,8 +3,8 @@ import { CompElem } from "./CompElem";
 import { ComponentUninitializedSubComponentPropMap, CssVarKeyCacheMap, DefinitionComponentMap } from "./constants";
 import { Constructor, StyleValueObjectType } from "./types";
 
-export function showError(msg: string): void {
-  console.error(`[CompElem]`, msg);
+export function showError(...args: unknown[]): void {
+  console.error(`[CompElem]`, ...args);
 }
 
 export function showTagError(tagName: string, msg: string): void {
@@ -108,7 +108,11 @@ export const DomUtil = {
     }
     walk(container)
     for (let i = 0, l = comps.length; i < l; i++) {
-      comps[i].destroy()
+      try {
+        comps[i].destroy()
+      } catch (err) {
+        showError('nested component destroy', err)
+      }
     }
   }
 }
@@ -184,7 +188,8 @@ export function _queryGet(selector: string, all: boolean, once: boolean, context
   if (once && cMap.has(selector)) return cMap.get(selector)
   const root = context.shadowRoot
   const el = all ? root?.querySelectorAll(selector) : root?.querySelector(selector)
-  cMap.set(selector, el)
+  const found = all ? (el as any)?.length : el
+  if (once && found) cMap.set(selector, el)
   return el
 }
 

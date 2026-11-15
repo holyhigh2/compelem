@@ -452,6 +452,10 @@ export function buildSubTemplateView(ctx: CompElem<any>, tmplFn: TplFn, ...args:
   const out: Node[] = []
   const cn = rs.childNodes
   for (let i = 0, l = cn.length; i < l; i++) out.push(cn[i])
+  // 子模板的事件条目在 renderTemplate 里只是压进 owner 的 bindList，
+  // 换代重建时必须在此 flush —— 首屏靠挂载末尾那次 bindEvents 侥幸覆盖，
+  // 不补这一句则第二代起全部绑定失效（插槽内容读不到 @close 之类）
+  bindEvents(ctx)
   // 本代 UpdatePoint 树挂到首个产出节点上（内部机制，业务勿读写）：
   // #updateSlot 的常驻 effect 在 replace/dispose 时经 onCleanup 摘取回收
   if (upAry.length > 0 && out.length > 0) {

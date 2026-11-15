@@ -3,7 +3,7 @@ import { CompElem } from "../CompElem";
 import { LeaveSpec, runLeave, stripViewKeyMarkers } from "../transition/leave";
 import { UpdatePoint } from "./UpdatePoint";
 import { purgeDirNodeMap } from "./dir-node-map";
-import { freezeSubComponents } from "../utils";
+import { freezeSubComponents, showError } from "../utils";
 
 /**
  * 真正执行节点移除 + 更新点销毁。
@@ -37,10 +37,21 @@ export function commitRemove(nodes: Node[], ups: UpdatePoint[], component?: Comp
 
 function finalizeRemove(nodes: Node[], ups: UpdatePoint[], component?: CompElem) {
     each(nodes, (n: any) => {
-        (n as CharacterData | Element).remove()
-        if (n instanceof CompElem) {
-            n.destroy()
+        try {
+            (n as CharacterData | Element).remove()
+            if (n instanceof CompElem) {
+                n.destroy()
+            }
+        } catch (err) {
+            // 单个节点的用户钩子抛错不能让同批其余节点留在 DOM 里
+            showError('node removal', err)
         }
     })
-    each(ups, up => up.destroy(component))
+    each(ups, up => {
+        try {
+            up.destroy(component)
+        } catch (err) {
+            showError('update point destroy', err)
+        }
+    })
 }
