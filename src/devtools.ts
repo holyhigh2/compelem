@@ -147,6 +147,15 @@ function cssScopeDecls(ctor: Function): CssScopeDecl[] {
           seenGetters.add(name);
           const text = String(it.getCssText());
           let sheet: CSSStyleSheet | null = CssStyleSheetCacheMap.get(it.strings) ?? null;
+          if (!sheet) {
+            const probe = new CSSStyleSheet();
+            try { probe.replaceSync(text); } catch (e) { /* 非法 css，跳过比对 */ }
+            const probeText = sheetText(probe);
+            if (probeText) {
+              sheet = [...sheetsByScope.inner, ...sheetsByScope.host, ...docSheets]
+                .find(s => sheetText(s) === probeText) ?? null;
+            }
+          }
           const scopes: string[] = [];
           if (sheet) {
             if (sheetsByScope.inner.includes(sheet)) scopes.push('inner');

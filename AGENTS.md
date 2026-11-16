@@ -1,11 +1,11 @@
 # compelem — AI 速查手册
 
-> 本文件面向 AI 编码助手。内容依据 `src/` 源码逐条核实（对应 **v0.30.0-beta.7** working tree），**读取本文件即可获得完整公开 API，无需扫描包源码**。
+> 本文件面向 AI 编码助手。内容依据 `src/` 源码逐条核实（对应 **v0.30.0-beta.10** working tree），**读取本文件即可获得完整公开 API，无需扫描包源码**。
 > 信息不足时按文末「深入阅读」指引查阅，不要盲目 grep 整个包。
 
 ## 概览
 
-- **compelem** v0.30.0-beta.7（MIT，作者 holyhigh2）：现代化、响应式、轻量的 WebComponent 开发库，基于 Class + 装饰器构建。
+- **compelem** v0.30.0-beta.10（MIT，作者 holyhigh2）：现代化、响应式、轻量的 WebComponent 开发库，基于 Class + 装饰器构建。
 - TypeScript 编写；发布入口由 `package.json` `exports` 条件映射：`development` → `dist-dev/`，`production`/默认 → `dist/index.esm.js` / `index.cjs.js`，类型 `dist/index.d.ts`。**`myfx` 是 peerDependency（`^2.0.0-beta.4`），构建时作 external 处理、不打包进产物**——宿主工程必须自装，切勿假设 compelem 已内联它。配套编译插件 `@compelem/compiler` 同样把 `myfx` 声明为 peerDependency（源码 `codegen/template-dom.ts`、`codegen/attr-name.ts` 直接 `from 'myfx'` 导入），宿主工程也需自装。
 - 使用前提：TypeScript 需开启 `experimentalDecorators: true`；**必须挂载编译插件 `@compelem/compiler`（`compelemCompiler()` Vite 插件，仓库 `F:\github\compelem-compiler`）**——装饰器语义全部由编译期前移，运行时装饰器是 no-op 存根，约定违规仅由编译期报错。
 - 本仓库脚本：`npm run build`（= `build:prod` 压缩 + `build:dev` 未压缩，产物 `dist/` 与 `dist-dev/`）· `npm run typecheck`（tsc --noEmit）。`npm pack` / `npm publish` 前由 `prepack` 自动跑 `typecheck + build`——`dist*` 被 gitignore，不重建就可能把旧产物发出去。**本仓库不依赖 `@compelem/compiler`，也没有 dev 页/探针页**——`dev/` 与 Vite 调试配置已外移到兄弟仓库 `F:\github\compelem-harness`（private 项目：`npm run dev` 起 :8818，`compelem` 说明符走 npm 发布版、只有 `compelem/src` 精确别名指向 `../compelem/src/index.ts`；`npm run dev:dist` 起 :8819，同一个 `dev/transition.html` 与同一批探针脚本，但 `compelem/src` 改指 `../compelem/dist/index.esm.js`，用于验证发布物）。⚠️ `npm run lint` 的 eslint 配置是旧格式（会报 config migration 错误），不要依赖。⚠️ 宿主若挂了删除保护（如 WorkBuddy 的 safe-delete shim），`emptyOutDir` 批量清理 `dist` 会失败且**可能只删掉一半产物**；此时先 `cp -r dist ../dist-snapshot` 留快照，再用 `npx vite build --mode production --emptyOutDir false` 覆盖重建（`dist*` 被 gitignore，没有第二份拷贝）。
@@ -105,7 +105,7 @@ ${forEach(rows, r => r.id, r => h`<li>…</li>`, { enter: 'fade', leave: 'fade',
 |---|---|
 | 类契约 | `ce-{name}-enter-from/-active/-to`、`ce-{name}-leave-from/-active/-to`；`name` 缺省时前缀为 `ce`。预设样式见 `TRANSITION_CSS`（`css` 模板） |
 | 样式注入 | **不自动注入**：结构指令的 DOM 在 shadow root 内，document 层样式无效。两条路：① `setDefaults({ css: [TRANSITION_CSS] })`（全局进每个组件 shadow）；② 组件静态 `css` getter 里 `return [style, TRANSITION_CSS]`（**必须排在末尾**，否则被同特异性的组件 transition 覆盖） |
-| css getter 入参 | 静态 `css` getter 与 `insertStyleSheet()` 只认 `CssTemplate` 与 `CSSStyleSheet`：CSS 文件用 `?tmpl` 导入（编译插件转成 `CssTemplate`），或 `?inline` 取字符串后自己 `new CSSStyleSheet().replaceSync()`。**裸字符串不在契约内**，传进去会被忽略 |
+| css getter 入参 | 静态 `css` getter 与 `insertStyleSheet()` 只认 `CssTemplate` 与 `CSSStyleSheet`：CSS 文件用 `?tmpl` 导入（需安装 `vite-plugin-compelem-css` 插件，转成**无插值** `CssTemplate`），或 `?inline` 取字符串后自己 `new CSSStyleSheet().replaceSync()`。**裸字符串不在契约内**，传进去会被忽略 |
 | 离场顺序 | `UpdatePoint.freeze()` / `freezeSubComponents()` 冻结订阅（后者遍历整棵离场子树并穿透 shadowRoot，含嵌套子组件）→ 摘 `__c-*` key 标记 → 类动画 → `finalize` 才 `remove` + `destroy` |
 | 首屏 | `appear` 恒关闭：`buildStaticView` 期间置 `component.__firstBuild`，`insertSubView` / `show` 据此跳过入场 |
 | 时长判定 | 起跑用**双 rAF**（起始帧先绘制，否则过渡不触发）；换到 `-to` 并强制重排后，用 `el.getAnimations()` 只挑**实际创建**的 `CSSTransition`/`CSSAnimation`，逐条等 `finished` 全部结束。数量天然精确：`transition: all` 不会把多属性算成 1 个、属性值未变化时不产生动画对象，因此也不会空等超时。没有动画对象时立即落定（显式 `duration` 仍按它计时，保持「声明了动画就等」的语义）；`getAnimations` 不可用时退回「解析 computed style + `transitionend` 计数」的旧路径。元素逐个计时，多根子视图不会被首个元素截断 |
@@ -133,7 +133,7 @@ ${forEach(rows, r => r.id, r => h`<li>…</li>`, { enter: 'fade', leave: 'fade',
 ## 渲染 / 响应式原语
 
 - `h(strings, ...vars): Template` — HTML 模板标签函数（`render/render.ts`）
-- `css(strings, ...vars): CssTemplate` — CSS 模板（按 strings 缓存，`CssTemplateCacheMap`）
+- `css(strings, ...vars): CssTemplate` — CSS 模板。**无插值**：按 strings 缓存共享（`CssTemplateCacheMap`），`sheetOfCssTemplate` 建共享表；**含插值**：每次调用返回携带当前 vars 的新实例（不缓存，否则首次插值被固化），`sheetOfCssTemplate` 建独占表。`CssTemplate.dynamic` 标识是否含插值
 - `createRef<T extends Node>(): RefObject<T>` — `{ current?: T }`
 - `createResource<T>(loader, source?, opts?): Resource<T>` — 命令式异步资源，`@resource` 的底层（`src/resource.ts`）。5 态 `idle / loading / refreshing / ok / error`；`load()` 是**首拉与刷新同一个入口**（`immediate:false` 靠它转正），返回结算 promise、**不 reject**（结果读 `data`、失败读 `error`）；换参时 abort 旧请求 + `seq` 丢弃迟到响应；`refreshing` 期保留旧值但**那个值属于上一次成功的参数**。超时的 `error` 是 `RESOURCE_TIMEOUT`（symbol，框架不写文案）。`opts`: `{ timeout?(不设=不限时), track?, immediate? }`。`@resource` 的视图成员：`data / status / error / busy / load()`，`busy = loading || refreshing`（**不是** `status === 'loading'`）
 - 信号原语（`src/signal.ts`，包根导出）：`signal(initial)` · `computed(fn)`（包根导出名为 `signalComputed`，避免与装饰器 `@computed` 撞名）· `effect(fn, opts?: { asChild?: boolean })` → `EffectNode`（`node.run()` 手动重跑、`node.dispose()`、`node.disposed`）· `batch(fn)` · `onCleanup(fn)` · `flushSync()` · `untrack(fn)` · `onEffectError(cb: (err, effect?) => void)`（登记 effect 运行期异常的全局处理器；异常被隔离不中断本轮其余 effect，未登记任何处理器时 `console.error` 兜底）
@@ -160,7 +160,7 @@ ${forEach(rows, r => r.id, r => h`<li>…</li>`, { enter: 'fade', leave: 'fade',
 
 `slots`（`Record<string, Node[]>`，无名插槽为 `default`）由**构造器装到具体子类的原型**上（读内部 `__s.slots` 信号，模板里 `this.slots.xxx` 可作依赖源）；基类只留 `declare slots` 类型声明。**子类类体自己声明 `get slots()` 会顶掉框架实现、恒读空桩**——不要在子类写 slots 访问器。
 
-方法：`emit(evName, arg?, event?)` · `nextTick(cbk)` · `forceUpdate()` · `updateProps(props, force?)` · `insertStyleSheet(sheet): CSSStyleSheet \| null` · `getSubViewNodes(tmplFn, ...args): Node[]`（把已编译子模板回调渲染成节点；回调必须带 provenance——经 `slot()` 登记，否则 DEV 报错返回 `[]`）· `destroy()` = `__freeze()` + `__finalize()`
+方法：`emit(evName, arg?, event?)` · `nextTick(cbk)` · `forceUpdate()` · `updateProps(props, force?)` · `insertStyleSheet(sheet): CSSStyleSheet \| null`（动态模板按调用点 strings 去重：重复调用复用同一张表并 `replaceSync` 最新文本，不重复 adopt） · `getSubViewNodes(tmplFn, ...args): Node[]`（把已编译子模板回调渲染成节点；回调必须带 provenance——经 `slot()` 登记，否则 DEV 报错返回 `[]`）· `destroy()` = `__freeze()` + `__finalize()`
 
 `emit()` 把 `event`（传入时）与 `target`（组件实例）挂到 `arg` 上；`target` 是**不可枚举**属性，读取正常，但 `JSON.stringify(arg)` 不会因实例更新树的 `parent ↔ children` 成环而抛 TypeError。
 

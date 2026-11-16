@@ -258,9 +258,9 @@ export function buildStaticView(component: CompElem<any>): DocumentFragment {
   const fx = ceStatic.fx as any[] | undefined
     ; (component as any).__dirNodeMap = new Map<Node, UpdatePoint>()
   let rendered: [DocumentFragment, UpdatePoint[]]
-  // 首屏建树期间关闭入场：升级型组件（先入文档、后 define）在插入时 isConnected 已是 true，
-  // 只能靠这个标记区分「首屏」与「后续更新」
-  ; (component as any).__firstBuild = true
+    // 首屏建树期间关闭入场：升级型组件（先入文档、后 define）在插入时 isConnected 已是 true，
+    // 只能靠这个标记区分「首屏」与「后续更新」
+    ; (component as any).__firstBuild = true
   try {
     rendered = renderTemplate(component, tmplM, out, {
       fx,
@@ -594,6 +594,9 @@ export function css(
   strings: TemplateStringsArray,
   ...vars: any
 ): CssTemplate {
+  if (vars.length > 0) {
+    return new CssTemplate(strings, vars)
+  }
   if (CssTemplateCacheMap.has(strings)) {
     return CssTemplateCacheMap.get(strings)!
   }

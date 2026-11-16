@@ -134,6 +134,8 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   #cid: number
   #slotPropsMap: Record<string, Partial<SlotOptions>> = {}
   #shadow: ShadowRoot;
+  // 动态 css 模板按调用点（strings 同一性）去重：同调用点复用同一张表并更新文本
+  #dynamicSheets = new WeakMap<TemplateStringsArray, CSSStyleSheet>()
   //保存所有渲染上下文 {CompElem/Directive}
   __updateTree: Array<UpdatePoint>
   // 每实例信号存储
@@ -303,7 +305,19 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   }
   insertStyleSheet(sheet: CssTemplate | CSSStyleSheet): CSSStyleSheet | null {
     if (!this.#shadow) return null
-    const cssSheet = sheet instanceof CssTemplate ? sheetOfCssTemplate(sheet) : sheet
+    let cssSheet: CSSStyleSheet
+    if (sheet instanceof CssTemplate && sheet.dynamic) {
+      const cached = this.#dynamicSheets.get(sheet.strings)
+      if (cached) {
+        cached.replaceSync(sheet.getCssText())
+        cssSheet = cached
+      } else {
+        cssSheet = sheetOfCssTemplate(sheet)
+        this.#dynamicSheets.set(sheet.strings, cssSheet)
+      }
+    } else {
+      cssSheet = sheet instanceof CssTemplate ? sheetOfCssTemplate(sheet) : sheet
+    }
     if (!cssSheet) return null
     if (!this.#shadow.adoptedStyleSheets.includes(cssSheet))
       this.#shadow.adoptedStyleSheets = [...this.#shadow.adoptedStyleSheets, cssSheet]
@@ -495,6 +509,9 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         this.__updateTree =
         this.#parentComponent =
         this.#wrapperComponent = null as any
+      // 键 strings 是模块级长活对象：不清的话，持有已销毁实例的引用会
+      // 让每个动态调用点的 sheet 永不回收
+      this.#dynamicSheets = new WeakMap()
 
       this.destroyed()
     }
