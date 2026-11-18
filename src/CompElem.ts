@@ -33,7 +33,7 @@ import { ATTR_PREFIX_BOOLEAN, ATTR_PREFIX_EVENT, ATTR_PREFIX_PROP, ATTR_REF, bui
 import { resolveSubTemplateOwner } from "./render/slot-provenance";
 import { Template } from "./render/Template";
 import { UpdatePoint } from "./render/UpdatePoint";
-import { walkSplitText } from "./render/walk";
+import { walkSplitText, type TextSplitPlan } from "./render/walk";
 import { batch, effect, EffectNode, onCleanup, onFlushEnd, reportEffectError, signal, SignalNode, untrack } from "./signal";
 import { prepareEnter } from "./transition/enter";
 import { runLeave, stripViewKeyMarkers } from "./transition/leave";
@@ -1072,15 +1072,11 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
   }
 
   /**
-   * 编译器产物 `buildTemplate()` 的 innerHTML 快路径入口：把片段里的占位符文本节点
-   * 原位拆分并按文档序收集进 `nodes`。
+   * 编译器产物 `buildTemplate()` 的 innerHTML 快路径入口
    *
-   * 暴露为实例方法（而非让产物 import 一个自由函数）是因为 `buildTemplate` 与
-   * `subs[id].buildTemplate` 都以 `buildTemplate.call(component)` 调用 —— `this`
-   * 恒为组件实例，无需给产物引入额外的模块级标识符。
    */
-  _ceWalkSplit(f: Node, nodes: Node[]): void {
-    walkSplitText(f, nodes)
+  _ceWalkSplit(f: Node, nodes: Node[], plan: TextSplitPlan): void {
+    walkSplitText(f, nodes, plan)
   }
 
   #updateSlotsAry() {

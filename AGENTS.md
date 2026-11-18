@@ -1,12 +1,12 @@
 # compelem — AI 速查手册
 
-> 本文件面向 AI 编码助手。内容依据 `src/` 源码逐条核实（对应 **v0.30.0-beta.10** working tree），**读取本文件即可获得完整公开 API，无需扫描包源码**。
+> 本文件面向 AI 编码助手。内容依据 `src/` 源码逐条核实（对应 **v0.30.0-beta.12** working tree），**读取本文件即可获得完整公开 API，无需扫描包源码**。
 > 信息不足时按文末「深入阅读」指引查阅，不要盲目 grep 整个包。
 
 ## 概览
 
-- **compelem** v0.30.0-beta.10（MIT，作者 holyhigh2）：现代化、响应式、轻量的 WebComponent 开发库，基于 Class + 装饰器构建。
-- TypeScript 编写；发布入口由 `package.json` `exports` 条件映射：`development` → `dist-dev/`，`production`/默认 → `dist/index.esm.js` / `index.cjs.js`，类型 `dist/index.d.ts`。**`myfx` 是 peerDependency（`^2.0.0-beta.4`），构建时作 external 处理、不打包进产物**——宿主工程必须自装，切勿假设 compelem 已内联它。配套编译插件 `@compelem/compiler` 同样把 `myfx` 声明为 peerDependency（源码 `codegen/template-dom.ts`、`codegen/attr-name.ts` 直接 `from 'myfx'` 导入），宿主工程也需自装。
+- **compelem** v0.30.0-beta.12（MIT，作者 holyhigh2）：现代化、响应式、轻量的 WebComponent 开发库，基于 Class + 装饰器构建。
+- TypeScript 编写；发布入口由 `package.json` `exports` 条件映射：`development` → `dist-dev/`，`production`/默认 → `dist/index.esm.js` / `index.cjs.js`，类型 `dist/index.d.ts`。**`myfx` 是 peerDependency（`^2.0.0`），构建时作 external 处理、不打包进产物**——宿主工程必须自装，切勿假设 compelem 已内联它。配套编译插件 `@compelem/compiler` 同样把 `myfx` 声明为 peerDependency（源码 `codegen/template-dom.ts`、`codegen/attr-name.ts` 直接 `from 'myfx'` 导入），宿主工程也需自装。
 - 使用前提：TypeScript 需开启 `experimentalDecorators: true`；**必须挂载编译插件 `@compelem/compiler`（`compelemCompiler()` Vite 插件，仓库 `F:\github\compelem-compiler`）**——装饰器语义全部由编译期前移，运行时装饰器是 no-op 存根，约定违规仅由编译期报错。
 - 本仓库脚本：`npm run build`（= `build:prod` 压缩 + `build:dev` 未压缩，产物 `dist/` 与 `dist-dev/`）· `npm run typecheck`（tsc --noEmit）。`npm pack` / `npm publish` 前由 `prepack` 自动跑 `typecheck + build`——`dist*` 被 gitignore，不重建就可能把旧产物发出去。**本仓库不依赖 `@compelem/compiler`，也没有 dev 页/探针页**——`dev/` 与 Vite 调试配置已外移到兄弟仓库 `F:\github\compelem-harness`（private 项目：`npm run dev` 起 :8818，`compelem` 说明符走 npm 发布版、只有 `compelem/src` 精确别名指向 `../compelem/src/index.ts`；`npm run dev:dist` 起 :8819，同一个 `dev/transition.html` 与同一批探针脚本，但 `compelem/src` 改指 `../compelem/dist/index.esm.js`，用于验证发布物）。⚠️ `npm run lint` 的 eslint 配置是旧格式（会报 config migration 错误），不要依赖。⚠️ 宿主若挂了删除保护（如 WorkBuddy 的 safe-delete shim），`emptyOutDir` 批量清理 `dist` 会失败且**可能只删掉一半产物**；此时先 `cp -r dist ../dist-snapshot` 留快照，再用 `npx vite build --mode production --emptyOutDir false` 覆盖重建（`dist*` 被 gitignore，没有第二份拷贝）。
 - 构建产物差异：prod 出 `index.esm.js` + `index.cjs.js`（terser 压缩、drop `debug/info/log`）；dev 额外产出 UMD `compelem.umd.js`（挂 `window.compelem`，myfx 全局名 `myff`）。
@@ -142,7 +142,7 @@ ${forEach(rows, r => r.id, r => h`<li>…</li>`, { enter: 'fade', leave: 'fade',
 - `slotOriginOf(fn): SlotOrigin \| undefined` / `type SlotOrigin { owner, subId, fx?, bv? }` — 插槽钩子出处查询（见下）
 - **DevTools**：`src/devtools.ts` 在模块加载期自动 `installCompElemDevtools()`——零公开 API 面，挂 `globalThis`、给 `documentElement` 打 `data-compelem` 标记；DEV 下扩展未安装时 `notifyDevtoolsMissing()` 出提示（可用 `__COMPELEM_DEVTOOLS_NO_HINT__` 关闭）
 
-内部导出（面向框架/编译产物，业务代码勿直接使用）：`render/render.ts` 的 `buildStaticView`/`renderTemplate`/`convertTemplateMeta`/`buildSubTemplateView`/`resolveSubTemplateMeta` 等；`render/write.ts` 的 `wText/wAttr/wAttrT/wToggleProp/wProp/wCssVars/t2s`（编译产物直调的 DOM 写入器；`wClass/wStyle/wShow` 仍导出但编译器已不再 emit，属 legacy）；`directive/index.ts` 的 `execEach/execCond/execDir` 与 `directive()`；`utils.ts` 的 `showError/showTagError/_queryGet/_observedAttrs/convertValue/getCssVarKey/memo` 等；`helpers.ts` 的 `CssHelper/CompElemHelper`；`utils.ts` 的 `applyClassDiff/applyStyleDiff`（class/style diff 写入门，Bind 与 Classes/Styles 共用）；`config.ts` 的 `getBaseSheets/getDefaultCss/getDefaultComponentProps`。CompElem 实例另有编译产物调用的 `_bindSlot/_updateSlot/_regViewEffect/walk` 等。
+内部导出（面向框架/编译产物，业务代码勿直接使用）：`render/render.ts` 的 `buildStaticView`/`renderTemplate`/`convertTemplateMeta`/`buildSubTemplateView`/`resolveSubTemplateMeta` 等；`render/walk.ts` 的 `walkSplitText`（innerHTML 快路径的文本拆分**机械执行器**：分段/trim/空段丢弃语义全在编译期算成 `splitPlan` 偏移量计划，经 `CompElem._ceWalkSplit(f, nodes, plan)` 三参转发——签名是编译器契约，两侧必须同步改。**双向版本守卫**：产物侧在 walk 前校验 `this._ceWalkSplit.length === 3`，旧运行时两参方法会静默忽略 plan，不匹配即抛可读错误；运行时侧对 plan 缺失/条目缺失抛错、DEV 下断言计划被完全消费。元数即契约版本，无额外标记字段）；`render/write.ts` 的 `wText/wAttr/wAttrT/wToggleProp/wProp/wCssVars/t2s`（编译产物直调的 DOM 写入器；`wClass/wStyle/wShow` 仍导出但编译器已不再 emit，属 legacy）；`directive/index.ts` 的 `execEach/execCond/execDir` 与 `directive()`；`utils.ts` 的 `showError/showTagError/_queryGet/_observedAttrs/convertValue/getCssVarKey/memo` 等；`helpers.ts` 的 `CssHelper/CompElemHelper`；`utils.ts` 的 `applyClassDiff/applyStyleDiff`（class/style diff 写入门，Bind 与 Classes/Styles 共用）；`config.ts` 的 `getBaseSheets/getDefaultCss/getDefaultComponentProps`。CompElem 实例另有编译产物调用的 `_bindSlot/_updateSlot/_regViewEffect/_ceWalkSplit` 等。
 
 ### 指令点的运行期分派（三入口，`directive/index.ts`）
 
@@ -265,7 +265,7 @@ export class MyCounter extends CompElem {
 - `model` 指令只支持静态属性路径
 - `render()` 返回 `null` 的组件没有 Shadow DOM，`@query` 查不到内容
 - 组件事件监听名用 kebab-case；未 `@emits` 声明的事件不能 emit
-- **`myfx` 是 peerDependency**（`^2.0.0-beta.4`，compelem 与 `@compelem/compiler` 都是），构建时作 external，不内联进 compelem 产物——宿主工程必须自己 `npm i myfx`
+- **`myfx` 是 peerDependency**（`^2.0.0`，compelem 与 `@compelem/compiler` 都是），构建时作 external，不内联进 compelem 产物——宿主工程必须自己 `npm i myfx`
 - `@state({ prop: 'x' })` 已废弃，用初始化器 `@state y = this.x` 播种
 - **`render()` 内不能写 `super`**（编译器 `E-SUPER-IN-TEMPLATE` 阻断）；基类只保留 prop/state/computed/@watch/样式，视图下沉到叶子组件。render() 之外的 `super.xxx()` 普通方法调用正常
 - **基类要复用一段静态视图**：定义模块级 `const` 字符串，模板里 `${html(CONST)}`（同文件时编译器折进建树序列，跨文件走运行期 `html`，语义相同）
