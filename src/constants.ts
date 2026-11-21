@@ -28,4 +28,5 @@ export const DirectiveScopeMap = new WeakMap<Function, string[]>()
 export const ComponentUninitializedSubComponentPropMap = new WeakMap<CompElem<any>, Map<Node, Record<string, any>>>()
 export const ComponentUninitializedSlotFunctionMap = new WeakMap<Node, Record<string, TplFn>>()
 export const ComponentUninitializedWrapperComponentMap = new WeakMap<Node, CompElem<any>>()
-export const PLACEHOLDER = "⟬Ċ⟭";
+export const PLACEHOLDER_OPEN = "⟬Ċ";
+export const PLACEHOLDER_CLOSE = "⟭";

@@ -150,7 +150,10 @@ const onMutations = (mutations: MutationRecord[], observer: MutationObserver) =>
     if (!cbs && !treeCbs) continue
     const detail: Record<string, any> = {
       target: mutation.target,
-      type: slotKey as string
+      type: slotKey as string,
+      // 组合修饰符单 handler 按 type+deep 分支：tree 槽也会收到深层 attr/child 记录，
+      // 仅凭 type 无法区分「浅层进具体槽」与「深层只进 tree 槽」
+      deep: isDeep
     }
     if (mutation.type === "childList") {
       detail.addedNodes = mutation.addedNodes
@@ -161,9 +164,16 @@ const onMutations = (mutations: MutationRecord[], observer: MutationObserver) =>
     } else {
       detail.oldValue = mutation.oldValue
     }
+    // 组合修饰符（@mutate.attr.tree）把同一 handler 登记进多个槽：按记录去重，
+    // 每条记录对同一 handler 只调一次（回调内按 detail.type + detail.deep 分支）
+    const unique: ExtHandler[] = []
+    if (treeCbs) for (let ci = 0; ci < treeCbs.length; ci++) {
+      const fn = treeCbs[ci]
+      if (!cbs || !cbs.includes(fn)) unique.push(fn)
+    }
+    if (cbs) for (let ci = 0; ci < cbs.length; ci++) unique.push(cbs[ci])
     // 倒序遍历：once 回调会就地摘除自己，正序会漏掉后一项
-    if (cbs) for (let ci = cbs.length - 1; ci >= 0; ci--) cbs[ci](detail)
-    if (treeCbs) for (let ci = treeCbs.length - 1; ci >= 0; ci--) treeCbs[ci](detail)
+    for (let ci = unique.length - 1; ci >= 0; ci--) unique[ci](detail)
   }
 }
 function addMutation(node: Element, cbk: EvHadler, parts: string[], _component: CompElem<any>, isOnce: boolean) {
@@ -195,7 +205,9 @@ function addMutation(node: Element, cbk: EvHadler, parts: string[], _component: 
     reg = { observer, map: {}, opts: {} }
     AllMutationEls.set(node, reg)
   } else if (process.env.DEV) {
-    // 同节点重复注册不再丢弃：回调合并进已有槽位，observe 选项由下面显式做并集
+    // 静态模板同元素同事件名只允许一条绑定（编译器 E-EVENT-DUP 阻断）；
+    // 走到这里的是动态路径（@event('mutate.*') / 外部 eventTarget 指向同一节点）：
+    // 回调合并进已有槽位，observe 选项由下面显式做并集，提示级
     showWarn(`mutate - multiple registrations on the same node: callbacks and observe options are merged by the framework`)
   }
   const owner = reg
@@ -218,6 +230,8 @@ function addMutation(node: Element, cbk: EvHadler, parts: string[], _component: 
   }
 
   // tree 隐含观测全部变动类型（仅 subtree 而不开启类型等于没有观测）
+  // char 必须带 subtree：characterData 变动发生在 Text 子节点上，观察元素自身不开 subtree 一条记录都不会产生；
+  // 深层文本记录由 onMutations 的 isDeep 过滤，char 槽只收直接文本子节点（与 attr/child 浅语义对齐）
   // oldValue 需显式开启（注意：attributeOldValue/characterDataOldValue 为 true 会连带打开对应类型）
   // 与该节点已生效的选项做并集后单次 observe：重复注册时旧观测类型不会被替换丢掉
   const prev = owner.opts
@@ -226,7 +240,7 @@ function addMutation(node: Element, cbk: EvHadler, parts: string[], _component: 
     childList: prev.childList === true || child || tree,
     attributes: prev.attributes === true || attr || tree,
     characterData: prev.characterData === true || char || tree,
-    subtree: prev.subtree === true || tree,
+    subtree: prev.subtree === true || tree || char,
     attributeOldValue: prev.attributeOldValue === true || attr || tree,
     characterDataOldValue: prev.characterDataOldValue === true || char || tree
   }

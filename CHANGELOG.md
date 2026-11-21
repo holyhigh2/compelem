@@ -10,7 +10,8 @@
 - `when` 子模板解析失败的重复诊断删除（且原实现漏 DEV 门控、prod 也输出），统一归 `resolveSubTemplateMeta` 单点报告。
 - `execEach/execCond/execDir` 的 `DirectiveInstance` 改必填，删除静默 `if (!inst) return`——编译产物保证指令点必带完整实例，缺失即版本错配，应响亮失败而非安静不响应。
 - `@resource` loader 方法（`__rl_<key>`）缺失时抛指向 `@compelem/compiler` 的可读错误，取代 DEV 告警 + 静默 `undefined` 兜底。
-- 同节点 `@mutate` 合并提示由 error 降为 warn（合并是支持行为）；静态模板写法由编译器新增 `W-MUTATE-MERGE` 在构建期提示。
+- 修复 `@mutate.char` 单独注册永不触发：observe 的 `subtree` 此前只由 `.tree` 打开，而 characterData 变动发生在 Text 子节点上，观察元素自身不开 subtree 一条记录都收不到。现在 char 自动带 subtree，char 槽保持浅语义（只收直接文本子节点，与 attr/child 对齐）。
+- mutate 单绑定约定配套：组合修饰符（`@mutate.tree.attr.child`）把同一 handler 登记进多个槽，派发**按记录去重**（每条记录对同一 handler 只调一次）；detail 新增 `deep` 字段（tree 槽也会收到深层 attr/child 记录，仅凭 type 无法区分浅/深），回调内按 `type + deep` 分支。静态模板同元素同事件名多条绑定由编译器 `E-EVENT-DUP` 阻断；运行期合并（回调并槽 + observe 选项并集）保留为动态 `@event('mutate.*')` / 外部 eventTarget 路径的兜底，DEV warn 提示。
 - 运行期 console 文案统一英文事实态（signal effect 隔离日志、`@resource` 原型冲突、`getSubViewNodes` provenance）。
 
 - `isMounted` 在 `__finalize()` 随 DOM 拆解清零：销毁后 `@query` 返回 `undefined`；`nextTick()` 回调也不再滞留——未挂载即被销毁时转进微任务，挂载时 flush 后清空队列。

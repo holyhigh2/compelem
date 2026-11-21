@@ -1,11 +1,11 @@
-import { PLACEHOLDER } from "../constants";
+import { PLACEHOLDER_OPEN, PLACEHOLDER_CLOSE } from "../constants";
 
 /**
  * nodeType 常量（ELEMENT_NODE=1 / TEXT_NODE=3）。
  */
 const ELEMENT_NODE = 1
 const TEXT_NODE = 3
-const PLACEHOLDER_DIGIT_RE = new RegExp(PLACEHOLDER + "\\d")
+const PLACEHOLDER_DIGIT_RE = new RegExp(PLACEHOLDER_OPEN + "\\d+" + PLACEHOLDER_CLOSE)
 
 /**
  * 文本拆分计划（编译器 emitText 同循环产出，文档序，每个含插值文本节点一条）：
