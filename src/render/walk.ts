@@ -5,6 +5,7 @@ import { PLACEHOLDER } from "../constants";
  */
 const ELEMENT_NODE = 1
 const TEXT_NODE = 3
+const PLACEHOLDER_DIGIT_RE = new RegExp(PLACEHOLDER + "\\d")
 
 /**
  * 文本拆分计划（编译器 emitText 同循环产出，文档序，每个含插值文本节点一条）：
@@ -37,7 +38,7 @@ export function walkSplitText(f: Node, nodes: Node[], plan?: TextSplitPlan): voi
         visit(c)
       } else if (c.nodeType === TEXT_NODE) {
         const data = (c as Text).data
-        if (data.indexOf(PLACEHOLDER) < 0) {
+        if (!PLACEHOLDER_DIGIT_RE.test(data)) {
           nodes.push(c)
           continue
         }

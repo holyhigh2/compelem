@@ -1,11 +1,11 @@
 # compelem — AI 速查手册
 
-> 本文件面向 AI 编码助手。内容依据 `src/` 源码逐条核实（对应 **v0.30.0-beta.12** working tree），**读取本文件即可获得完整公开 API，无需扫描包源码**。
+> 本文件面向 AI 编码助手。内容依据 `src/` 源码逐条核实（对应 **v0.30.0-beta.13** working tree），**读取本文件即可获得完整公开 API，无需扫描包源码**。
 > 信息不足时按文末「深入阅读」指引查阅，不要盲目 grep 整个包。
 
 ## 概览
 
-- **compelem** v0.30.0-beta.12（MIT，作者 holyhigh2）：现代化、响应式、轻量的 WebComponent 开发库，基于 Class + 装饰器构建。
+- **compelem** v0.30.0-beta.13（MIT，作者 holyhigh2）：现代化、响应式、轻量的 WebComponent 开发库，基于 Class + 装饰器构建。
 - TypeScript 编写；发布入口由 `package.json` `exports` 条件映射：`development` → `dist-dev/`，`production`/默认 → `dist/index.esm.js` / `index.cjs.js`，类型 `dist/index.d.ts`。**`myfx` 是 peerDependency（`^2.0.0`），构建时作 external 处理、不打包进产物**——宿主工程必须自装，切勿假设 compelem 已内联它。配套编译插件 `@compelem/compiler` 同样把 `myfx` 声明为 peerDependency（源码 `codegen/template-dom.ts`、`codegen/attr-name.ts` 直接 `from 'myfx'` 导入），宿主工程也需自装。
 - 使用前提：TypeScript 需开启 `experimentalDecorators: true`；**必须挂载编译插件 `@compelem/compiler`（`compelemCompiler()` Vite 插件，仓库 `F:\github\compelem-compiler`）**——装饰器语义全部由编译期前移，运行时装饰器是 no-op 存根，约定违规仅由编译期报错。
 - 本仓库脚本：`npm run build`（= `build:prod` 压缩 + `build:dev` 未压缩，产物 `dist/` 与 `dist-dev/`）· `npm run typecheck`（tsc --noEmit）。`npm pack` / `npm publish` 前由 `prepack` 自动跑 `typecheck + build`——`dist*` 被 gitignore，不重建就可能把旧产物发出去。**本仓库不依赖 `@compelem/compiler`，也没有 dev 页/探针页**——`dev/` 与 Vite 调试配置已外移到兄弟仓库 `F:\github\compelem-harness`（private 项目：`npm run dev` 起 :8818，`compelem` 说明符走 npm 发布版、只有 `compelem/src` 精确别名指向 `../compelem/src/index.ts`；`npm run dev:dist` 起 :8819，同一个 `dev/transition.html` 与同一批探针脚本，但 `compelem/src` 改指 `../compelem/dist/index.esm.js`，用于验证发布物）。⚠️ `npm run lint` 的 eslint 配置是旧格式（会报 config migration 错误），不要依赖。⚠️ 宿主若挂了删除保护（如 WorkBuddy 的 safe-delete shim），`emptyOutDir` 批量清理 `dist` 会失败且**可能只删掉一半产物**；此时先 `cp -r dist ../dist-snapshot` 留快照，再用 `npx vite build --mode production --emptyOutDir false` 覆盖重建（`dist*` 被 gitignore，没有第二份拷贝）。
@@ -296,7 +296,7 @@ export class MyCounter extends CompElem {
 - **skipInjection**：无 own render 且同文件链上有 render → 继承父类 `__ce_static__`（视图字段整体 spread，own 一律覆盖）；super 链不可知（mixin 形参/跨文件基类）且被家族装饰器准入者一律 skipInjection，**绝不判 noView**（`@tag` 不豁免）
 - **组件准入三选一**：同文件 super 链解析到 CompElem / `@tag` / 类体带家族装饰器（`@prop/@state/@computed/@query/@queryAll`——运行时全 no-op，带它们必是组件；覆盖 mixin 工厂内类与跨文件基类）
 - **E 码系列**（阻断构建，编译器 `analyze/` 各模块）：`E-PROP-TYPE/ASSIGN/CASE/ARG/INTERP/TARGET`、`E-STATE-ARG`（含 `@state({prop})` 已废弃）、`E-FIELD-ARG`（`@prop`/`@state` 的 options 不支持 `defaultValue`/`type`）、`E-COMPUTED-NOT-GETTER/ARG`、`E-CSSCOPE-TARGET`、`E-QUERY-ARG`、`E-DECO-COEXIST`（多族/族外装饰器须拆独立成员）、`E-EMIT-UNDECLARED/ARG/EMITS-ARG`、`E-EVENT-FN`、`E-REF-TYPE`、`E-DIRECTIVE-SCOPE`、`E-CONST-KEY`、`E-METHOD-DECO-ARG/HOOK`、`E-MUTATE-MODIFIER`（裸 `@mutate` 缺 attr/child/char/tree）、`E-SUPER-IN-TEMPLATE`、`E-RESOURCE`（`@resource`：非字段声明 / 私有或非法名 / 同类重名 / 与其它装饰器同用 / 首参不是内联箭头函数 / 形参数不对 / `static` / 字段带初始值 / 资源名撞 `CompElem` 原型链成员 / 未知选项——旧键 `fetch`·`fetcher` 会给专项改名提示）。五族提取 all-or-nothing：出错的族不删不注（运行时 no-op 无兜底）
-- **W 码系列**（提示级，`ConventionError.severity:'warn'`，恒 `console.warn` 不随 `conventions` 档位阻断）：`W-PROP-CUSTOM-CTOR`（prop `type` 含自定义构造器且无 `converter`、属性通道未关——属性字符串将作单参传给构造器）。对应运行时 DEV 告警已删（`utils.ts` convertValue / `events/extends.ts` addMutation 只留防崩守卫）
+- **W 码系列**（提示级，`ConventionError.severity:'warn'`，恒 `console.warn` 不随 `conventions` 档位阻断）：`W-PROP-CUSTOM-CTOR`（prop `type` 含自定义构造器且无 `converter`、属性通道未关——属性字符串将作单参传给构造器）、`W-MUTATE-MERGE`（同一元素多个 `@mutate.*` 注册——运行期合并回调与 observe 选项取并集，深层变动只派发 `.tree` 槽；动态 `@event('mutate.*')` 路径编译期不可见，由运行期 DEV warn 覆盖）。对应运行时 DEV 告警已删（`utils.ts` convertValue / `events/extends.ts` addMutation 只留防崩守卫）
 - 提取失败诊断：`DEPS_TRACE=1`（compiler `deps-extract.ts`，stderr `[deps-fail] <原因>`）
 
 ## 深入阅读（按需，勿全量扫描）
@@ -311,3 +311,5 @@ export class MyCounter extends CompElem {
 ## 维护约定
 
 **修改 `src/` 中任何公开 API（新增/改名/删除导出、装饰器与指令签名、选项字段、`CompiledStatic` 契约字段）时，必须同步更新本文件与概览中的版本号。** 本文件是 AI 与开发者的首要 API 参考，滞后比没有更危险。
+
+**诊断文案口径（两侧各自统一，不混用）**：运行期 console（`showError/showTagError/showWarn`、signal 兜底日志）一律**英文事实态**，机读优先；编译器 E/W 码说明一律**中文**，面向开发者的构建指引。新增诊断按所在侧遵循，不引入第三种风格。

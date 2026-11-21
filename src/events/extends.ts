@@ -1,6 +1,6 @@
 import { includes, remove, size } from "myfx";
 import { CompElem } from "../CompElem";
-import { showError } from "../utils";
+import { showError, showWarn } from "../utils";
 import { EvHadler } from "./event";
 /*************************************************************
  * 扩展事件
@@ -196,7 +196,7 @@ function addMutation(node: Element, cbk: EvHadler, parts: string[], _component: 
     AllMutationEls.set(node, reg)
   } else if (process.env.DEV) {
     // 同节点重复注册不再丢弃：回调合并进已有槽位，observe 选项由下面显式做并集
-    showError(`mutate - multiple registrations on the same node: callbacks and observe options are merged by the framework`)
+    showWarn(`mutate - multiple registrations on the same node: callbacks and observe options are merged by the framework`)
   }
   const owner = reg
 

@@ -291,7 +291,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
         if (existing) {
           // 祖先装过的资源访问器由子类复用；撞上其它成员时资源取不到值，只告警不覆盖
           if (process.env.DEV && !ResourceGetters.has(existing.get as Function)) {
-            showWarn(`@resource '${rKey}' 与原型链上的同名成员冲突，访问器未安装——this.${rKey} 不是资源视图`)
+            showWarn(`@resource '${rKey}' collides with an existing prototype member; accessor not installed — this.${rKey} is not a resource view`)
           }
           continue
         }
@@ -1313,7 +1313,7 @@ export class CompElem<T = HTMLElement> extends HTMLElement implements IComponent
     const owner = resolveSubTemplateOwner(tmplFn)
     if (!owner) {
       if (process.env.DEV) {
-        showTagError(this.tagName, `getSubViewNodes: 回调缺少 provenance（未经 slot() 指令登记），无法定位其编译产物`)
+        showTagError(this.tagName, `getSubViewNodes: callback has no provenance (not registered via slot()); compiled sub-template cannot be resolved`)
       }
       return []
     }

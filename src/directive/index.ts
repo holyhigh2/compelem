@@ -6,10 +6,10 @@ import { commitRemove } from "../render/commitRemove";
 import { buildSubTemplate, getSubFx, insertSubView, registerSubViewEffects, renderTemplate, rerunSubViewEffects } from "../render/render";
 import { UpdatePoint } from "../render/UpdatePoint";
 import { batch, signal } from "../signal";
-import type { TransitionOpts } from "../transition/opts";
-import { transitionOptsOf } from "../transition/opts";
 import { prepareEnter } from "../transition/enter";
 import { captureRects, playMove } from "../transition/flip";
+import type { TransitionOpts } from "../transition/opts";
+import { transitionOptsOf } from "../transition/opts";
 import { DirectiveExecutor, DirectiveInstance, DirectiveUpdateTag, EnterPointType } from "../types";
 import { showError } from "../utils";
 
@@ -104,7 +104,9 @@ function writeCells(up: UpdatePoint, keys: string[], values: any[]) {
 function applyRefresh(up: UpdatePoint, tmplFn: any) {
   if (!tmplFn) return
     ; (up as any).__renderedTmpl = tmplFn
-  rerunSubViewEffects(up)
+  // 只有内联子模板（__fx，靠 tmplGetter 取当轮闭包）需要换代重跑；
+  // 类级常量子模板的 effect 只依赖 cell.value 与内部响应式读取，等值重跑纯浪费
+  if (tmplFn?.__fx) rerunSubViewEffects(up)
 }
 
 /* ═══════════════════════ 指令点定位 ═══════════════════════ */
@@ -115,11 +117,11 @@ function applyRefresh(up: UpdatePoint, tmplFn: any) {
  * TAG 位指令（show/classes/styles/bind/model）可能与结构指令叠在同一元素上，
  * `__dirNodeMap` 的值因此是数组 —— 按 DirectiveInstance 里的 diFn 反查回自己那条。
  */
-function resolveUp(comp: CompElem<any>, node: Node, inst?: DirectiveInstance): UpdatePoint | undefined {
+function resolveUp(comp: CompElem<any>, node: Node, inst: DirectiveInstance): UpdatePoint | undefined {
   const entry = (comp as any).__dirNodeMap?.get(node)
   if (!entry) return undefined
   if (!Array.isArray(entry)) return entry
-  const di = inst?.[2]
+  const di = inst[2]
   if (di === undefined) return entry[entry.length - 1]
   return entry.find((u: any) => u.value?.[2] === di) ?? entry[entry.length - 1]
 }
@@ -146,12 +148,14 @@ function runExecutor(comp: CompElem<any>, node: Node, up: UpdatePoint, nv: any, 
 /**
  * `forEach` 专用入口
  */
-export function execEach(comp: CompElem<any>, node: Node, nv: any, ov: any, inst?: DirectiveInstance) {
-  if (!inst) return
+export function execEach(comp: CompElem<any>, node: Node, nv: any, ov: any, inst: DirectiveInstance) {
   const up = resolveUp(comp, node, inst)
   if (!up) return
   const rs = runExecutor(comp, node, up, nv, ov, inst, {}) as EachRs | null
   if (!rs) return
+  // item 的 tmplGetter 读 up.value[1][2] 取当轮回调（跨层子模板 __fx 路径）；
+  // 不刷新则恒取首代闭包，外层行参在 REFRESH/UPDATE 后陈旧（含新增项）
+  up.value = inst
   switch (rs[0]) {
     case DirectiveUpdateTag.UPDATE:
       reconcileEach(node, up, rs, comp, optsOf(inst))
@@ -159,6 +163,10 @@ export function execEach(comp: CompElem<any>, node: Node, nv: any, ov: any, inst
     case DirectiveUpdateTag.REFRESH:
       // rs = [REFRESH, null, keys, vals]
       writeCells(up, rs[2], rs[3])
+      // 等值 cell 被信号去重、不触发 effect，但跨层回调已换代：
+      // 重跑让 tmplGetter 取新闭包。仅内联子模板（__fx）需要——类级常量子模板
+      // 的 effect 只依赖 cell.value，值变走信号、值不变重跑无意义（O(changed) 而非 O(N)）
+      if ((inst[1][2] as any)?.__fx) rerunSubViewEffects(up)
       return
     case DirectiveUpdateTag.REMOVE:
       detachSubView(up, comp, optsOf(inst).leave)
@@ -172,8 +180,7 @@ export function execEach(comp: CompElem<any>, node: Node, nv: any, ov: any, inst
 /**
  * 条件类指令专用入口：ifTrue / ifElse / when
  */
-export function execCond(comp: CompElem<any>, node: Node, nv: any, ov: any, inst?: DirectiveInstance) {
-  if (!inst) return
+export function execCond(comp: CompElem<any>, node: Node, nv: any, ov: any, inst: DirectiveInstance) {
   const up = resolveUp(comp, node, inst)
   if (!up) return
   const rs = runExecutor(comp, node, up, nv, ov, inst, {}) as EachRs | null
@@ -201,8 +208,7 @@ export function execCond(comp: CompElem<any>, node: Node, nv: any, ov: any, inst
  * 通用入口：TAG 位指令（show/classes/styles/bind/model）、`slot()`、
  * 以及第三方自定义指令
  */
-export function execDir(comp: CompElem<any>, node: Node, nv: any, ov: any, inst?: DirectiveInstance) {
-  if (!inst) return
+export function execDir(comp: CompElem<any>, node: Node, nv: any, ov: any, inst: DirectiveInstance) {
   const up = resolveUp(comp, node, inst)
   if (!up) return
 
@@ -558,6 +564,9 @@ function reconcileEach(pointNode: Node, up: UpdatePoint, rs: any[], renderCompon
   }
 
   writeCells(up, newKeys, newValueAry)
+  // 存活项等值 cell 不去重触发 effect，跨层捕获靠重跑换代（同 REFRESH 分支，仅 __fx）；
+  // 此时 children 已收敛为存活+新增，离场项不在其中，不会写离场 DOM
+  if ((tmplFn as any)?.__fx) rerunSubViewEffects(up)
 
   // FLIP 的「Last / Invert / Play」放在最后：cell 回写会改文本、可能改变布局，
   // 必须等这一轮全部落盘后再测量，否则位移量算错。

@@ -58,7 +58,7 @@ export class CompElemHelper {
     }
 
     let realType = typeof val;
-    let matched = isDefined(val) ? false : true;
+    let matched = false;
     for (let i = 0; i < expectTypeAry.length; i++) {
       const et = expectTypeAry[i];
       if (

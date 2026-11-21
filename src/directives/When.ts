@@ -5,7 +5,6 @@ import { resolveSubTemplateMeta } from "../render/render";
 import type { TemplateMeta } from "../render/TemplateMeta";
 import type { UpdatePoint } from "../render/UpdatePoint";
 import { DirectiveUpdateTag, EnterPointType, StructureTransitionOptions, TplFn } from "../types";
-import { showTagError } from "../utils";
 const LastConditionMap = new WeakMap()
 const BranchTmplMMap = new WeakMap<Node, TemplateMeta[]>()
 //cases 解析缓存
@@ -85,15 +84,7 @@ export const when = directive(function When(value: string | number, cases: Array
 
     if (!tplAry[i]) {
       const resolved = resolveSubTemplateMeta(renderComponent, branchFn)
-      if (!resolved) {
-        showTagError(
-          renderComponent.tagName,
-          `Structural sub-template is missing — ${typeof (branchFn as any).__subId === 'number'
-            ? `__ce_static__.subViews[${(branchFn as any).__subId}].buildTemplate missing`
-            : 'fn.__subId missing'}`,
-        )
-        return drop()
-      }
+      if (!resolved) return drop()
       tplAry[i] = resolved
     }
     if (oldArgs) {

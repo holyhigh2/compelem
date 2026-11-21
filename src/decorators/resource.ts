@@ -17,7 +17,6 @@ import {
   type ResourceView,
 } from '../resource'
 import { signal, untrack } from '../signal'
-import { showWarn } from '../utils'
 
 /**
  * `@resource` 第一个参数的类型：取数函数
@@ -87,23 +86,21 @@ export function bindResource(self: any, key: string): Resource<any> {
   let res = map.get(key)
   if (res !== undefined) return res
 
-  const defs: Record<string, ResourceStaticDef> | undefined = self.constructor?.__ce_static__?.resources
+  const defs: Record<string, ResourceStaticDef> | undefined = self.constructor.__ce_static__?.resources
   const def = defs?.[key] ?? EMPTY_DEF
   // 前缀是编译期契约，必须与 `@compelem/compiler` 的 `analyze/resource-extract.ts`
   // 里的 LOADER_PREFIX / SOURCE_PREFIX 逐字一致（那边负责生成方法，这边负责调用）。
   const loader = self['__rl_' + key]
-  const source = def.source === true ? () => self['__rs_' + key]() : undefined
-
-  if (process.env.DEV && typeof loader !== 'function') {
-    showWarn(
-      `@resource 字段 '${key}' 的 loader 缺失（找不到方法 __rl_${key}）——` +
-      `请确认构建链挂了 @compelem/compiler，且它与 compelem 版本匹配`,
+  if (typeof loader !== 'function') {
+    throw new Error(
+      `[compelem] @resource '${key}' loader method __rl_${key} is missing: artifact compiled without @compelem/compiler or with a mismatched version; rebuild with a matching toolchain`,
     )
   }
+  const source = def.source === true ? () => self['__rs_' + key]() : undefined
 
   res = untrack(() =>
     createResource(
-      (sig) => (typeof loader === 'function' ? loader.call(self, sig) : Promise.resolve(undefined)),
+      (sig) => loader.call(self, sig),
       source,
       {
         timeout: def.timeout,

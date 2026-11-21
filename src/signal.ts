@@ -278,7 +278,7 @@ export function reportEffectError(err: unknown, effect: EffectNode | undefined):
     }
     return
   }
-  console.error('[compelem] effect 运行期异常（已隔离，未中断本轮其余 effect）', err, effect?.owner ?? '')
+  console.error('[compelem] effect runtime error (isolated; remaining effects in this flush continue)', err, effect?.owner ?? '')
 }
 
 function flush() {

@@ -5,6 +5,14 @@
 
 ### 修复
 
+- 结构指令跨层陈旧闭包：`execEach` 执行后回写 `up.value = inst`（item 的 tmplGetter 取当轮回调）；REFRESH 分支与 `reconcileEach` 收敛后按 `__fx` 门控重跑子视图 effect——等值 cell 被信号去重不触发 effect，内联子模板（回调捕获外层行参）必须重跑换代；类级常量子模板只依赖 `cell.value`，不参与重跑，集合更新保持 O(changed)。`execCond` 的 `applyRefresh` 同门控。需配套同版本 `@compelem/compiler`（结构指令点改为无条件 exec）。
+- `walkSplitText` 占位符判据收紧为 `PLACEHOLDER+数字`（与编译器 TOKEN_RE 同口径）：字面 `⟬Ċ⟭`（无数字）不再误消费下一条 splitPlan 条目。
+- `when` 子模板解析失败的重复诊断删除（且原实现漏 DEV 门控、prod 也输出），统一归 `resolveSubTemplateMeta` 单点报告。
+- `execEach/execCond/execDir` 的 `DirectiveInstance` 改必填，删除静默 `if (!inst) return`——编译产物保证指令点必带完整实例，缺失即版本错配，应响亮失败而非安静不响应。
+- `@resource` loader 方法（`__rl_<key>`）缺失时抛指向 `@compelem/compiler` 的可读错误，取代 DEV 告警 + 静默 `undefined` 兜底。
+- 同节点 `@mutate` 合并提示由 error 降为 warn（合并是支持行为）；静态模板写法由编译器新增 `W-MUTATE-MERGE` 在构建期提示。
+- 运行期 console 文案统一英文事实态（signal effect 隔离日志、`@resource` 原型冲突、`getSubViewNodes` provenance）。
+
 - `isMounted` 在 `__finalize()` 随 DOM 拆解清零：销毁后 `@query` 返回 `undefined`；`nextTick()` 回调也不再滞留——未挂载即被销毁时转进微任务，挂载时 flush 后清空队列。
 - 静态事件修饰符恢复生效：编译产物中的无回调事件（如 `<form @submit.prevent>`、`@click.stop`）此前被整条跳过，现在按 `prevent` / `stop` 注册空处理器。
 - 组件事件登记表改为「节点 → 处理器」的 `WeakMap`，挂在写回调的那个组件上：节点回收即释放，移除路径上不再需要显式清理。此前按宿主局部序号登记，插槽内容会拿宿主的号误删宿主自身子节点的绑定。
